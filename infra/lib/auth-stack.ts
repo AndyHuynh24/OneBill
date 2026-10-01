@@ -17,6 +17,8 @@ export class AuthStack extends Stack {
   readonly userPool: cognito.UserPool;
   readonly client: cognito.UserPoolClient;
   readonly domain: cognito.UserPoolDomain;
+  /** Members may upload documents (paid Textract/Bedrock calls). Added by hand: decision D5. */
+  readonly uploadersGroup: cognito.UserPoolGroup;
 
   constructor(scope: Construct, id: string, props: AuthStackProps) {
     super(scope, id, props);
@@ -41,6 +43,12 @@ export class AuthStack extends Stack {
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
+    });
+
+    this.uploadersGroup = new cognito.UserPoolGroup(this, "UploadersGroup", {
+      userPool: this.userPool,
+      groupName: "uploaders",
+      description: "May upload documents for OCR and AI extraction",
     });
 
     // Public client (no secret): code lives in the browser, which can't keep secrets. PKCE protects the code exchange.

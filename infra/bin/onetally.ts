@@ -10,7 +10,7 @@ const app = new App();
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
 const frontendUrl: string = app.node.getContext("frontendUrl");
 
-const data = new DataStack(app, "OneTally-Data", { env });
+const data = new DataStack(app, "OneTally-Data", { env, frontendUrl });
 
 const auth = new AuthStack(app, "OneTally-Auth", {
   env,

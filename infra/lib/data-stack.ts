@@ -10,12 +10,17 @@ import { Construct } from "constructs";
  * S3 bucket (documents), both encrypted with a customer-managed KMS key.
  * Key design: docs/SPEC.md → Data model.
  */
+export interface DataStackProps extends StackProps {
+  /** Browser origin allowed to POST uploads straight to the docs bucket (presigned POST). */
+  readonly frontendUrl: string;
+}
+
 export class DataStack extends Stack {
   readonly key: kms.Key;
   readonly table: dynamodb.Table;
   readonly docsBucket: s3.Bucket;
 
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
     Tags.of(this).add("project", "onetally");
 
@@ -49,6 +54,8 @@ export class DataStack extends Stack {
       encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
       encryptionKey: this.key,
       deletionProtection: true,
+      // Items with an `expiresAt` epoch-seconds attribute (e.g. daily usage counters) delete themselves.
+      timeToLiveAttribute: "expiresAt",
       removalPolicy: RemovalPolicy.RETAIN,
     });
 
@@ -81,6 +88,16 @@ export class DataStack extends Stack {
         { id: "expire-tmp", prefix: "tmp/", expiration: Duration.days(1) },
         { id: "abort-incomplete-uploads", abortIncompleteMultipartUploadAfter: Duration.days(1) },
         { id: "expire-old-versions", noncurrentVersionExpiration: Duration.days(30) },
+      ],
+      // "Object Created" events go to EventBridge, where a rule routes uploads/ to the extract Lambda.
+      eventBridgeEnabled: true,
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.POST],
+          allowedOrigins: [props.frontendUrl],
+          allowedHeaders: ["*"],
+          maxAge: 3000,
+        },
       ],
       removalPolicy: RemovalPolicy.RETAIN,
     });

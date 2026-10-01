@@ -10,7 +10,7 @@ let template: Template;
 beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
-  const data = new DataStack(app, "TestData", { env });
+  const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
   const auth = new AuthStack(app, "TestAuth", {
     env,
     domainPrefix: "onetally-test",
@@ -154,7 +154,7 @@ describe("ApiStack — tracing switch", () => {
   it("turns on active X-Ray tracing when enableTracing is set", () => {
     const app = new App();
     const env = { account: "123456789012", region: "us-east-1" };
-    const data = new DataStack(app, "D", { env });
+    const data = new DataStack(app, "D", { env, frontendUrl: "http://localhost:5173" });
     const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
     const api = new ApiStack(app, "Api", {
       env,

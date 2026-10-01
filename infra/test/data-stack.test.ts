@@ -7,7 +7,7 @@ let template: Template;
 
 beforeAll(() => {
   const app = new App();
-  const stack = new DataStack(app, "TestData");
+  const stack = new DataStack(app, "TestData", { frontendUrl: "http://localhost:5173" });
   template = Template.fromStack(stack);
 });
 
@@ -165,6 +165,33 @@ describe("DataStack — S3 docs bucket", () => {
 
   it("is retained when the stack is deleted", () => {
     template.hasResource("AWS::S3::Bucket", { DeletionPolicy: "Retain" });
+  });
+});
+
+describe("DataStack — Phase 1 upload pipeline settings", () => {
+  it("sends bucket events to EventBridge", () => {
+    template.hasResourceProperties("Custom::S3BucketNotifications", {
+      NotificationConfiguration: { EventBridgeConfiguration: {} },
+    });
+  });
+
+  it("allows browser POST uploads only from the frontend origin", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      CorsConfiguration: {
+        CorsRules: [
+          Match.objectLike({
+            AllowedMethods: ["POST"],
+            AllowedOrigins: ["http://localhost:5173"],
+          }),
+        ],
+      },
+    });
+  });
+
+  it("expires usage counters with DynamoDB TTL on expiresAt", () => {
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+    });
   });
 });
 
