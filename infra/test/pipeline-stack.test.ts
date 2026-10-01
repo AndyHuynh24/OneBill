@@ -122,9 +122,10 @@ describe("PipelineStack — extract Lambda", () => {
     ]);
   });
 
-  it("can only read uploads (no writes, no other prefixes)", () => {
+  it("can only read uploads, including the pinned version (no writes, no other prefixes)", () => {
     const statements = extractStatements();
-    expect(actionsOf(statements, "s3:")).toEqual(["s3:GetObject"]);
+    // GetObjectVersion: Textract and the PDF check read the exact upload version that was claimed.
+    expect(actionsOf(statements, "s3:")).toEqual(["s3:GetObject", "s3:GetObjectVersion"]);
     const s3 = statements.find((st) => actionsOf([st], "s3:").length);
     expect(JSON.stringify(s3?.Resource)).toContain("/uploads/*");
   });

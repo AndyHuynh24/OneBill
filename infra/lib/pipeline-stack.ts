@@ -133,8 +133,9 @@ export class PipelineStack extends Stack {
     );
     extractFn.addToRolePolicy(
       new iam.PolicyStatement({
-        // PDF checks read the object; Textract reads it with these same permissions.
-        actions: ["s3:GetObject"],
+        // PDF checks read the object; Textract reads it with these same permissions. Reads pin the
+        // claimed S3 version, which needs GetObjectVersion (GetObject alone is denied).
+        actions: ["s3:GetObject", "s3:GetObjectVersion"],
         resources: [props.docsBucket.arnForObjects("uploads/*")],
       }),
     );
