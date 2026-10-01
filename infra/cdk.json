@@ -15,6 +15,7 @@
     "githubRepo": "AndyHuynh24/onetally",
     "authDomainPrefix": "onetally-ah24",
     "frontendUrl": "http://localhost:5173",
+    "bedrockModelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "@aws-cdk/core:defaultCrossStackReferences": "strong",
     "@aws-cdk/aws-signer:signingProfileNamePassedToCfn": true,
     "@aws-cdk/core:newStyleStackSynthesis": true,

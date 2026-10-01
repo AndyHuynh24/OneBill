@@ -3,6 +3,7 @@ import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
 // Pinned (not "latest") so deploys are reproducible. Source: Powertools install docs.
@@ -57,6 +58,8 @@ export interface ServiceFunctionProps {
   readonly memorySize?: number;
   /** Active X-Ray tracing; off by default (cost decision R1). */
   readonly enableTracing?: boolean;
+  /** For asynchronously invoked functions: where failed invocations go after retries. */
+  readonly deadLetterQueue?: sqs.IQueue;
 }
 
 /**
@@ -74,6 +77,7 @@ export function newServiceFunction(scope: Construct, id: string, props: ServiceF
     memorySize: props.memorySize ?? 256,
     timeout: props.timeout ?? Duration.seconds(10),
     tracing: props.enableTracing ? lambda.Tracing.ACTIVE : undefined,
+    deadLetterQueue: props.deadLetterQueue,
     layers: [powertoolsLayer(scope)],
     environment: {
       ...props.environment,

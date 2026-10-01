@@ -3,6 +3,7 @@ import { AccountStack } from "../lib/account-stack";
 import { ApiStack } from "../lib/api-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
+import { PipelineStack } from "../lib/pipeline-stack";
 
 const app = new App();
 
@@ -27,6 +28,15 @@ new ApiStack(app, "OneTally-Api", {
   userPoolClient: auth.client,
   frontendUrl,
   // Debug switch: npx cdk deploy OneTally-Api -c tracing=true
+  enableTracing: app.node.tryGetContext("tracing") === "true",
+});
+
+new PipelineStack(app, "OneTally-Pipeline", {
+  env,
+  table: data.table,
+  docsBucket: data.docsBucket,
+  dataKey: data.key,
+  bedrockModelId: app.node.getContext("bedrockModelId"),
   enableTracing: app.node.tryGetContext("tracing") === "true",
 });
 
