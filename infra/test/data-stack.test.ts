@@ -204,3 +204,19 @@ describe("DataStack — tagging", () => {
     expect(tags).toContainEqual({ Key: "project", Value: "onetally" });
   });
 });
+
+describe("DataStack — dev origins", () => {
+  it("lets dev origins upload with the presigned POST", () => {
+    const app = new App();
+    const stack = new DataStack(app, "DevData", {
+      frontendUrl: "http://localhost:5173",
+      devOrigins: ["https://10.0.0.136:5173"],
+    });
+
+    Template.fromStack(stack).hasResourceProperties("AWS::S3::Bucket", {
+      CorsConfiguration: {
+        CorsRules: [Match.objectLike({ AllowedOrigins: ["http://localhost:5173", "https://10.0.0.136:5173"] })],
+      },
+    });
+  });
+});

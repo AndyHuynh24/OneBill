@@ -9,8 +9,12 @@ import {
 import "aws-amplify/auth/enable-oauth-listener";
 import type { AppConfig } from "./config";
 
-/** Amplify Auth talks to Cognito only; there is no Amplify backend in this project. */
-export function configureAuth(config: AppConfig): void {
+/**
+ * Amplify Auth talks to Cognito only; there is no Amplify backend in this project.
+ * Sign-in returns to the origin the app was opened on (localhost, or the LAN address from
+ * `make dev-lan`); Cognito only accepts origins registered in the Auth stack.
+ */
+export function configureAuth(config: AppConfig, origin: string = window.location.origin): void {
   Amplify.configure({
     Auth: {
       Cognito: {
@@ -20,8 +24,8 @@ export function configureAuth(config: AppConfig): void {
           oauth: {
             domain: config.cognitoDomain,
             scopes: ["openid", "email", "profile"],
-            redirectSignIn: [`${config.appUrl}/callback`],
-            redirectSignOut: [`${config.appUrl}/`],
+            redirectSignIn: [`${origin}/callback`],
+            redirectSignOut: [`${origin}/`],
             responseType: "code", // authorization code + PKCE, never the implicit "token" flow
           },
         },

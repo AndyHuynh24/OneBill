@@ -17,7 +17,6 @@ VITE_USER_POOL_ID=$(output OneTally-Auth UserPoolId)
 VITE_USER_POOL_CLIENT_ID=$(output OneTally-Auth UserPoolClientId)
 VITE_COGNITO_DOMAIN=$(output OneTally-Auth HostedDomain)
 VITE_API_URL=$(output OneTally-Api ApiUrl)
-VITE_APP_URL=http://localhost:5173
 EOF
 
 echo "Wrote $OUT_FILE"

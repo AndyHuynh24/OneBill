@@ -83,3 +83,19 @@ describe("AuthStack — hosted login", () => {
     });
   });
 });
+
+describe("AuthStack — dev origins", () => {
+  it("registers each dev origin's callback and logout URL", () => {
+    const app = new App();
+    const stack = new AuthStack(app, "DevAuth", {
+      domainPrefix: "onetally-test",
+      frontendUrl: "http://localhost:5173",
+      devOrigins: ["https://10.0.0.136:5173"],
+    });
+
+    Template.fromStack(stack).hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      CallbackURLs: ["http://localhost:5173/callback", "https://10.0.0.136:5173/callback"],
+      LogoutURLs: ["http://localhost:5173/", "https://10.0.0.136:5173/"],
+    });
+  });
+});

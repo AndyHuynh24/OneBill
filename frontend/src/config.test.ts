@@ -9,13 +9,12 @@ const FULL = {
 };
 
 describe("loadConfig", () => {
-  it("reads all values and defaults the app URL to localhost:5173", () => {
+  it("reads all values (the app URL comes from wherever the page is opened)", () => {
     expect(loadConfig(FULL)).toEqual({
       userPoolId: "us-east-1_abc",
       userPoolClientId: "client123",
       cognitoDomain: "onetally-ah24.auth.us-east-1.amazoncognito.com",
       apiUrl: "https://abc.execute-api.us-east-1.amazonaws.com/",
-      appUrl: "http://localhost:5173",
     });
   });
 
