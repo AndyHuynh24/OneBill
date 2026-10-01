@@ -5,6 +5,7 @@ call logic, map errors to HTTP status codes.
 """
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -103,7 +104,7 @@ def list_obligations() -> dict[str, Any]:
     user_id = _user_id()
     event = app.current_event
     raw_days = event.get_query_string_value("withinDays", str(DEFAULT_OBLIGATION_WINDOW_DAYS))
-    if not raw_days.isdigit():
+    if not re.fullmatch(r"\d{1,3}", raw_days):  # isdigit() would accept "²" and crash int()
         raise logic.BadRequest("withinDays must be a whole number.")
     # The browser may pass its own local date; otherwise use the app time zone.
     today = parse_iso_date(event.get_query_string_value("from")) or app_today(datetime.now(UTC))

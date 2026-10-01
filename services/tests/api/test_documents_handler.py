@@ -156,3 +156,12 @@ def test_missing_sub_is_401(handler):
     status, _ = call(handler, http_event("GET", "/documents", {}))
 
     assert status == 401
+
+
+@pytest.mark.parametrize("days", ["²", "-1", "abc", "1000"])
+def test_invalid_window_is_400_not_500(handler, days):
+    status, _ = call(
+        handler, http_event("GET", "/obligations", UPLOADER, query={"withinDays": days})
+    )
+
+    assert status == 400

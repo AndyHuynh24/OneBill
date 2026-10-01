@@ -150,7 +150,7 @@ def test_list_documents_newest_first_and_only_mine(table, s3):
     )["docId"]
     upload(table, s3, user="user-b")
 
-    docs = list_documents(table, "user-a")
+    docs = list_documents(table, "user-a", now=NOW)
 
     assert [d["docId"] for d in docs] == [second, first]
     assert all(d["status"] == "pending_upload" for d in docs)
@@ -159,7 +159,7 @@ def test_list_documents_newest_first_and_only_mine(table, s3):
 def test_get_document_returns_my_document(table, s3):
     doc_id = upload(table, s3)["docId"]
 
-    doc = get_document(table, "user-a", doc_id)
+    doc = get_document(table, "user-a", doc_id, now=NOW)
 
     assert doc["docId"] == doc_id
     assert "PK" not in doc
@@ -406,3 +406,75 @@ def test_list_documents_reports_acceptance_rate(table):
         "acceptedUnchanged": 2,
         "acceptanceRate": 0.67,
     }
+
+
+# --- review-round fixes -------------------------------------------------------------------------
+
+from datetime import timedelta  # noqa: E402
+
+
+def stale_item(table, status, created, started=None):
+    item = {
+        "PK": "USER#user-a",
+        "SK": "DOC#1790000000000cccccccc",
+        "docId": "1790000000000cccccccc",
+        "status": status,
+        "createdAt": created.isoformat(),
+    }
+    if started:
+        item["processingStartedAt"] = started.isoformat()
+    table.put_item(Item=item)
+
+
+def test_abandoned_upload_is_reported_as_failed(table):
+    stale_item(table, "pending_upload", created=NOW - timedelta(minutes=20))
+
+    [doc] = list_documents(table, "user-a", now=NOW)
+
+    assert doc["status"] == "failed"
+    assert "didn't finish" in doc["failureReason"]
+
+
+def test_recent_upload_is_still_pending(table):
+    stale_item(table, "pending_upload", created=NOW - timedelta(minutes=2))
+
+    [doc] = list_documents(table, "user-a", now=NOW)
+
+    assert doc["status"] == "pending_upload"
+
+
+def test_stuck_processing_is_reported_as_failed(table):
+    stale_item(
+        table, "processing", created=NOW - timedelta(hours=1), started=NOW - timedelta(minutes=20)
+    )
+
+    doc = get_document(table, "user-a", "1790000000000cccccccc", now=NOW)
+
+    assert doc["status"] == "failed"
+    assert "too long" in doc["failureReason"]
+
+
+def test_concurrent_corrections_cannot_orphan_obligations(table):
+    doc_id = processed_doc(table)
+    stale_keys = table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"})["Item"][
+        "obligationKeys"
+    ]
+    body = {
+        "action": "correct",
+        "fields": {"deadlines": [{"kind": "return_by", "dueDate": "2026-11-15"}]},
+    }
+    review_document(table, "user-a", doc_id, body, now=NOW)
+
+    # A second save that read the document *before* the first one finished:
+    with pytest.raises(BadRequest, match="changed"):
+        logic._write_review(
+            table,
+            "user-a",
+            doc_id,
+            {"reviewOutcome": "corrected", "obligationKeys": []},
+            stale_keys,
+            [],
+            expected_keys=stale_keys,
+        )
+
+    assert len(obligations_for(table)) == 1

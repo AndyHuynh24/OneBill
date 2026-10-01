@@ -5,7 +5,7 @@ builds keys from it, so one user can't reach another user's items.
 """
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -26,6 +26,10 @@ GLOBAL_DAILY_LIMIT = 40
 UPLOAD_URL_TTL_SECONDS = 300
 USAGE_TTL_DAYS = 7
 MAX_OBLIGATION_WINDOW_DAYS = 366
+# After these, a document can no longer finish on its own: show it as failed, so the app stops
+# polling and the user knows to retry. (Display only; the stored status is left untouched.)
+STALE_UPLOAD = timedelta(minutes=15)
+STALE_PROCESSING = timedelta(minutes=15)
 REVIEWABLE_STATUSES = frozenset({"ready", "needs_review"})
 EDITABLE_FIELDS = frozenset({"vendor", "documentDate", "totalCents", "currency", "deadlines"})
 MAX_VENDOR = 200
@@ -129,23 +133,53 @@ def create_upload(
     return {"docId": doc_id, "upload": {"url": post["url"], "fields": post["fields"]}}
 
 
-def list_documents(table: Any, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+def list_documents(
+    table: Any, user_id: str, limit: int = 50, now: datetime | None = None
+) -> list[dict[str, Any]]:
     response = table.query(
         KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
         ExpressionAttributeValues={":pk": f"USER#{user_id}", ":prefix": "DOC#"},
         ScanIndexForward=False,  # docIds are time-ordered: newest first
         Limit=limit,
     )
-    return [_summary(item) for item in response.get("Items", [])]
+    now = now or datetime.now(UTC)
+    return [_summary(_effective(item, now)) for item in response.get("Items", [])]
 
 
-def get_document(table: Any, user_id: str, doc_id: str) -> dict[str, Any]:
+def get_document(
+    table: Any, user_id: str, doc_id: str, now: datetime | None = None
+) -> dict[str, Any]:
     if not is_valid_id(doc_id):
         raise NotFound("Document not found.")
     item = table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"}).get("Item")
     if not item:
         raise NotFound("Document not found.")
-    return _public(item)
+    return _public(_effective(item, now or datetime.now(UTC)))
+
+
+def _effective(item: dict[str, Any], now: datetime) -> dict[str, Any]:
+    """Report documents that can no longer finish as failed (abandoned upload, stuck run)."""
+    status = item.get("status")
+    if status == "pending_upload" and _older_than(item.get("createdAt"), now, STALE_UPLOAD):
+        return item | {
+            "status": "failed",
+            "failureReason": "The upload didn't finish. Please try again.",
+        }
+    if status == "processing" and _older_than(
+        item.get("processingStartedAt"), now, STALE_PROCESSING
+    ):
+        return item | {
+            "status": "failed",
+            "failureReason": "Reading this document took too long. Please upload it again.",
+        }
+    return item
+
+
+def _older_than(timestamp: Any, now: datetime, age: timedelta) -> bool:
+    try:
+        return now - datetime.fromisoformat(str(timestamp)) > age
+    except ValueError:
+        return False
 
 
 def list_obligations(
@@ -225,6 +259,7 @@ _SUMMARY_ATTRS = (
     "totalCents",
     "currency",
     "reviewOutcome",
+    "failureReason",
 )
 
 
@@ -253,6 +288,9 @@ def review_document(
     }
     deletes: list[str] = []
     puts: list[dict[str, Any]] = []
+    # The deadlines as they were when this review was read; the write only applies if they're
+    # unchanged (a concurrent save, e.g. a double-click, can't orphan obligations).
+    expected_keys = _current_keys(table, user_id, doc_id)
     if action == "accept":
         updates["reviewOutcome"] = "accepted"
     else:
@@ -274,15 +312,15 @@ def review_document(
                 )
                 for kind, due in deadlines
             ]
-            deletes = _current_keys(table, user_id, doc_id)
+            deletes = expected_keys
             updates["obligationKeys"] = [item["SK"] for item in puts]
             updates["obligations"] = [
                 {"kind": item["kind"], "dueDate": item["dueDate"], "evidence": item["evidence"]}
                 for item in puts
             ]
 
-    _write_review(table, user_id, doc_id, updates, deletes, puts)
-    return get_document(table, user_id, doc_id)
+    _write_review(table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys)
+    return get_document(table, user_id, doc_id, now)
 
 
 def review_stats(documents: list[dict[str, Any]]) -> dict[str, Any]:
@@ -354,18 +392,23 @@ def _write_review(
     updates: dict[str, Any],
     delete_keys: list[str],
     puts: list[dict[str, Any]],
+    expected_keys: list[str],
 ) -> None:
     pk = f"USER#{user_id}"
     names = {f"#f{i}": name for i, name in enumerate(updates)}
     values = {f":v{i}": value for i, value in enumerate(updates.values())}
-    values |= {":ready": "ready", ":review": "needs_review"}
+    values |= {":ready": "ready", ":review": "needs_review", ":expected": expected_keys}
+    unchanged = "obligationKeys = :expected"
+    if not expected_keys:
+        unchanged = f"(attribute_not_exists(obligationKeys) OR {unchanged})"
     update = {
         "Update": {
             "TableName": table.name,
             "Key": {"PK": pk, "SK": f"DOC#{doc_id}"},
             "UpdateExpression": "SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(updates))),
-            # Guards against a concurrent re-process: only processed documents change here.
-            "ConditionExpression": "#status IN (:ready, :review)",
+            # Only processed documents change here, and only if no other save changed their
+            # deadlines since this review read them.
+            "ConditionExpression": f"#status IN (:ready, :review) AND {unchanged}",
             "ExpressionAttributeNames": names | {"#status": "status"},
             "ExpressionAttributeValues": values,
         }
