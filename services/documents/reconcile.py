@@ -88,7 +88,11 @@ class Reconciliation:
         return not self.issues
 
 
-def reconcile(lines: list[Line], textract_summary: dict[str, int] | None = None) -> Reconciliation:
+def reconcile(
+    lines: list[Line],
+    textract_summary: dict[str, int] | None = None,
+    total_required: bool = True,
+) -> Reconciliation:
     """Check a labelled receipt, correcting mislabelled summary lines when the math proves it.
 
     1. Check the labels as given. If they add up, trust them.
@@ -100,7 +104,7 @@ def reconcile(lines: list[Line], textract_summary: dict[str, int] | None = None)
     textract_values = set((textract_summary or {}).values())
     normalized = [_normalize_discount(line) for line in lines]
 
-    as_given = _check(normalized)
+    as_given = _check(normalized, total_required)
     if as_given.ok:
         return as_given
 
@@ -109,7 +113,7 @@ def reconcile(lines: list[Line], textract_summary: dict[str, int] | None = None)
         relabelled, corrections = _apply(
             normalized, candidates, "text names a summary or payment line"
         )
-        hypothesis = _check(relabelled)
+        hypothesis = _check(relabelled, total_required)
         if hypothesis.ok:
             hypothesis.corrections = corrections
             return hypothesis
@@ -119,7 +123,7 @@ def reconcile(lines: list[Line], textract_summary: dict[str, int] | None = None)
         relabelled, corrections = _apply(
             normalized, evidence, "amount matches a printed summary value"
         )
-        result = _check(relabelled)
+        result = _check(relabelled, total_required)
         result.corrections = corrections
     else:
         result = as_given
@@ -212,7 +216,7 @@ def _distinct(values: list[int]) -> list[int]:
     return out
 
 
-def _check(lines: list[Line]) -> Reconciliation:
+def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
     r = Reconciliation(
         lines=lines,
         items_cents=_sum(lines, "item"),
@@ -253,7 +257,8 @@ def _check(lines: list[Line]) -> Reconciliation:
         totals = [line.amount_cents for line in lines if line.kind == "balance_due"]
     expected = basis + r.tax_cents + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
     if not totals:
-        r.issues.append("No total or amount due was found on the document.")
+        if total_required:
+            r.issues.append("No total or amount due was found on the document.")
     else:
         final = totals[-1]
         r.total_cents = final

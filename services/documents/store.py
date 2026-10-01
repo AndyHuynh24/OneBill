@@ -34,18 +34,27 @@ def _key(user_id: str, doc_id: str) -> dict[str, str]:
     return {"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"}
 
 
-def claim(table: Any, user_id: str, doc_id: str, now: datetime) -> dict[str, Any] | None:
-    """pending_upload → processing. Returns the DOC item, or None if already claimed/unknown."""
+def claim(
+    table: Any, user_id: str, doc_id: str, now: datetime, version_id: str | None = None
+) -> dict[str, Any] | None:
+    """pending_upload → processing. Returns the DOC item, or None if already claimed/unknown.
+
+    The S3 version that triggered the claim is recorded, so later steps read that exact upload.
+    """
     try:
         response = table.update_item(
             Key=_key(user_id, doc_id),
-            UpdateExpression="SET #s = :processing, updatedAt = :now, processingStartedAt = :now",
+            UpdateExpression=(
+                "SET #s = :processing, updatedAt = :now, processingStartedAt = :now, "
+                "s3VersionId = :version"
+            ),
             ConditionExpression="attribute_exists(PK) AND #s = :pending",
             ExpressionAttributeNames={"#s": "status"},
             ExpressionAttributeValues={
                 ":processing": "processing",
                 ":pending": "pending_upload",
                 ":now": now.isoformat(),
+                ":version": version_id,
             },
             ReturnValues="ALL_NEW",
         )
@@ -54,6 +63,10 @@ def claim(table: Any, user_id: str, doc_id: str, now: datetime) -> dict[str, Any
             return None
         raise
     return response["Attributes"]
+
+
+def get(table: Any, user_id: str, doc_id: str) -> dict[str, Any] | None:
+    return table.get_item(Key=_key(user_id, doc_id), ConsistentRead=True).get("Item")
 
 
 def record_textract_job(table: Any, user_id: str, doc_id: str, job_id: str, now: datetime) -> None:

@@ -27,6 +27,12 @@ HINT_FIELDS = frozenset({"VENDOR_NAME", "NAME", "INVOICE_RECEIPT_DATE", "DUE_DAT
 LOW_CONFIDENCE = 80.0
 
 
+def _fenced(text: str) -> str:
+    """Document text goes inside <document>/<ocr_lines> tags: swap angle brackets for look-alikes
+    so a printed "</document>" can't close the untrusted-data block early."""
+    return text.replace("<", "‹").replace(">", "›")
+
+
 @dataclass(frozen=True)
 class SummaryField:
     type: str
@@ -101,7 +107,7 @@ class ExpenseResult:
                 format_cents(f.cents) if f.type in MONEY_FIELDS and f.cents is not None else f.text
             )
             label = f' (printed label "{f.label}")' if f.label else ""
-            summary.append(f"{f.type}: {value}{label}")
+            summary.append(_fenced(f"{f.type}: {value}{label}"))
         items = []
         for r in self.line_items:
             parts = [f"row {r.row}: {r.description}"]
@@ -109,7 +115,7 @@ class ExpenseResult:
                 parts.append(format_cents(r.price_cents))
             if r.quantity:
                 parts.append(f"qty {r.quantity}")
-            items.append(" | ".join(parts))
+            items.append(_fenced(" | ".join(parts)))
         return "\n".join(
             [
                 "<textract_summary_fields>",
@@ -119,7 +125,7 @@ class ExpenseResult:
                 *items,
                 "</textract_line_items>",
                 "<ocr_lines>",
-                *self.lines,
+                *(_fenced(line) for line in self.lines),
                 "</ocr_lines>",
             ]
         )
@@ -187,20 +193,34 @@ def _reading_order(block: dict[str, Any]) -> tuple[int, float, float]:
 # --- API calls ----------------------------------------------------------------------------------
 
 
-def analyze_sync(client: Any, bucket: str, key: str) -> list[dict[str, Any]]:
+def _s3_object(bucket: str, key: str, version: str | None) -> dict[str, str]:
+    """Pinning the version means OCR reads exactly the upload that was claimed."""
+    obj = {"Bucket": bucket, "Name": key}
+    return obj | {"Version": version} if version else obj
+
+
+def analyze_sync(
+    client: Any, bucket: str, key: str, version: str | None = None
+) -> list[dict[str, Any]]:
     """Images and single-page documents: the result comes back in the same call."""
-    return [client.analyze_expense(Document={"S3Object": {"Bucket": bucket, "Name": key}})]
+    return [client.analyze_expense(Document={"S3Object": _s3_object(bucket, key, version)})]
 
 
 def start_async(
-    client: Any, bucket: str, key: str, doc_id: str, topic_arn: str, role_arn: str
+    client: Any,
+    bucket: str,
+    key: str,
+    doc_id: str,
+    topic_arn: str,
+    role_arn: str,
+    version: str | None = None,
 ) -> str:
     """PDFs: Textract works in the background and announces completion on the SNS topic.
 
     ClientRequestToken makes a retried start return the same job instead of paying twice.
     """
     response = client.start_expense_analysis(
-        DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}},
+        DocumentLocation={"S3Object": _s3_object(bucket, key, version)},
         JobTag=doc_id,
         NotificationChannel={"SNSTopicArn": topic_arn, "RoleArn": role_arn},
         ClientRequestToken=doc_id,

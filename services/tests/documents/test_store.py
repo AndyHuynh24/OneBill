@@ -89,6 +89,14 @@ def test_claim_moves_pending_to_processing_once(table):
     assert doc_item(table)["status"] == "processing"
 
 
+def test_claim_records_the_s3_version_that_triggered_it(table):
+    pending(table)
+
+    store.claim(table, USER, DOC, NOW, version_id="v-123")
+
+    assert doc_item(table)["s3VersionId"] == "v-123"
+
+
 def test_claim_unknown_document_returns_none(table):
     assert store.claim(table, USER, DOC, NOW) is None
 

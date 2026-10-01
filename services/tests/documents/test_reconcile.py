@@ -310,3 +310,11 @@ def test_suspect_rows_point_at_lines_that_explain_a_mismatch():
 
     assert not r.ok
     assert 4 in r.suspect_rows
+
+
+def test_documents_without_totals_can_opt_out_of_the_total_check():
+    """Warranties and leases have no total: missing one isn't an error for them."""
+    r = reconcile(lines(), total_required=False)
+
+    assert r.ok
+    assert r.total_cents is None

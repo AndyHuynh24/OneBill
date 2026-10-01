@@ -7,6 +7,7 @@ it never adds anything up. Code converts amounts to cents and reconciles the ari
 If the math or the output shape fails, the model gets one targeted repair turn.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,6 +37,13 @@ LINE_KINDS = [
 ]
 DOC_TYPES = ["receipt", "bill", "invoice", "warranty", "lease", "other"]
 DEADLINE_TYPES = ["payment_due", "return_by", "warranty_expires", "renewal"]
+# Document types that normally have no total, so a missing total isn't an error for them.
+NO_TOTAL_TYPES = frozenset({"warranty", "lease"})
+MAX_VENDOR = 120
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_CURRENCY = re.compile(r"^[A-Z]{3}$")
+# US receipts print tax flags after amounts ("4.19 F", "2.99 N"); they aren't part of the amount.
+_TAX_FLAG = re.compile(r"\s+[A-Z]{1,2}$")
 
 EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -65,7 +73,8 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
                     "amount": {
                         "type": "string",
                         "description": (
-                            'The amount exactly as printed, e.g. "4.19", "2.00-", "(1.50)".'
+                            'The amount exactly as printed, e.g. "4.19", "2.00-", "(1.50)". '
+                            "Leave out tax-flag letters printed after it."
                         ),
                     },
                     "kind": {"type": "string", "enum": LINE_KINDS},
@@ -220,7 +229,7 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
         kind, amount = raw.get("kind"), raw.get("amount")
         if kind not in LINE_KINDS:
             raise ExtractionError(f"line {index} has unknown kind {kind!r}")
-        cents = to_cents(amount) if isinstance(amount, str) else None
+        cents = to_cents(_TAX_FLAG.sub("", amount.strip())) if isinstance(amount, str) else None
         if cents is None:
             raise ExtractionError(f"line {index} amount {amount!r} is not a printed amount")
         lines.append(
@@ -246,11 +255,9 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
     date_text = tool_input.get("document_date")
     return ExtractedDocument(
         doc_type=doc_type if doc_type in DOC_TYPES else "other",
-        vendor=(tool_input.get("vendor") or None),
+        vendor=_clean_vendor(tool_input.get("vendor")),
         document_date=date_text if parse_iso_date(date_text) else None,
-        currency=currency
-        if isinstance(currency, str) and len(currency) == 3 and currency.isupper()
-        else None,
+        currency=currency if isinstance(currency, str) and _CURRENCY.match(currency) else None,
         lines=lines,
         deadlines=deadlines,
         warnings=warnings,
@@ -265,7 +272,7 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
     tool_use = _tool_use(response, usage)
     try:
         document = parse_output(tool_use["input"])
-        result = reconcile(document.lines, expense.summary_money)
+        result = reconcile(document.lines, expense.summary_money, _total_required(document))
         if result.ok:
             return ExtractionOutcome(
                 document, result, 1, usage, model_id, redactions=redaction.counts
@@ -281,8 +288,21 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
     response = client.converse(**build_request(model_id, redaction.text, repair))
     tool_use = _tool_use(response, usage)
     document = parse_output(tool_use["input"])  # a second invalid output is a hard failure
-    result = reconcile(document.lines, expense.summary_money)
+    result = reconcile(document.lines, expense.summary_money, _total_required(document))
     return ExtractionOutcome(document, result, 2, usage, model_id, redactions=redaction.counts)
+
+
+def _total_required(document: ExtractedDocument) -> bool:
+    return document.doc_type not in NO_TOTAL_TYPES
+
+
+def _clean_vendor(value: Any) -> str | None:
+    """Vendor text comes from the document (untrusted) and is shown in the app and in emails:
+    one line, no links, bounded length."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join(_URL.sub(" ", value).split())
+    return text[:MAX_VENDOR].strip() or None
 
 
 def _tool_use(response: dict[str, Any], usage: dict[str, int]) -> dict[str, Any]:

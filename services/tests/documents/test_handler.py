@@ -35,12 +35,13 @@ def fixture(*parts):
     return json.loads(FIXTURES.joinpath(*parts).read_text())
 
 
-def s3_event(key=KEY, size=1000):
+def s3_event(key=KEY, size=1000, version=None):
+    obj = {"key": key, "size": size} | ({"version-id": version} if version else {})
     return {
         "version": "0",
         "source": "aws.s3",
         "detail-type": "Object Created",
-        "detail": {"bucket": {"name": BUCKET}, "object": {"key": key, "size": size}},
+        "detail": {"bucket": {"name": BUCKET}, "object": obj},
     }
 
 
@@ -68,6 +69,7 @@ def env(table, monkeypatch):
     monkeypatch.setenv("TEXTRACT_ROLE_ARN", ROLE)
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket=BUCKET)
+    s3.put_bucket_versioning(Bucket=BUCKET, VersioningConfiguration={"Status": "Enabled"})
     import documents.handler as handler
 
     handler = importlib.reload(handler)
@@ -81,7 +83,8 @@ def env(table, monkeypatch):
         b_stub.assert_no_pending_responses()
 
 
-def upload(env, content_type="image/jpeg", body=b"\xff\xd8\xff\xe0jpeg"):
+def upload(env, content_type="image/jpeg", body=b"\xff\xd8\xff\xe0jpeg", job_id=None):
+    """Put a pending DOC and its S3 object; returns the S3 version ID of the upload."""
     env["table"].put_item(
         Item={
             "PK": f"USER#{USER}",
@@ -93,7 +96,8 @@ def upload(env, content_type="image/jpeg", body=b"\xff\xd8\xff\xe0jpeg"):
             "contentType": content_type,
         }
     )
-    env["s3"].put_object(Bucket=BUCKET, Key=KEY, Body=body, ContentType=content_type)
+    put = env["s3"].put_object(Bucket=BUCKET, Key=KEY, Body=body, ContentType=content_type)
+    return put["VersionId"]
 
 
 def run(env, event):
@@ -104,11 +108,11 @@ def doc(env):
     return env["table"].get_item(Key={"PK": f"USER#{USER}", "SK": f"DOC#{DOC}"})["Item"]
 
 
-def expect_analyze_sync(env):
+def expect_analyze_sync(env, version):
     env["textract"].add_response(
         "analyze_expense",
         fixture("textract", "grocery_sync.json"),
-        {"Document": {"S3Object": {"Bucket": BUCKET, "Name": KEY}}},
+        {"Document": {"S3Object": {"Bucket": BUCKET, "Name": KEY, "Version": version}}},
     )
 
 
@@ -130,11 +134,11 @@ def expect_bedrock(env, name):
 
 
 def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
-    upload(env)
-    expect_analyze_sync(env)
+    version = upload(env)
+    expect_analyze_sync(env, version)  # OCR reads exactly the claimed upload
     expect_bedrock(env, "grocery_correct.json")
 
-    run(env, s3_event())
+    run(env, s3_event(version=version))
 
     item = doc(env)
     assert item["status"] == "ready", item.get("issues")
@@ -142,6 +146,7 @@ def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
     assert item["totalCents"] == 2618
     assert item["promptVersion"]
     assert item["attempts"] == 1
+    assert item["s3VersionId"] == version
     obligations = env["table"].query(
         IndexName="GSI1",
         KeyConditionExpression="GSI1PK = :d",
@@ -151,12 +156,14 @@ def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
 
 
 def test_duplicate_event_makes_no_paid_calls(env):
-    upload(env)
-    expect_analyze_sync(env)
+    version = upload(env)
+    expect_analyze_sync(env, version)
     expect_bedrock(env, "grocery_correct.json")
-    run(env, s3_event())
+    run(env, s3_event(version=version))
 
-    run(env, s3_event())  # nothing queued on the stubbers: any Textract/Bedrock call would raise
+    run(
+        env, s3_event(version=version)
+    )  # nothing queued on the stubbers: any Textract/Bedrock call would raise
 
     assert doc(env)["status"] == "ready"
 
@@ -166,11 +173,11 @@ def test_event_for_unexpected_key_is_ignored(env):
 
 
 def test_extraction_failure_marks_document_failed(env):
-    upload(env)
-    expect_analyze_sync(env)
+    version = upload(env)
+    expect_analyze_sync(env, version)
     expect_bedrock(env, "no_tool_call.json")
 
-    run(env, s3_event())
+    run(env, s3_event(version=version))
 
     item = doc(env)
     assert item["status"] == "failed"
@@ -189,19 +196,19 @@ def test_oversized_object_is_refused_before_ocr(env):
 
 
 def test_pdf_starts_an_async_job(env):
-    upload(env, content_type="application/pdf", body=fake_pdf(2))
+    version = upload(env, content_type="application/pdf", body=fake_pdf(2))
     env["textract"].add_response(
         "start_expense_analysis",
         {"JobId": "job-123"},
         {
-            "DocumentLocation": {"S3Object": {"Bucket": BUCKET, "Name": KEY}},
+            "DocumentLocation": {"S3Object": {"Bucket": BUCKET, "Name": KEY, "Version": version}},
             "JobTag": DOC,
             "NotificationChannel": {"SNSTopicArn": TOPIC, "RoleArn": ROLE},
             "ClientRequestToken": DOC,
         },
     )
 
-    run(env, s3_event())
+    run(env, s3_event(version=version))
 
     item = doc(env)
     assert item["status"] == "processing"
@@ -218,6 +225,16 @@ def test_pdf_over_ten_pages_is_refused_before_ocr(env):
     assert "10 pages" in item["failureReason"]
 
 
+def test_pdf_with_an_unknown_page_count_is_refused_before_ocr(env):
+    upload(env, content_type="application/pdf", body=b"%PDF-1.7\n(no recognizable pages)")
+
+    run(env, s3_event())
+
+    item = doc(env)
+    assert item["status"] == "failed"
+    assert "how many pages" in item["failureReason"]
+
+
 def test_file_that_is_not_really_a_pdf_is_refused(env):
     upload(env, content_type="application/pdf", body=b"<html>not a pdf</html>")
 
@@ -226,14 +243,18 @@ def test_file_that_is_not_really_a_pdf_is_refused(env):
     assert doc(env)["status"] == "failed"
 
 
-def test_sns_completion_fetches_results_and_saves(env):
+def waiting_for_job(env, job_id="job-123"):
     upload(env, content_type="application/pdf", body=fake_pdf(1))
     env["table"].update_item(
         Key={"PK": f"USER#{USER}", "SK": f"DOC#{DOC}"},
         UpdateExpression="SET #s = :p, textractJobId = :j",
         ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":p": "processing", ":j": "job-123"},
+        ExpressionAttributeValues={":p": "processing", ":j": job_id},
     )
+
+
+def test_sns_completion_fetches_results_and_saves(env):
+    waiting_for_job(env)
     result = fixture("textract", "grocery_sync.json") | {"JobStatus": "SUCCEEDED"}
     env["textract"].add_response("get_expense_analysis", result, {"JobId": "job-123"})
     expect_bedrock(env, "grocery_correct.json")
@@ -243,14 +264,43 @@ def test_sns_completion_fetches_results_and_saves(env):
     assert doc(env)["status"] == "ready"
 
 
+def test_duplicate_sns_delivery_makes_no_paid_calls(env):
+    waiting_for_job(env)
+    result = fixture("textract", "grocery_sync.json") | {"JobStatus": "SUCCEEDED"}
+    env["textract"].add_response("get_expense_analysis", result, {"JobId": "job-123"})
+    expect_bedrock(env, "grocery_correct.json")
+    run(env, sns_event())
+
+    run(env, sns_event())  # document is no longer processing: ignored, no Textract/Bedrock call
+
+    assert doc(env)["status"] == "ready"
+
+
+def test_sns_message_for_a_different_job_is_ignored(env):
+    waiting_for_job(env, job_id="job-123")
+
+    run(env, sns_event(job_id="someone-elses-job"))
+
+    assert doc(env)["status"] == "processing"
+
+
+def test_too_many_pages_after_ocr_skips_the_model(env):
+    waiting_for_job(env)
+    result = fixture("textract", "grocery_sync.json") | {
+        "JobStatus": "SUCCEEDED",
+        "DocumentMetadata": {"Pages": 40},
+    }
+    env["textract"].add_response("get_expense_analysis", result, {"JobId": "job-123"})
+
+    run(env, sns_event())  # no Bedrock response queued: a model call would raise
+
+    item = doc(env)
+    assert item["status"] == "failed"
+    assert "10 pages" in item["failureReason"]
+
+
 def test_sns_failure_marks_document_failed(env):
-    upload(env, content_type="application/pdf", body=fake_pdf(1))
-    env["table"].update_item(
-        Key={"PK": f"USER#{USER}", "SK": f"DOC#{DOC}"},
-        UpdateExpression="SET #s = :p",
-        ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":p": "processing"},
-    )
+    waiting_for_job(env)
 
     run(env, sns_event(status="FAILED"))
 

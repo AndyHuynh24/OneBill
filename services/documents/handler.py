@@ -21,7 +21,13 @@ from botocore.exceptions import ClientError
 from documents import store
 from documents.extraction import ExtractionError, extract
 from documents.pdf import count_pages, is_pdf
-from documents.textract import analyze_sync, fetch_async, parse_expense, start_async
+from documents.textract import (
+    ExpenseResult,
+    analyze_sync,
+    fetch_async,
+    parse_expense,
+    start_async,
+)
 from documents.validate import validate
 
 logger = Logger()
@@ -30,8 +36,11 @@ tracer = Tracer()
 table = boto3.resource("dynamodb").Table(os.environ["TABLE_NAME"])
 s3 = boto3.client("s3")
 textract = boto3.client("textract")
+# Worst case 2 model calls × 2 attempts × 45 s stays well inside the 300 s Lambda timeout, so a
+# slow call fails the document instead of leaving it stuck in "processing".
 bedrock = boto3.client(
-    "bedrock-runtime", config=Config(read_timeout=60, retries={"mode": "adaptive"})
+    "bedrock-runtime",
+    config=Config(read_timeout=45, retries={"mode": "adaptive", "max_attempts": 2}),
 )
 
 BUCKET = os.environ["BUCKET_NAME"]
@@ -42,6 +51,8 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_PDF_PAGES = 10
 
 UNREADABLE = "We couldn't read this document. Try a clearer, well-lit photo."
+TOO_MANY_PAGES = f"PDFs can have at most {MAX_PDF_PAGES} pages."
+UNKNOWN_PAGES = "We couldn't check how many pages this PDF has. Try a photo instead."
 GENERIC_FAILURE = "Something went wrong while reading this document. Please upload it again."
 TEXTRACT_REJECTIONS = frozenset(
     {
@@ -70,30 +81,36 @@ def handler(event: dict, context: object) -> None:
 
 
 def _on_upload(detail: dict[str, Any]) -> None:
-    parsed = store.parse_upload_key(detail["object"]["key"])
+    obj = detail["object"]
+    parsed = store.parse_upload_key(obj["key"])
     if parsed is None:
         logger.warning("unexpected_key")
         return
     user_id, doc_id = parsed
-    item = store.claim(table, user_id, doc_id, _now())
+    version = obj.get("version-id")
+    item = store.claim(table, user_id, doc_id, _now(), version)
     if item is None:
         logger.info("already_claimed", extra={"docId": doc_id})
         return
     with _fail_on_error(user_id, doc_id):
-        if int(detail["object"].get("size", 0)) > MAX_BYTES:
+        if int(obj.get("size", 0)) > MAX_BYTES:
             raise Refused("Files can be at most 10 MB.")
         key = item["s3Key"]
         if item.get("contentType") == "application/pdf":
-            data = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+            kwargs = {"VersionId": version} if version else {}
+            data = s3.get_object(Bucket=BUCKET, Key=key, **kwargs)["Body"].read()
             if not is_pdf(data):
                 raise Refused("This file isn't a valid PDF.")
-            if count_pages(data) > MAX_PDF_PAGES:
-                raise Refused(f"PDFs can have at most {MAX_PDF_PAGES} pages.")
-            job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN)
+            pages = count_pages(data)
+            if pages is None:
+                raise Refused(UNKNOWN_PAGES)
+            if pages > MAX_PDF_PAGES:
+                raise Refused(TOO_MANY_PAGES)
+            job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
             store.record_textract_job(table, user_id, doc_id, job_id, _now())
-            logger.info("textract_async_started", extra={"docId": doc_id})
+            logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
             return
-        _process(user_id, doc_id, analyze_sync(textract, BUCKET, key))
+        _process(user_id, doc_id, parse_expense(analyze_sync(textract, BUCKET, key, version)))
 
 
 def _on_textract_done(message: dict[str, Any]) -> None:
@@ -102,15 +119,29 @@ def _on_textract_done(message: dict[str, Any]) -> None:
         logger.warning("unexpected_key")
         return
     user_id, doc_id = parsed
+    # Only act on the job this document is waiting for: ignores duplicate SNS deliveries
+    # (which would otherwise pay for Bedrock twice) and mismatched or forged messages.
+    item = store.get(table, user_id, doc_id)
+    expected = (
+        item is not None
+        and item.get("status") == "processing"
+        and item.get("textractJobId") == message.get("JobId")
+        and message.get("JobTag") == doc_id
+    )
+    if not expected:
+        logger.warning("unexpected_textract_message", extra={"docId": doc_id})
+        return
     with _fail_on_error(user_id, doc_id):
         if message.get("Status") != "SUCCEEDED":
             raise Refused(UNREADABLE)
-        _process(user_id, doc_id, fetch_async(textract, message["JobId"]))
+        expense = parse_expense(fetch_async(textract, message["JobId"]))
+        if expense.pages > MAX_PDF_PAGES:
+            raise Refused(TOO_MANY_PAGES)  # Textract is already paid; don't also pay for Bedrock
+        _process(user_id, doc_id, expense)
 
 
 @tracer.capture_method
-def _process(user_id: str, doc_id: str, responses: list[dict[str, Any]]) -> None:
-    expense = parse_expense(responses)
+def _process(user_id: str, doc_id: str, expense: ExpenseResult) -> None:
     outcome = extract(bedrock, MODEL_ID, expense)
     result = validate(outcome, expense)
     meta = {
@@ -145,9 +176,10 @@ def _fail_on_error(user_id: str, doc_id: str) -> Iterator[None]:
     except Refused as exc:
         reason = str(exc)
         logger.info("document_refused", extra={"docId": doc_id, "reason": reason})
-    except ExtractionError as exc:
+    except ExtractionError:
         reason = UNREADABLE
-        logger.warning("extraction_failed", extra={"docId": doc_id, "error": str(exc)})
+        # The message can quote model output (document content): log the type only.
+        logger.warning("extraction_failed", extra={"docId": doc_id, "errorType": "ExtractionError"})
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in TEXTRACT_REJECTIONS:

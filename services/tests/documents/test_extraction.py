@@ -254,3 +254,78 @@ def test_model_not_calling_the_tool_raises(bedrock, expense):
 
     with pytest.raises(ExtractionError, match="did not call"):
         extract(client, MODEL, expense)
+
+
+# --- hardening from the Phase 1 security/cost review --------------------------------------------
+
+
+def base_output(**overrides):
+    return {
+        "doc_type": "receipt",
+        "vendor": "TARGET",
+        "document_date": "2026-09-28",
+        "currency": "USD",
+        "lines": [],
+        "deadlines": [],
+    } | overrides
+
+
+def test_vendor_is_capped_and_stripped_of_links_and_line_breaks():
+    doc = parse_output(
+        base_output(vendor="Best  Buy\nVisit https://evil.example/login now " + "x" * 300)
+    )
+
+    assert "http" not in doc.vendor
+    assert "\n" not in doc.vendor
+    assert doc.vendor.startswith("Best Buy Visit")
+    assert len(doc.vendor) <= extraction.MAX_VENDOR
+
+
+def test_www_links_are_removed_too():
+    assert parse_output(base_output(vendor="Shop www.evil.example")).vendor == "Shop"
+
+
+@pytest.mark.parametrize("currency", ["usd", "US$", "ÜSD", "EURO"])
+def test_currency_must_be_three_ascii_capitals(currency):
+    assert parse_output(base_output(currency=currency)).currency is None
+
+
+@pytest.mark.parametrize(
+    ("printed", "cents"), [("4.19 F", 419), ("2.99 N", 299), ("12.00 TX", 1200)]
+)
+def test_trailing_tax_flag_letters_are_ignored(printed, cents):
+    doc = parse_output(
+        base_output(lines=[{"description": "MILK", "amount": printed, "kind": "item"}])
+    )
+
+    assert doc.lines[0].amount_cents == cents
+
+
+def test_warranty_without_a_total_needs_no_repair_call(bedrock, expense):
+    client, stub = bedrock
+    warranty = {
+        "doc_type": "warranty",
+        "vendor": "Best Buy",
+        "document_date": "2026-09-28",
+        "currency": "USD",
+        "lines": [],
+        "deadlines": [],
+    }
+    response = bedrock_fixture("grocery_correct.json")
+    response["output"]["message"]["content"][0]["toolUse"]["input"] = warranty
+    stub.add_response(
+        "converse",
+        response,
+        {
+            "modelId": MODEL,
+            "system": ANY,
+            "messages": ANY,
+            "toolConfig": ANY,
+            "inferenceConfig": ANY,
+        },
+    )
+
+    outcome = extract(client, MODEL, expense)  # only one response queued
+
+    assert outcome.attempts == 1
+    assert outcome.reconciliation.ok
