@@ -82,6 +82,8 @@ export interface CorrectionFields {
   totalCents?: number;
   currency?: string;
   deadlines?: { kind: string; dueDate: string }[];
+  /** Corrected lines, in order; the server numbers them and re-checks the bill. */
+  lines?: { description: string; kind: LineKind; amountCents: number }[];
 }
 
 export type ReviewRequest = { action: "accept" } | { action: "correct"; fields: CorrectionFields };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centsToInput, daysUntil, formatCents, formatDate, parseDollars, relativeDay, todayIso } from "./format";
+import { centsToInput, daysUntil, formatCents, formatDate, parseDollars, parseSignedDollars, relativeDay, todayIso } from "./format";
 
 describe("parseDollars", () => {
   it.each([
@@ -54,5 +54,21 @@ describe("relative days", () => {
     ["2026-09-29", "yesterday"],
   ])("%s is %s", (date, label) => {
     expect(relativeDay(date, now)).toBe(label);
+  });
+});
+
+describe("parseSignedDollars", () => {
+  it.each([
+    ["2.00", 200],
+    ["-2.00", -200],
+    ["- 1.5", -150],
+    ["$1,234.56", 123456],
+    ["-$3", -300],
+  ])("%s → %d cents", (input, cents) => {
+    expect(parseSignedDollars(input)).toBe(cents);
+  });
+
+  it.each(["", "-", "abc", "1.234", "--2"])("rejects %j", (input) => {
+    expect(parseSignedDollars(input)).toBeNull();
   });
 });

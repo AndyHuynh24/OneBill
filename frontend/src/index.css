@@ -407,3 +407,20 @@ section h2 {
   grid-template-columns: 1fr 1fr auto;
   gap: 0.5rem;
 }
+
+.line-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 7rem auto;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.line-row input,
+.line-row select {
+  min-width: 0;
+}
+
+.line-amount {
+  text-align: right;
+}
