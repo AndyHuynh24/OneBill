@@ -1,0 +1,83 @@
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main]
+
+# Least privilege by default; the diff job adds id-token for OIDC.
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs (tags can be moved); the comment shows the version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # don't leave the job token in .git/config for later steps
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            infra/package-lock.json
+            frontend/package-lock.json
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          working-directory: services
+
+      - run: make install
+      - run: make lint
+      - run: make test
+      - run: make synth
+
+  cdk-diff:
+    name: cdk diff
+    needs: checks
+    runs-on: ubuntu-latest
+    # Skips cleanly until the AWS_ACCOUNT_ID repository variable is set.
+    if: ${{ vars.AWS_ACCOUNT_ID != '' }}
+    permissions:
+      contents: read
+      id-token: write # lets the job request a GitHub OIDC token to exchange for AWS credentials
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # don't leave the job token in .git/config for later steps
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+
+      # --ignore-scripts: PR code runs here with AWS read access, so don't run package install hooks.
+      - run: npm ci --ignore-scripts
+        working-directory: infra
+
+      - name: Assume the read-only CI role via OIDC (no stored AWS keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/onetally-ci-diff
+          aws-region: us-east-1
+
+      - name: cdk diff
+        working-directory: infra
+        # --method=template compares templates using CDK's read-only lookup role (no change sets).
+        run: |
+          set -o pipefail
+          npx cdk diff --method=template 2>&1 | tee diff.txt
+          {
+            echo '## cdk diff'
+            echo '```'
+            cat diff.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
