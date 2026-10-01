@@ -34,13 +34,14 @@ export class AccountStack extends Stack {
 
     new budgets.CfnBudget(this, "MonthlyBudget", {
       budget: {
-        budgetName: "onetally-monthly",
+        // No fixed budgetName: changing the alert list replaces the budget, and a fixed name
+        // makes the replacement collide with the old one. CloudFormation generates a unique name.
         budgetType: "COST",
         timeUnit: "MONTHLY",
         budgetLimit: { amount: 10, unit: "USD" },
       },
       notificationsWithSubscribers: [
-        alert("ACTUAL", 20), // $2: early warning, normal spend is ~$1
+        alert("ACTUAL", 30), // $3: early warning; normal spend is ~$2 (decision R3)
         alert("ACTUAL", 50),
         alert("ACTUAL", 80),
         alert("ACTUAL", 100),
