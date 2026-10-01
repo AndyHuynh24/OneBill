@@ -8,6 +8,7 @@ If the math or the output shape fails, the model gets one targeted repair turn.
 """
 
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -180,6 +181,7 @@ class ExtractionOutcome:
     redactions: dict[str, int] = field(default_factory=dict)
     # Why the repair pass ran (contains document text: for local evals only, never logged).
     repair_feedback: str | None = field(default=None, repr=False)
+    model_ms: list[int] = field(default_factory=list)  # wall time of each Bedrock call
 
 
 def build_request(
@@ -282,7 +284,8 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
     redaction = redact(expense.render_for_model())
     usage = {"inputTokens": 0, "outputTokens": 0}
 
-    response = client.converse(**build_request(model_id, redaction.text))
+    model_ms: list[int] = []
+    response = _converse(client, build_request(model_id, redaction.text), model_ms)
     tool_use = _tool_use(response, usage)
     try:
         document = parse_output(tool_use["input"])
@@ -290,7 +293,7 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
         invented = ungrounded(document.lines, expense.lines)
         if result.ok and not invented:
             return ExtractionOutcome(
-                document, result, 1, usage, model_id, redactions=redaction.counts
+                document, result, 1, usage, model_id, redactions=redaction.counts, model_ms=model_ms
             )
         feedback = _math_feedback(result, invented)
     except ExtractionError as err:
@@ -300,13 +303,28 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
         )
 
     repair = (response["output"]["message"], tool_use["toolUseId"], feedback)
-    response = client.converse(**build_request(model_id, redaction.text, repair))
+    response = _converse(client, build_request(model_id, redaction.text, repair), model_ms)
     tool_use = _tool_use(response, usage)
     document = parse_output(tool_use["input"])  # a second invalid output is a hard failure
     result = reconcile(document.lines, expense.summary_money, _total_required(document))
     return ExtractionOutcome(
-        document, result, 2, usage, model_id, redactions=redaction.counts, repair_feedback=feedback
+        document,
+        result,
+        2,
+        usage,
+        model_id,
+        redactions=redaction.counts,
+        repair_feedback=feedback,
+        model_ms=model_ms,
     )
+
+
+def _converse(client: Any, request: dict[str, Any], model_ms: list[int]) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        return client.converse(**request)
+    finally:
+        model_ms.append(round((time.monotonic() - started) * 1000))
 
 
 def _total_required(document: ExtractedDocument) -> bool:

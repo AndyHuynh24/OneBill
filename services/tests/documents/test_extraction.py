@@ -421,3 +421,14 @@ def test_prompt_limits_receipt_deadlines_to_printed_return_policies():
     assert "receipt" in extraction.SYSTEM_PROMPT
     assert "only a return window" in extraction.SYSTEM_PROMPT
     assert extraction.PROMPT_VERSION == "2026-10-01.2"
+
+
+def test_each_model_call_is_timed(bedrock, expense):
+    client, stub = bedrock
+    expect_converse(stub, "grocery_needs_repair.json")
+    expect_converse(stub, "grocery_repaired.json")
+
+    outcome = extract(client, MODEL, expense)
+
+    assert len(outcome.model_ms) == outcome.attempts == 2
+    assert all(isinstance(ms, int) and ms >= 0 for ms in outcome.model_ms)

@@ -179,3 +179,17 @@ def test_fees_such_as_a_service_charge_are_scored():
 
     assert score_receipt(expected, right)["fields"] == {"fees_cents": True, "item_count": True}
     assert score_receipt(expected, wrong)["fields"] == {"fees_cents": False, "item_count": False}
+
+
+def test_latency_line_reports_median_and_max_model_time():
+    from score import render_latency
+
+    line = render_latency([4200, 3000, 9800, 5000])
+
+    assert line == "Model time per receipt (all Bedrock calls): median 4.6 s, max 9.8 s (n=4)"
+
+
+def test_latency_line_handles_no_receipts():
+    from score import render_latency
+
+    assert render_latency([]) == ""
