@@ -8,6 +8,7 @@ import { SplitFlow } from "./SplitFlow";
 
 const SAVED = {
   version: 1,
+  updatedAt: "2026-10-01T19:10:00+00:00",
   totalCents: 2886,
   members: [
     { id: "m0", name: "Me", self: true, color: 0 },
@@ -51,8 +52,13 @@ describe("SplitFlow", () => {
       assignments: { "1": [1], "2": [0] },
       charges: { "4": { mode: "proportional" } },
       expectedVersion: 0,
+      expectedUpdatedAt: DINNER.updatedAt,
     });
     expect(await screen.findByText(/adds up to \$28\.86/i)).toBeInTheDocument();
+    // Bao is now a one-tap chip, remembered only in this browser.
+    expect(JSON.parse(localStorage.getItem("onetally.friends.u") ?? "[]")).toEqual([
+      expect.objectContaining({ name: "Bao", timesUsed: 1 }),
+    ]);
   });
 
   it("a saved split opens on its summary; Edit goes back to the circle with everything kept", async () => {
@@ -68,7 +74,11 @@ describe("SplitFlow", () => {
 
     expect(api.saveSplit).toHaveBeenCalledWith(
       DINNER.docId,
-      expect.objectContaining({ assignments: { "1": [0], "2": [0] }, expectedVersion: 1 }),
+      expect.objectContaining({
+        assignments: { "1": [0], "2": [0] },
+        expectedVersion: 1,
+        expectedUpdatedAt: SAVED.updatedAt,
+      }),
     );
   });
 

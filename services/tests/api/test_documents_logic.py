@@ -577,3 +577,34 @@ def test_lines_and_a_separate_total_cant_be_edited_together(table):
 
     with pytest.raises(BadRequest, match="total line"):
         correct_lines(table, doc_id, DINNER, totalCents=100)
+
+
+def test_daily_limits_can_be_switched_off_for_testing(table, s3):
+    """Deploy-time switch (-c dailyLimits=off); the default deploy turns them back on."""
+    for _ in range(logic.GLOBAL_DAILY_LIMIT + 2):
+        create_upload(
+            table,
+            s3,
+            BUCKET,
+            "user-a",
+            UPLOADER,
+            "r.jpg",
+            "image/jpeg",
+            1000,
+            NOW,
+            enforce_limits=False,
+        )
+
+    with pytest.raises(Forbidden):  # uploads stay invite-only either way
+        create_upload(
+            table,
+            s3,
+            BUCKET,
+            "user-b",
+            set(),
+            "r.jpg",
+            "image/jpeg",
+            1000,
+            NOW,
+            enforce_limits=False,
+        )

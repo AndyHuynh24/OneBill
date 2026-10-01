@@ -32,6 +32,7 @@ export const DINNER: DocumentDetail = {
   totalCents: 2886,
   currency: "USD",
   createdAt: "2026-10-01T19:00:00+00:00",
+  updatedAt: "2026-10-01T19:05:00+00:00",
   issues: [],
   lines: [
     { row: 1, description: "PAD THAI", kind: "item", amountCents: 1450 },
@@ -55,8 +56,6 @@ export function fakeApi(overrides: Partial<OneTallyApi> = {}): OneTallyApi {
     reviewDocument: vi.fn().mockResolvedValue({ ...RECEIPT, status: "ready" }),
     listObligations: vi.fn().mockResolvedValue({ obligations: [] }),
     uploadDocument: vi.fn().mockResolvedValue("new-doc"),
-    listFriends: vi.fn().mockResolvedValue({ friends: [] }),
-    deleteFriend: vi.fn().mockResolvedValue(undefined),
     saveSplit: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0 }),
     ...overrides,
   };

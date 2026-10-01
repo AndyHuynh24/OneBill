@@ -93,8 +93,13 @@ def create_upload(
     content_type: str,
     size_bytes: int,
     now: datetime,
+    enforce_limits: bool = True,
 ) -> dict[str, Any]:
-    """Reserve quota, record a pending DOC item, and return a presigned POST for the browser."""
+    """Reserve quota, record a pending DOC item, and return a presigned POST for the browser.
+
+    `enforce_limits=False` skips the daily counts (a temporary testing switch); the uploaders
+    group and the per-file checks always apply.
+    """
     if UPLOADERS_GROUP not in groups:
         raise Forbidden("Uploads are invite-only for now.")
     if content_type not in ALLOWED_TYPES:
@@ -106,12 +111,13 @@ def create_upload(
         raise BadRequest("A file name is required.")
 
     day = now.date().isoformat()
-    _consume_quota(table, f"USER#{user_id}", day, USER_DAILY_LIMIT, now)
-    try:
-        _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
-    except QuotaExceeded:
-        _refund_quota(table, f"USER#{user_id}", day)
-        raise
+    if enforce_limits:
+        _consume_quota(table, f"USER#{user_id}", day, USER_DAILY_LIMIT, now)
+        try:
+            _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
+        except QuotaExceeded:
+            _refund_quota(table, f"USER#{user_id}", day)
+            raise
 
     doc_id = new_id(int(now.timestamp() * 1000))
     key = f"uploads/{user_id}/{doc_id}"
@@ -311,6 +317,8 @@ def review_document(
         updates["correctedFields"] = sorted(fields)
         deadlines = fields.pop("deadlines", None)
         lines = fields.pop("lines", None)
+        if "totalCents" in fields:
+            removes.append("split")  # shares were computed for the old total
         updates.update(fields)
         if lines is not None:
             updates.update(_rechecked(lines, current.get("docType")))

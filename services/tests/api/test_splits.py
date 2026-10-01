@@ -6,7 +6,6 @@ import pytest
 
 from api.documents.logic import BadRequest, Conflict, NotFound, review_document
 from api.documents.splits import save_split
-from split.friends import list_friends
 
 NOW = datetime(2026, 10, 1, 19, 0, tzinfo=UTC)
 DOC = "1790000000000aaaaaaaa"
@@ -39,16 +38,20 @@ def put_doc(table, user="user-a", status="ready", lines=LINES, total=4556):
     )
 
 
+SEEN = "2026-10-01T18:00:00+00:00"  # the document version the client rendered
+
+
 def body(**overrides):
     return {
         "members": [{"name": "Me", "self": True}, {"name": "Bao"}, {"name": "Linh"}],
         "assignments": {"1": [1], "2": [2], "3": [0, 1, 2]},
         "charges": {"5": {"mode": "proportional"}, "6": {"mode": "proportional"}},
         "expectedVersion": 0,
+        "expectedUpdatedAt": SEEN,
     } | overrides
 
 
-def test_split_is_computed_stored_and_friends_remembered(table):
+def test_split_is_computed_and_stored(table):
     put_doc(table)
 
     split = save_split(table, "user-a", DOC, body(), NOW)
@@ -62,7 +65,7 @@ def test_split_is_computed_stored_and_friends_remembered(table):
     assert [m["color"] for m in split["members"]] == [0, 1, 2]  # distinct, by seat
     stored = table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{DOC}"})["Item"]["split"]
     assert int(stored["version"]) == 1
-    assert sorted(f["name"] for f in list_friends(table, "user-a")) == ["Bao", "Linh"]  # not "Me"
+    assert "friendId" not in stored["members"][1]  # friends live only on the device
 
 
 def test_one_person_can_take_the_tip(table):
@@ -87,7 +90,10 @@ def test_resaving_needs_the_current_version(table):
     with pytest.raises(Conflict):
         save_split(table, "user-a", DOC, body(expectedVersion=0), NOW)  # stale
 
-    assert save_split(table, "user-a", DOC, body(expectedVersion=1), NOW)["version"] == 2
+    resaved = save_split(
+        table, "user-a", DOC, body(expectedVersion=1, expectedUpdatedAt=NOW.isoformat()), NOW
+    )
+    assert resaved["version"] == 2
 
 
 def test_a_bill_that_doesnt_add_up_must_be_fixed_first(table):
@@ -138,6 +144,50 @@ def test_fixing_lines_clears_an_existing_split(table):
 
     doc = review_document(
         table, "user-a", DOC, {"action": "correct", "fields": {"lines": lines}}, NOW
+    )
+
+    assert "split" not in doc
+
+
+def test_a_split_made_on_lines_that_changed_since_is_refused(table):
+    """Security review: rows are renumbered when lines are edited on another device; a split
+    computed on the old lines must not land on different items."""
+    put_doc(table)
+
+    with pytest.raises(Conflict):
+        save_split(table, "user-a", DOC, body(expectedUpdatedAt="2026-10-01T17:00:00+00:00"), NOW)
+
+
+def test_the_document_version_the_client_saw_is_required(table):
+    put_doc(table)
+
+    with pytest.raises(BadRequest):
+        save_split(
+            table, "user-a", DOC, {k: v for k, v in body().items() if k != "expectedUpdatedAt"}, NOW
+        )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"assignments": {"1": [0] * 13, "2": [2], "3": [0]}},
+        {"assignments": {str(i): [0] for i in range(1, 202)}},
+        {"charges": {str(i): {"mode": "even"} for i in range(1, 202)}},
+    ],
+)
+def test_oversized_requests_are_rejected_before_any_work(table, overrides):
+    put_doc(table)
+
+    with pytest.raises(BadRequest):
+        save_split(table, "user-a", DOC, body(**overrides), NOW)
+
+
+def test_correcting_only_the_total_also_clears_the_split(table):
+    put_doc(table)
+    save_split(table, "user-a", DOC, body(), NOW)
+
+    doc = review_document(
+        table, "user-a", DOC, {"action": "correct", "fields": {"totalCents": 4600}}, NOW
     )
 
     assert "split" not in doc

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { forgetFriend, loadFriends, rememberFriends } from "../friends";
 import { useState } from "react";
 import type { DocumentDetail, OneTallyApi, Split } from "../api";
 import type { Person } from "../split";
@@ -29,11 +30,11 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
 
   const lines = doc.lines ?? [];
   const chargeLines = lines.filter((l) => CHARGE_KINDS.has(l.kind));
-  const friends = useQuery({ queryKey: ["friends"], queryFn: api.listFriends });
-  const forget = useMutation({
-    mutationFn: (friendId: string) => api.deleteFriend(friendId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["friends"] }),
-  });
+  // Recent friends live only in this browser, per account.
+  const profile = useQuery({ queryKey: ["me"], queryFn: api.getProfile });
+  const userId = profile.data?.userId;
+  const [, refreshFriends] = useState(0);
+  const friends = userId ? loadFriends(userId) : [];
   const save = useMutation({
     mutationFn: (request: { assignments: Assignments; charges: Charges }) =>
       api.saveSplit(doc.docId, {
@@ -41,12 +42,14 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
         assignments: request.assignments,
         charges: request.charges,
         expectedVersion: saved?.version ?? 0,
+        expectedUpdatedAt: saved?.updatedAt ?? doc.updatedAt ?? "",
       }),
     onSuccess: (split) => {
       setSaved(split);
       setStep("summary");
       queryClient.invalidateQueries({ queryKey: ["document", doc.docId] });
-      queryClient.invalidateQueries({ queryKey: ["friends"] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (userId) rememberFriends(userId, people.filter((p) => !p.self).map((p) => p.name));
     },
   });
 
@@ -70,11 +73,14 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
     <div className="split-flow">
       {step === "people" && (
         <PeoplePicker
-          friends={friends.data?.friends ?? []}
+          friends={friends}
           people={people}
           onChange={setPeople}
           onNext={choosePeople}
-          onForget={(friend) => forget.mutate(friend.friendId)}
+          onForget={(friend) => {
+            if (userId) forgetFriend(userId, friend.name);
+            refreshFriends((n) => n + 1);
+          }}
         />
       )}
       {step === "assign" && (

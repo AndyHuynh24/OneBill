@@ -1,5 +1,5 @@
 """Save a bill split: validate it against the document's stored lines, compute the shares in
-code (split.allocate), store them on the DOC item, and remember the friends for next time.
+code (split.allocate), and store them on the DOC item. (Recent friends live only on the device.)
 
 The client sends people by seat index and lines by row number; it never sends amounts. Every
 amount comes from the stored, reconciled lines, so a split can't change what the bill says.
@@ -12,6 +12,7 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from api.documents.logic import (
+    MAX_LINES,
     REVIEWABLE_STATUSES,
     BadRequest,
     Conflict,
@@ -27,7 +28,6 @@ from split.allocate import (
     allocate,
     one_person,
 )
-from split.friends import friend_id, remember_friends
 from split.names import MAX_NAME
 
 MIN_MEMBERS = 2
@@ -40,6 +40,12 @@ def save_split(
     doc = get_document(table, user_id, doc_id, now)  # NotFound for other users' documents
     if doc.get("status") not in REVIEWABLE_STATUSES:
         raise BadRequest("Only processed documents can be split.")
+    seen = body.get("expectedUpdatedAt")
+    if not isinstance(seen, str):
+        raise BadRequest("expectedUpdatedAt (the document version you're splitting) is required.")
+    if seen != doc.get("updatedAt"):
+        # Lines may have been edited (and rows renumbered) since this split was made.
+        raise Conflict("This bill changed since you opened it. Reload and try again.")
     members = _members(body.get("members"))
     ids = [m["id"] for m in members]
     assignments = _assignments(body.get("assignments"), ids)
@@ -83,8 +89,7 @@ def save_split(
         "totalCents": int(doc["totalCents"]),
         "updatedAt": now.isoformat(),
     }
-    _store(table, user_id, doc_id, split, expected, doc.get("updatedAt"))
-    remember_friends(table, user_id, [m["name"] for m in members if not m["self"]], now)
+    _store(table, user_id, doc_id, split, expected, seen)
     return split
 
 
@@ -101,10 +106,9 @@ def _members(raw: Any) -> list[dict[str, Any]]:
             raise BadRequest(f"{name} is in the split twice.")
         seen.add(name.casefold())
         is_self = entry.get("self") is True
-        member = {"id": f"m{seat}", "name": name, "self": is_self, "color": seat % MAX_MEMBERS}
-        if not is_self:
-            member["friendId"] = friend_id(name)
-        members.append(member)
+        members.append(
+            {"id": f"m{seat}", "name": name, "self": is_self, "color": seat % MAX_MEMBERS}
+        )
     if sum(m["self"] for m in members) != 1:
         raise BadRequest("Exactly one person in the split must be you.")
     return members
@@ -123,18 +127,18 @@ def _row(key: Any) -> int:
 
 
 def _assignments(raw: Any, ids: list[str]) -> dict[int, list[str]]:
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or len(raw) > MAX_LINES:
         raise BadRequest("assignments must map row numbers to people.")
     out = {}
     for key, seats in raw.items():
-        if not isinstance(seats, list):
+        if not isinstance(seats, list) or len(seats) > MAX_MEMBERS:
             raise BadRequest("Each line needs a list of people.")
         out[_row(key)] = [_seat(seat, ids) for seat in seats]
     return out
 
 
 def _charges(raw: Any, ids: list[str]) -> dict[int, ChargeMode]:
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or len(raw) > MAX_LINES:
         raise BadRequest("charges must map row numbers to a choice.")
     out: dict[int, ChargeMode] = {}
     for key, choice in raw.items():

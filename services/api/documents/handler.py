@@ -18,7 +18,6 @@ from botocore.config import Config
 
 from api.documents import logic, splits
 from shared.dates import app_today, parse_iso_date
-from split import friends
 
 logger = Logger()
 tracer = Tracer()
@@ -67,7 +66,17 @@ def create_document() -> tuple[dict[str, Any], int]:
         raise logic.BadRequest("sizeBytes must be an integer.")
     groups = logic.parse_groups(_claims().get("cognito:groups"))
     result = logic.create_upload(
-        table, s3, BUCKET, user_id, groups, filename, content_type, size, now=datetime.now(UTC)
+        table,
+        s3,
+        BUCKET,
+        user_id,
+        groups,
+        filename,
+        content_type,
+        size,
+        now=datetime.now(UTC),
+        # Temporary testing switch, set only by `cdk deploy -c dailyLimits=off`.
+        enforce_limits=os.environ.get("DAILY_LIMITS", "on") != "off",
     )
     logger.info("upload_created", extra={"docId": result["docId"]})
     return result, 201
@@ -125,22 +134,6 @@ def save_split(doc_id: str) -> dict[str, Any]:
         extra={"docId": doc_id, "people": len(split["members"]), "version": split["version"]},
     )
     return split
-
-
-@app.get("/friends")
-@tracer.capture_method
-def list_friends() -> dict[str, Any]:
-    return {"friends": friends.list_friends(table, _user_id())}
-
-
-@app.delete("/friends/<friend_id>")
-@tracer.capture_method
-def delete_friend(friend_id: str) -> Response:
-    try:
-        friends.delete_friend(table, _user_id(), friend_id)
-    except friends.InvalidFriend as err:
-        raise logic.NotFound("Friend not found.") from err
-    return Response(status_code=204)
 
 
 @logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_HTTP)

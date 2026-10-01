@@ -28,6 +28,12 @@ export interface ApiStackProps extends StackProps {
    * @default false
    */
   readonly enableTracing?: boolean;
+  /**
+   * Daily upload limits (decision R2). `false` only for a testing deploy
+   * (`cdk deploy -c dailyLimits=off`); any normal deploy turns them back on.
+   * @default true
+   */
+  readonly dailyLimits?: boolean;
 }
 
 /**
@@ -74,7 +80,11 @@ export class ApiStack extends Stack {
       description: "Documents API: create uploads, list/read documents, list obligations",
       serviceName: "onetally-api",
       logKey: props.dataKey,
-      environment: { TABLE_NAME: props.table.tableName, BUCKET_NAME: props.docsBucket.bucketName },
+      environment: {
+        TABLE_NAME: props.table.tableName,
+        BUCKET_NAME: props.docsBucket.bucketName,
+        ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),
+      },
       enableTracing: props.enableTracing,
     });
     documentsFn.addToRolePolicy(
@@ -125,7 +135,6 @@ export class ApiStack extends Stack {
           apigwv2.CorsHttpMethod.POST,
           apigwv2.CorsHttpMethod.PATCH,
           apigwv2.CorsHttpMethod.PUT,
-          apigwv2.CorsHttpMethod.DELETE,
         ],
         allowHeaders: ["authorization", "content-type"],
         maxAge: Duration.hours(1),
@@ -185,12 +194,7 @@ export class ApiStack extends Stack {
       methods: [apigwv2.HttpMethod.PUT],
       integration: documents,
     });
-    this.api.addRoutes({ path: "/friends", methods: [apigwv2.HttpMethod.GET], integration: documents });
-    this.api.addRoutes({
-      path: "/friends/{friendId}",
-      methods: [apigwv2.HttpMethod.DELETE],
-      integration: documents,
-    });
+
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
   }

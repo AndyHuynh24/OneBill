@@ -49,7 +49,7 @@ describe("ApiStack — HTTP API", () => {
       ProtocolType: "HTTP",
       CorsConfiguration: Match.objectLike({
         AllowOrigins: ["http://localhost:5173"],
-        AllowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
+        AllowMethods: ["GET", "POST", "PATCH", "PUT"],
         AllowHeaders: ["authorization", "content-type"],
       }),
     });
@@ -63,6 +63,11 @@ describe("ApiStack — HTTP API", () => {
       // ID tokens have no `scope` claim, so requiring a scope rejects them.
       AuthorizationScopes: ["openid"],
     });
+  });
+
+  it("keeps recent friends off the server (they live on the device)", () => {
+    const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
+    expect(routes.some((r) => String(r.Properties.RouteKey).includes("friends"))).toBe(false);
   });
 
   it("has no unauthenticated routes", () => {
@@ -169,8 +174,6 @@ describe("ApiStack — documents API", () => {
     "PATCH /documents/{docId}",
     "GET /obligations",
     "PUT /documents/{docId}/split",
-    "GET /friends",
-    "DELETE /friends/{friendId}",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {

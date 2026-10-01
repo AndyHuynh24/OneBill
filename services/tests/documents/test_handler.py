@@ -351,3 +351,18 @@ def test_stage_timings_are_logged_without_document_content(env, caplog):
     assert isinstance(timings["model"], list)
     assert len(timings["model"]) == 1  # one Bedrock call, no repair
     assert "TARGET" not in json.dumps(entry, default=str)  # never document content
+
+
+def test_page_budget_is_skipped_when_daily_limits_are_off(env, monkeypatch):
+    from documents import store
+
+    monkeypatch.setenv("DAILY_LIMITS", "off")  # read per event, so no reload is needed
+    for _ in range(store.DAILY_PAGE_BUDGET):
+        store.consume_page_budget(env["table"], 1, store_now())
+    version = upload(env)
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version))
+
+    assert doc(env)["status"] == "ready"

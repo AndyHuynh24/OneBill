@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Friend } from "../api";
+import type { Friend } from "../friends";
 import { MAX_PEOPLE, parseNames, type Person } from "../split";
 import { Avatar } from "./Avatar";
 
@@ -49,7 +49,7 @@ export function PeoplePicker({ friends, people, onChange, onNext, onForget }: Pe
             {friends.map((friend) =>
               editing ? (
                 <button
-                  key={friend.friendId}
+                  key={friend.name}
                   type="button"
                   className="friend-chip forget"
                   aria-label={`Forget ${friend.name}`}
@@ -59,7 +59,7 @@ export function PeoplePicker({ friends, people, onChange, onNext, onForget }: Pe
                 </button>
               ) : (
                 <button
-                  key={friend.friendId}
+                  key={friend.name}
                   type="button"
                   className="friend-chip"
                   aria-pressed={has(friend.name)}

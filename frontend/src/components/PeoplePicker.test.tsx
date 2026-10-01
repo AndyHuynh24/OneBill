@@ -2,13 +2,13 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import type { Friend } from "../api";
+import type { Friend } from "../friends";
 import type { Person } from "../split";
 import { PeoplePicker } from "./PeoplePicker";
 
 const FRIENDS: Friend[] = [
-  { friendId: "f1", name: "Bao", color: 3, timesUsed: 5, lastUsedAt: "x" },
-  { friendId: "f2", name: "Linh", color: 4, timesUsed: 2, lastUsedAt: "x" },
+  { name: "Bao", timesUsed: 5, lastUsedAt: "x" },
+  { name: "Linh", timesUsed: 2, lastUsedAt: "x" },
 ];
 
 function Harness({ onNext = vi.fn(), onForget = vi.fn() }) {
