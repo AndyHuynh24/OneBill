@@ -23,7 +23,18 @@ def aws_env(monkeypatch):
 
 @pytest.fixture
 def table():
-    """A moto-backed table with the same key schema as DataStack."""
+    """A moto-backed table with the same keys and GSIs as DataStack."""
+
+    def gsi(name):
+        return {
+            "IndexName": name,
+            "KeySchema": [
+                {"AttributeName": f"{name}PK", "KeyType": "HASH"},
+                {"AttributeName": f"{name}SK", "KeyType": "RANGE"},
+            ],
+            "Projection": {"ProjectionType": "ALL"},
+        }
+
     with mock_aws():
         ddb = boto3.resource("dynamodb", region_name="us-east-1")
         tbl = ddb.create_table(
@@ -33,9 +44,10 @@ def table():
                 {"AttributeName": "SK", "KeyType": "RANGE"},
             ],
             AttributeDefinitions=[
-                {"AttributeName": "PK", "AttributeType": "S"},
-                {"AttributeName": "SK", "AttributeType": "S"},
+                {"AttributeName": name, "AttributeType": "S"}
+                for name in ("PK", "SK", "GSI1PK", "GSI1SK", "GSI2PK", "GSI2SK")
             ],
+            GlobalSecondaryIndexes=[gsi("GSI1"), gsi("GSI2")],
             BillingMode="PAY_PER_REQUEST",
         )
         yield tbl

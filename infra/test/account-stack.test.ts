@@ -10,7 +10,7 @@ beforeAll(() => {
   const stack = new AccountStack(app, "TestAccount", {
     env: { account: "123456789012", region: "us-east-1" },
     budgetEmail: "alerts@example.com",
-    githubRepo: "AndyHuynh24/onetally",
+    githubSubject: "repo:AndyHuynh24@241491614/onetally@1398902241",
   });
   template = Template.fromStack(stack);
 });
@@ -26,13 +26,18 @@ describe("AccountStack — budget", () => {
     });
   });
 
-  it("emails at 20/50/80/100% actual and 100% forecasted", () => {
+  it("lets CloudFormation name the budget, so alert changes (a replacement) don't collide", () => {
+    const budget = Object.values(template.findResources("AWS::Budgets::Budget"))[0];
+    expect(budget.Properties.Budget.BudgetName).toBeUndefined();
+  });
+
+  it("emails at 30/50/80/100% actual and 100% forecasted", () => {
     const budget = Object.values(template.findResources("AWS::Budgets::Budget"))[0];
     const notifications = budget.Properties.NotificationsWithSubscribers.map(
       (n: { Notification: { NotificationType: string; Threshold: number } }) =>
         `${n.Notification.NotificationType}:${n.Notification.Threshold}`,
     );
-    expect(notifications.sort()).toEqual(["ACTUAL:100", "ACTUAL:20", "ACTUAL:50", "ACTUAL:80", "FORECASTED:100"]);
+    expect(notifications.sort()).toEqual(["ACTUAL:100", "ACTUAL:30", "ACTUAL:50", "ACTUAL:80", "FORECASTED:100"]);
     for (const n of budget.Properties.NotificationsWithSubscribers) {
       expect(n.Subscribers).toEqual([{ SubscriptionType: "EMAIL", Address: "alerts@example.com" }]);
     }
@@ -47,7 +52,7 @@ describe("AccountStack — GitHub OIDC CI role", () => {
     });
   });
 
-  it("only trusts pull_request workflows from this repo", () => {
+  it("only trusts pull_request workflows from this exact repo (immutable owner and repo IDs)", () => {
     template.hasResourceProperties("AWS::IAM::Role", {
       RoleName: "onetally-ci-diff",
       MaxSessionDuration: 3600,
@@ -59,7 +64,9 @@ describe("AccountStack — GitHub OIDC CI role", () => {
             Condition: {
               StringEquals: {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                "token.actions.githubusercontent.com:sub": "repo:AndyHuynh24/onetally:pull_request",
+                // A deleted-and-recreated repo with the same name gets a new ID, so it can't match.
+                "token.actions.githubusercontent.com:sub":
+                  "repo:AndyHuynh24@241491614/onetally@1398902241:pull_request",
               },
             },
           }),

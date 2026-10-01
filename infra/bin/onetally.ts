@@ -3,6 +3,7 @@ import { AccountStack } from "../lib/account-stack";
 import { ApiStack } from "../lib/api-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
+import { PipelineStack } from "../lib/pipeline-stack";
 
 const app = new App();
 
@@ -10,7 +11,7 @@ const app = new App();
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
 const frontendUrl: string = app.node.getContext("frontendUrl");
 
-const data = new DataStack(app, "OneTally-Data", { env });
+const data = new DataStack(app, "OneTally-Data", { env, frontendUrl });
 
 const auth = new AuthStack(app, "OneTally-Auth", {
   env,
@@ -22,10 +23,22 @@ new ApiStack(app, "OneTally-Api", {
   env,
   table: data.table,
   dataKey: data.key,
+  docsBucket: data.docsBucket,
   userPool: auth.userPool,
   userPoolClient: auth.client,
   frontendUrl,
   // Debug switch: npx cdk deploy OneTally-Api -c tracing=true
+  enableTracing: app.node.tryGetContext("tracing") === "true",
+});
+
+new PipelineStack(app, "OneTally-Pipeline", {
+  env,
+  table: data.table,
+  docsBucket: data.docsBucket,
+  dataKey: data.key,
+  bedrockModelId: app.node.getContext("bedrockModelId"),
+  userPool: auth.userPool,
+  appUrl: frontendUrl,
   enableTracing: app.node.tryGetContext("tracing") === "true",
 });
 
@@ -37,6 +50,6 @@ if (budgetEmail) {
   new AccountStack(app, "OneTally-Account", {
     env,
     budgetEmail,
-    githubRepo: app.node.getContext("githubRepo"),
+    githubSubject: app.node.getContext("githubSubject"),
   });
 }

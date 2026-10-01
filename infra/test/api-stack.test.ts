@@ -7,10 +7,25 @@ import { DataStack } from "../lib/data-stack";
 
 let template: Template;
 
+type Statement = { Action: string | string[]; Resource: unknown; Condition?: unknown };
+
+/** IAM statements attached to the role of the Lambda whose handler is `handler`. */
+function statementsFor(handler: string): Statement[] {
+  const fns = template.findResources("AWS::Lambda::Function", { Properties: { Handler: handler } });
+  const roleId = Object.values(fns)[0].Properties.Role["Fn::GetAtt"][0];
+  const policies = Object.values(template.findResources("AWS::IAM::Policy")).filter((p) =>
+    p.Properties.Roles.some((r: { Ref: string }) => r.Ref === roleId),
+  );
+  return policies.flatMap((p) => p.Properties.PolicyDocument.Statement);
+}
+
+const actionsOf = (statements: Statement[], prefix: string) =>
+  statements.flatMap((st) => [st.Action].flat()).filter((a) => a.startsWith(prefix)).sort();
+
 beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
-  const data = new DataStack(app, "TestData", { env });
+  const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
   const auth = new AuthStack(app, "TestAuth", {
     env,
     domainPrefix: "onetally-test",
@@ -20,6 +35,7 @@ beforeAll(() => {
     env,
     table: data.table,
     dataKey: data.key,
+    docsBucket: data.docsBucket,
     userPool: auth.userPool,
     userPoolClient: auth.client,
     frontendUrl: "http://localhost:5173",
@@ -33,7 +49,7 @@ describe("ApiStack — HTTP API", () => {
       ProtocolType: "HTTP",
       CorsConfiguration: Match.objectLike({
         AllowOrigins: ["http://localhost:5173"],
-        AllowMethods: ["GET"],
+        AllowMethods: ["GET", "POST", "PATCH"],
         AllowHeaders: ["authorization", "content-type"],
       }),
     });
@@ -84,7 +100,7 @@ describe("ApiStack — /me Lambda", () => {
     template.hasResourceProperties("AWS::Lambda::Function", {
       Runtime: "python3.12",
       Architectures: ["arm64"],
-      Handler: "me.handler.handler",
+      Handler: "api.me.handler.handler",
       MemorySize: 256,
       Timeout: 10,
       Layers: [Match.stringLikeRegexp("AWSLambdaPowertoolsPythonV3-python312-arm64")],
@@ -117,20 +133,15 @@ describe("ApiStack — /me Lambda", () => {
   });
 
   it("grants /me only GetItem and PutItem on the table itself (no Scan, no indexes)", () => {
-    const statements = Object.values(template.findResources("AWS::IAM::Policy")).flatMap(
-      (p) => p.Properties.PolicyDocument.Statement,
-    );
-    const dynamo = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith("dynamodb:")));
-    expect(dynamo).toHaveLength(1);
-    expect([dynamo[0].Action].flat().sort()).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
-    expect(JSON.stringify(dynamo[0].Resource)).not.toContain("index");
+    const statements = statementsFor("api.me.handler.handler");
+    expect(actionsOf(statements, "dynamodb:")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
+    const dynamo = statements.find((st) => actionsOf([st], "dynamodb:").length);
+    expect(JSON.stringify(dynamo?.Resource)).not.toContain("index");
+    expect(actionsOf(statements, "s3:")).toEqual([]);
   });
 
-  it("allows KMS use only through DynamoDB, with no wildcard KMS actions", () => {
-    const statements = Object.values(template.findResources("AWS::IAM::Policy")).flatMap(
-      (p) => p.Properties.PolicyDocument.Statement,
-    );
-    const kms = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith("kms:")));
+  it("allows /me KMS use only through DynamoDB, with no wildcard KMS actions", () => {
+    const kms = statementsFor("api.me.handler.handler").filter((st) => actionsOf([st], "kms:").length);
     expect(kms).toHaveLength(1);
     for (const action of [kms[0].Action].flat()) {
       expect(action).not.toContain("*");
@@ -150,16 +161,77 @@ describe("ApiStack — /me Lambda", () => {
   });
 });
 
+describe("ApiStack — documents API", () => {
+  it.each([
+    "POST /documents",
+    "GET /documents",
+    "GET /documents/{docId}",
+    "PATCH /documents/{docId}",
+    "GET /obligations",
+  ])(
+    "protects %s with the JWT authorizer",
+    (routeKey) => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: routeKey,
+        AuthorizationType: "JWT",
+        AuthorizationScopes: ["openid"],
+      });
+    },
+  );
+
+  it("runs the documents Lambda with the table and bucket names", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Handler: "api.documents.handler.handler",
+      Runtime: "python3.12",
+      Architectures: ["arm64"],
+      Environment: {
+        Variables: Match.objectLike({ TABLE_NAME: Match.anyValue(), BUCKET_NAME: Match.anyValue() }),
+      },
+    });
+  });
+
+  it("grants documents only the DynamoDB calls it makes: no Scan, no indexes", () => {
+    const statements = statementsFor("api.documents.handler.handler");
+    expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]);
+    const dynamo = statements.find((st) => actionsOf([st], "dynamodb:").length);
+    expect(JSON.stringify(dynamo?.Resource)).not.toContain("index");
+  });
+
+  it("lets documents sign uploads only under uploads/ (PutObject, nothing else in S3)", () => {
+    const statements = statementsFor("api.documents.handler.handler");
+    expect(actionsOf(statements, "s3:")).toEqual(["s3:PutObject"]);
+    const s3 = statements.find((st) => actionsOf([st], "s3:").length);
+    expect(JSON.stringify(s3?.Resource)).toContain("/uploads/*");
+  });
+
+  it("allows documents KMS use only through DynamoDB and S3", () => {
+    const kms = statementsFor("api.documents.handler.handler").filter((st) => actionsOf([st], "kms:").length);
+    expect(kms).toHaveLength(1);
+    expect(kms[0].Condition).toEqual({
+      StringEquals: {
+        "kms:ViaService": ["dynamodb.us-east-1.amazonaws.com", "s3.us-east-1.amazonaws.com"],
+      },
+    });
+  });
+});
+
 describe("ApiStack — tracing switch", () => {
   it("turns on active X-Ray tracing when enableTracing is set", () => {
     const app = new App();
     const env = { account: "123456789012", region: "us-east-1" };
-    const data = new DataStack(app, "D", { env });
+    const data = new DataStack(app, "D", { env, frontendUrl: "http://localhost:5173" });
     const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
     const api = new ApiStack(app, "Api", {
       env,
       table: data.table,
       dataKey: data.key,
+      docsBucket: data.docsBucket,
       userPool: auth.userPool,
       userPoolClient: auth.client,
       frontendUrl: "http://localhost:5173",

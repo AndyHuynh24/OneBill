@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Hub } from "aws-amplify/utils";
-import { useCallback, useEffect, useState } from "react";
-import { fetchProfile } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { createApi } from "./api";
 import { getAccessToken, isSignedIn, signIn, signOut } from "./auth";
 import { type AuthStatus, Home } from "./components/Home";
 import type { AppConfig } from "./config";
@@ -9,6 +9,7 @@ import type { AppConfig } from "./config";
 export function App({ config }: { config: AppConfig }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const queryClient = useQueryClient();
+  const api = useMemo(() => createApi(config.apiUrl, getAccessToken), [config.apiUrl]);
 
   useEffect(() => {
     isSignedIn().then((signedIn) => setStatus(signedIn ? "signedIn" : "signedOut"));
@@ -32,7 +33,5 @@ export function App({ config }: { config: AppConfig }) {
     });
   }, [queryClient]);
 
-  const loadProfile = useCallback(() => fetchProfile(config.apiUrl, getAccessToken), [config.apiUrl]);
-
-  return <Home status={status} onSignIn={signIn} onSignOut={signOut} loadProfile={loadProfile} />;
+  return <Home status={status} api={api} onSignIn={signIn} onSignOut={signOut} />;
 }

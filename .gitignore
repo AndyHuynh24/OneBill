@@ -34,3 +34,9 @@ infra/cdk-outputs.json
 docs/learn/
 docs/pr/
 docs/LEARNING_LOG.md
+START_HERE.md
+
+# Eval inputs and per-receipt outputs contain real receipts (personal data): local only.
+eval/receipts/
+eval/cache/
+eval/out/

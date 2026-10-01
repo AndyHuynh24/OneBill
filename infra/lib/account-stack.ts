@@ -6,8 +6,13 @@ import { Construct } from "constructs";
 export interface AccountStackProps extends StackProps {
   /** Where budget alerts go. Passed at deploy time (-c budgetEmail=...), never committed. */
   readonly budgetEmail: string;
-  /** "owner/repo" allowed to assume the CI role. */
-  readonly githubRepo: string;
+  /**
+   * GitHub's OIDC subject for the repo allowed to assume the CI role. This repo uses GitHub's
+   * immutable format, "repo:<owner>@<ownerId>/<repo>@<repoId>": a deleted and recreated repo with
+   * the same name gets a new ID and can't match. Check it with
+   * `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` (sub_claim_prefix).
+   */
+  readonly githubSubject: string;
 }
 
 const GITHUB_OIDC_HOST = "token.actions.githubusercontent.com";
@@ -34,13 +39,14 @@ export class AccountStack extends Stack {
 
     new budgets.CfnBudget(this, "MonthlyBudget", {
       budget: {
-        budgetName: "onetally-monthly",
+        // No fixed budgetName: changing the alert list replaces the budget, and a fixed name
+        // makes the replacement collide with the old one. CloudFormation generates a unique name.
         budgetType: "COST",
         timeUnit: "MONTHLY",
         budgetLimit: { amount: 10, unit: "USD" },
       },
       notificationsWithSubscribers: [
-        alert("ACTUAL", 20), // $2: early warning, normal spend is ~$1
+        alert("ACTUAL", 30), // $3: early warning; normal spend is ~$2 (decision R3)
         alert("ACTUAL", 50),
         alert("ACTUAL", 80),
         alert("ACTUAL", 100),
@@ -60,7 +66,7 @@ export class AccountStack extends Stack {
       assumedBy: new iam.OpenIdConnectPrincipal(github, {
         StringEquals: {
           [`${GITHUB_OIDC_HOST}:aud`]: "sts.amazonaws.com",
-          [`${GITHUB_OIDC_HOST}:sub`]: `repo:${props.githubRepo}:pull_request`,
+          [`${GITHUB_OIDC_HOST}:sub`]: `${props.githubSubject}:pull_request`,
         },
       }),
     });

@@ -7,7 +7,6 @@ export interface AppConfig {
   userPoolClientId: string;
   cognitoDomain: string;
   apiUrl: string;
-  appUrl: string;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = import.meta.env): AppConfig {
@@ -23,8 +22,5 @@ export function loadConfig(env: Record<string, string | undefined> = import.meta
   if (missing.length > 0) {
     throw new Error(`Missing config: ${missing.join(", ")}. Run \`make frontend-env\` after deploying.`);
   }
-  return {
-    ...(required as Omit<AppConfig, "appUrl">),
-    appUrl: env.VITE_APP_URL ?? "http://localhost:5173",
-  };
+  return required as AppConfig;
 }

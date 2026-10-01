@@ -60,6 +60,15 @@ describe("AuthStack — app client", () => {
   });
 });
 
+describe("AuthStack — upload access", () => {
+  it("has an 'uploaders' group that gates paid document processing", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolGroup", {
+      GroupName: "uploaders",
+      UserPoolId: Match.anyValue(),
+    });
+  });
+});
+
 describe("AuthStack — hosted login", () => {
   it("creates a Cognito prefix domain using managed login", () => {
     template.hasResourceProperties("AWS::Cognito::UserPoolDomain", {

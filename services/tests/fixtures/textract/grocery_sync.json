@@ -1,0 +1,709 @@
+{
+  "DocumentMetadata": {
+    "Pages": 1
+  },
+  "ExpenseDocuments": [
+    {
+      "ExpenseIndex": 1,
+      "SummaryFields": [
+        {
+          "Type": {
+            "Text": "VENDOR_NAME",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "TARGET",
+            "Confidence": 99.0
+          },
+          "PageNumber": 1
+        },
+        {
+          "Type": {
+            "Text": "INVOICE_RECEIPT_DATE",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "09/28/2026",
+            "Confidence": 99.0
+          },
+          "PageNumber": 1,
+          "LabelDetection": {
+            "Text": "DATE",
+            "Confidence": 98.0
+          }
+        },
+        {
+          "Type": {
+            "Text": "SUBTOTAL",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "24.48",
+            "Confidence": 99.0
+          },
+          "PageNumber": 1,
+          "LabelDetection": {
+            "Text": "SUBTOTAL",
+            "Confidence": 98.0
+          },
+          "Currency": {
+            "Code": "USD"
+          }
+        },
+        {
+          "Type": {
+            "Text": "TAX",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "1.70",
+            "Confidence": 99.0
+          },
+          "PageNumber": 1,
+          "LabelDetection": {
+            "Text": "TAX",
+            "Confidence": 98.0
+          },
+          "Currency": {
+            "Code": "USD"
+          }
+        },
+        {
+          "Type": {
+            "Text": "TOTAL",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "$26.18",
+            "Confidence": 96.4
+          },
+          "PageNumber": 1,
+          "LabelDetection": {
+            "Text": "TOTAL",
+            "Confidence": 98.0
+          },
+          "Currency": {
+            "Code": "USD"
+          }
+        },
+        {
+          "Type": {
+            "Text": "AMOUNT_PAID",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "30.00",
+            "Confidence": 99.0
+          },
+          "PageNumber": 1,
+          "LabelDetection": {
+            "Text": "CASH",
+            "Confidence": 98.0
+          }
+        },
+        {
+          "Type": {
+            "Text": "OTHER",
+            "Confidence": 99.5
+          },
+          "ValueDetection": {
+            "Text": "3.82",
+            "Confidence": 99.0
+          },
+          "PageNumber": 1,
+          "LabelDetection": {
+            "Text": "CHANGE",
+            "Confidence": 98.0
+          }
+        }
+      ],
+      "LineItemGroups": [
+        {
+          "LineItemGroupIndex": 1,
+          "LineItems": [
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "BANANAS",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "1.29",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "BANANAS 1.29",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "MILK 1 GAL",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "4.19",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "MILK 1 GAL 4.19",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "BREAD",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "3.50",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "BREAD 3.50",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "EGGS",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "5.50",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "EGGS 5.50",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "CHICKEN",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "12.00",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "CHICKEN 12.00",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "COUPON",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "2.00-",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "COUPON 2.00-",
+                    "Confidence": 97.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "SUBTOTAL",
+                    "Confidence": 91.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "24.48",
+                    "Confidence": 91.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "SUBTOTAL 24.48",
+                    "Confidence": 91.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "TOTAL",
+                    "Confidence": 90.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "26.18",
+                    "Confidence": 90.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "TOTAL 26.18",
+                    "Confidence": 90.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            },
+            {
+              "LineItemExpenseFields": [
+                {
+                  "Type": {
+                    "Text": "ITEM",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "CASH",
+                    "Confidence": 88.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "PRICE",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "30.00",
+                    "Confidence": 88.0
+                  },
+                  "PageNumber": 1
+                },
+                {
+                  "Type": {
+                    "Text": "EXPENSE_ROW",
+                    "Confidence": 99.0
+                  },
+                  "ValueDetection": {
+                    "Text": "CASH 30.00",
+                    "Confidence": 88.0
+                  },
+                  "PageNumber": 1
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "Blocks": [
+        {
+          "BlockType": "PAGE",
+          "Id": "p1",
+          "Page": 1
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-0",
+          "Text": "TARGET",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.02,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-1",
+          "Text": "STORE 1234 SPRINGFIELD IL",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.06,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-2",
+          "Text": "09/28/2026 14:05",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.1,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-3",
+          "Text": "BANANAS 1.29",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.13999999999999999,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-4",
+          "Text": "MILK 1 GAL 4.19",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.18,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-5",
+          "Text": "BREAD 3.50",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.22,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-6",
+          "Text": "EGGS 5.50",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.26,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-7",
+          "Text": "CHICKEN 12.00",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.30000000000000004,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-8",
+          "Text": "COUPON 2.00-",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.34,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-9",
+          "Text": "SUBTOTAL 24.48",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.38,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-10",
+          "Text": "TAX 1.70",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.42000000000000004,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-11",
+          "Text": "TOTAL 26.18",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.46,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-12",
+          "Text": "CASH 30.00",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.5,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-13",
+          "Text": "CHANGE 3.82",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.54,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-14",
+          "Text": "VISA ****1234",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.5800000000000001,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        },
+        {
+          "BlockType": "LINE",
+          "Id": "l1-15",
+          "Text": "RETURNS ACCEPTED WITHIN 30 DAYS WITH RECEIPT",
+          "Confidence": 99.0,
+          "Page": 1,
+          "Geometry": {
+            "BoundingBox": {
+              "Top": 0.62,
+              "Left": 0.1,
+              "Width": 0.8,
+              "Height": 0.03
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -8,7 +8,7 @@ from aws_lambda_powertools.event_handler import APIGatewayHttpResolver
 from aws_lambda_powertools.event_handler.exceptions import UnauthorizedError
 from aws_lambda_powertools.logging import correlation_paths
 
-from me.logic import get_or_create_profile
+from api.me.logic import get_or_create_profile
 
 logger = Logger()
 tracer = Tracer()
