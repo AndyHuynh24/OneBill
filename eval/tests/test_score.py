@@ -37,6 +37,7 @@ PREDICTED = {
         ("Target", "TARGET", True),
         ("Target", "Target #1234 Springfield", True),
         ("Trader Joe's", "TRADER JOES", True),
+        ("Beef a Roo", "Beef-a-Roo", True),
         ("Target", "Walmart", False),
         ("Target", None, False),
     ],

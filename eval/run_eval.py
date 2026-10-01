@@ -93,6 +93,8 @@ def to_predicted(result: Any, outcome: Any) -> dict[str, Any]:
         ],
         "status": result.status,
         "attempts": outcome.attempts,
+        "issues": result.issues,
+        "repair_feedback": outcome.repair_feedback,
     }
 
 

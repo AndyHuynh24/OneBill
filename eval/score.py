@@ -20,7 +20,8 @@ SCALAR_FIELDS = (
 
 
 def _words(text: str | None) -> list[str]:
-    return re.sub(r"[^a-z0-9 ]+", "", (text or "").lower().replace("'", "")).split()
+    # Apostrophes join ("Joe's" → "joes"); other punctuation separates ("Beef-a-Roo" → beef a roo).
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower().replace("'", "")).split()
 
 
 def vendors_match(expected: str, predicted: str | None) -> bool:
