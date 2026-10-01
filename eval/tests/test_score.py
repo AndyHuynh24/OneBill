@@ -169,3 +169,12 @@ def test_null_label_fields_are_not_scored():
         "total_cents": 2618,
         "deadlines": [],
     }
+
+
+def test_fees_such_as_a_service_charge_are_scored():
+    expected = {"fees_cents": 540, "item_count": 2}
+    right = PREDICTED | {"fees_cents": 540, "item_count": 2}
+    wrong = PREDICTED | {"fees_cents": 0, "item_count": 3}  # service charge counted as an item
+
+    assert score_receipt(expected, right)["fields"] == {"fees_cents": True, "item_count": True}
+    assert score_receipt(expected, wrong)["fields"] == {"fees_cents": False, "item_count": False}

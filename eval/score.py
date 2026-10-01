@@ -13,6 +13,7 @@ SCALAR_FIELDS = (
     ("subtotal_cents", "Subtotal"),
     ("tax_cents", "Tax"),
     ("tip_cents", "Tip"),
+    ("fees_cents", "Fees (service charge, bag, delivery)"),
     ("total_cents", "Total"),
     ("item_count", "Item count"),
 )

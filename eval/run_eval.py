@@ -56,6 +56,7 @@ def init_labels(receipts: Path = RECEIPTS, labels_path: Path = LABELS) -> list[s
                         "subtotal_cents": None,
                         "tax_cents": None,
                         "tip_cents": None,
+                        "fees_cents": None,
                         "total_cents": None,
                         "item_count": None,
                         "deadlines": None,  # [] would mean "no deadlines"; null = not labelled
@@ -79,6 +80,7 @@ def to_predicted(result: Any, outcome: Any) -> dict[str, Any]:
         "subtotal_cents": result.subtotal_cents,
         "tax_cents": result.tax_cents,
         "tip_cents": result.tip_cents,
+        "fees_cents": result.fees_cents,
         "total_cents": result.total_cents,
         "item_count": sum(1 for line in result.lines if line["kind"] == "item"),
         "lines": [
