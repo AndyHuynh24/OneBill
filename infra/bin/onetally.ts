@@ -22,6 +22,7 @@ new ApiStack(app, "OneTally-Api", {
   env,
   table: data.table,
   dataKey: data.key,
+  docsBucket: data.docsBucket,
   userPool: auth.userPool,
   userPoolClient: auth.client,
   frontendUrl,

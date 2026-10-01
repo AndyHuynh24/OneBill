@@ -7,18 +7,17 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
-import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { servicesCode } from "./python-code";
-
-// Pinned (not "latest") so deploys are reproducible. Source: Powertools install docs.
-const POWERTOOLS_LAYER_VERSION = 38;
+import { newServiceFunction } from "./python-code";
 
 export interface ApiStackProps extends StackProps {
   readonly table: dynamodb.ITable;
   /** The customer-managed key that encrypts the table; also used for log groups. */
   readonly dataKey: kms.IKey;
+  /** Documents bucket; the API signs browser uploads into its uploads/ prefix. */
+  readonly docsBucket: s3.IBucket;
   readonly userPool: cognito.IUserPool;
   readonly userPoolClient: cognito.IUserPoolClient;
   /** Only this browser origin may call the API (CORS). */
@@ -42,37 +41,17 @@ export class ApiStack extends Stack {
     super(scope, id, props);
     Tags.of(this).add("project", "onetally");
 
-    const powertools = lambda.LayerVersion.fromLayerVersionArn(
-      this,
-      "PowertoolsLayer",
-      `arn:aws:lambda:${this.region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python312-arm64:${POWERTOOLS_LAYER_VERSION}`,
-    );
+    const viaDynamo = `dynamodb.${this.region}.amazonaws.com`;
+    const viaS3 = `s3.${this.region}.amazonaws.com`;
 
-    const meFn = new lambda.Function(this, "MeFunction", {
-      description: "GET /me: return the caller's PROFILE item, creating it on first call",
-      runtime: lambda.Runtime.PYTHON_3_12,
-      architecture: lambda.Architecture.ARM_64,
-      code: servicesCode(),
+    const meFn = newServiceFunction(this, "MeFunction", {
       handler: "api.me.handler.handler",
-      memorySize: 256,
-      timeout: Duration.seconds(10),
-      tracing: props.enableTracing ? lambda.Tracing.ACTIVE : undefined,
-      layers: [powertools],
-      environment: {
-        TABLE_NAME: props.table.tableName,
-        POWERTOOLS_SERVICE_NAME: "onetally-api",
-        POWERTOOLS_LOG_LEVEL: "INFO",
-        // Don't copy response bodies into X-Ray (it bypasses our KMS key and PII redaction).
-        POWERTOOLS_TRACER_CAPTURE_RESPONSE: "false",
-        POWERTOOLS_TRACE_DISABLED: props.enableTracing ? "false" : "true",
-      },
-      logGroup: new logs.LogGroup(this, "MeFunctionLogs", {
-        retention: logs.RetentionDays.TWO_WEEKS,
-        encryptionKey: props.dataKey,
-        removalPolicy: RemovalPolicy.DESTROY,
-      }),
+      description: "GET /me: return the caller's PROFILE item, creating it on first call",
+      serviceName: "onetally-api",
+      logKey: props.dataKey,
+      environment: { TABLE_NAME: props.table.tableName },
+      enableTracing: props.enableTracing,
     });
-
     // Least privilege: exactly the two calls logic.py makes, on the table only (no Scan, no
     // indexes), plus use of the table's key only when DynamoDB calls KMS on our behalf.
     // (grantReadWriteData would add Scan/Delete/BatchWrite and wildcard KMS actions.)
@@ -86,7 +65,38 @@ export class ApiStack extends Stack {
       new iam.PolicyStatement({
         actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
         resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": `dynamodb.${this.region}.amazonaws.com` } },
+        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
+      }),
+    );
+
+    const documentsFn = newServiceFunction(this, "DocumentsFunction", {
+      handler: "api.documents.handler.handler",
+      description: "Documents API: create uploads, list/read documents, list obligations",
+      serviceName: "onetally-api",
+      logKey: props.dataKey,
+      environment: { TABLE_NAME: props.table.tableName, BUCKET_NAME: props.docsBucket.bucketName },
+      enableTracing: props.enableTracing,
+    });
+    documentsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // Get/Query: read own items; Put: new DOC#; Update: atomic quota counters.
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"],
+        resources: [props.table.tableArn],
+      }),
+    );
+    documentsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // A presigned POST carries the signer's permissions: the browser can only write under uploads/.
+        actions: ["s3:PutObject"],
+        resources: [props.docsBucket.arnForObjects("uploads/*")],
+      }),
+    );
+    documentsFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // DynamoDB table encryption, and SSE-KMS for the browser's upload (signed with this role).
+        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+        resources: [props.dataKey.keyArn],
+        conditions: { StringEquals: { "kms:ViaService": [viaDynamo, viaS3] } },
       }),
     );
 
@@ -103,7 +113,7 @@ export class ApiStack extends Stack {
       defaultAuthorizationScopes: ["openid"],
       corsPreflight: {
         allowOrigins: [props.frontendUrl],
-        allowMethods: [apigwv2.CorsHttpMethod.GET],
+        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST],
         allowHeaders: ["authorization", "content-type"],
         maxAge: Duration.hours(1),
       },
@@ -144,6 +154,14 @@ export class ApiStack extends Stack {
       methods: [apigwv2.HttpMethod.GET],
       integration: new HttpLambdaIntegration("MeIntegration", meFn),
     });
+    const documents = new HttpLambdaIntegration("DocumentsIntegration", documentsFn);
+    this.api.addRoutes({
+      path: "/documents",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: documents,
+    });
+    this.api.addRoutes({ path: "/documents/{docId}", methods: [apigwv2.HttpMethod.GET], integration: documents });
+    this.api.addRoutes({ path: "/obligations", methods: [apigwv2.HttpMethod.GET], integration: documents });
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
   }
