@@ -86,7 +86,12 @@ def to_predicted(result: Any, outcome: Any) -> dict[str, Any]:
         "total_cents": result.total_cents,
         "item_count": sum(1 for line in result.lines if line["kind"] == "item"),
         "lines": [
-            {"description": line["description"], "kind": line["kind"]} for line in result.lines
+            {
+                "description": line["description"],
+                "kind": line["kind"],
+                "amount_cents": line.get("amountCents"),
+            }
+            for line in result.lines
         ],
         "deadlines": [
             {"type": o.type, "due_date": o.due_date.isoformat()} for o in result.obligations
