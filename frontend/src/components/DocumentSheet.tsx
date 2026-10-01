@@ -65,10 +65,14 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
 
         {doc && (
           <>
-            <p className="sheet-meta">
-              {doc.documentDate ? formatDate(doc.documentDate) : "No date found"}
-              {doc.totalCents != null && <strong> · {formatCents(doc.totalCents, currency)}</strong>}
-            </p>
+            {/* Missing fields are simply left out: a receipt without a printed date isn't an error. */}
+            {(doc.documentDate || doc.totalCents != null) && (
+              <p className="sheet-meta">
+                {doc.documentDate && formatDate(doc.documentDate)}
+                {doc.documentDate && doc.totalCents != null && " · "}
+                {doc.totalCents != null && <strong>{formatCents(doc.totalCents, currency)}</strong>}
+              </p>
+            )}
 
             {doc.status === "failed" && <p className="notice notice-error">{doc.failureReason}</p>}
 

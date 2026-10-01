@@ -123,21 +123,41 @@ def test_parse_output_converts_amounts_to_cents_in_code():
 
 
 @pytest.mark.parametrize(
-    "bad",
+    "bad_line",
     [
-        {"lines": [{"description": "X", "amount": "abc", "kind": "item"}]},
-        {"lines": [{"description": "X", "amount": "1.00", "kind": "produce"}]},
-        {"lines": "not a list"},
+        {"description": "X", "amount": "abc", "kind": "item"},
+        {"description": "X", "amount": "1.00", "kind": "produce"},
+        "not an object",
     ],
 )
-def test_parse_output_rejects_invalid_output(bad):
+def test_unreadable_line_is_skipped_with_a_warning_not_a_failure(bad_line):
+    """One bad line must not lose the whole scan: keep the rest, flag it for review."""
+    good = {"description": "MILK", "amount": "4.19", "kind": "item"}
+    tool_input = {
+        "doc_type": "receipt",
+        "vendor": "X",
+        "document_date": None,
+        "currency": "USD",
+        "deadlines": [],
+        "lines": [good, bad_line],
+    }
+
+    doc = parse_output(tool_input)
+
+    assert [line.description for line in doc.lines] == ["MILK"]
+    assert len(doc.warnings) == 1
+    assert "Skipped line 2" in doc.warnings[0]
+
+
+def test_lines_that_are_not_a_list_are_still_invalid():
     tool_input = {
         "doc_type": "receipt",
         "vendor": None,
         "document_date": None,
         "currency": "USD",
         "deadlines": [],
-    } | bad
+        "lines": "not a list",
+    }
 
     with pytest.raises(ExtractionError):
         parse_output(tool_input)
@@ -239,13 +259,16 @@ def test_invalid_output_gets_one_repair_then_succeeds(bedrock, expense):
     assert outcome.reconciliation.ok
 
 
-def test_invalid_output_twice_raises(bedrock, expense):
+def test_still_unreadable_after_repair_goes_to_review_instead_of_failing(bedrock, expense):
     client, stub = bedrock
     expect_converse(stub, "invalid_output.json")
     expect_converse(stub, "invalid_output.json")
 
-    with pytest.raises(ExtractionError):
-        extract(client, MODEL, expense)
+    outcome = extract(client, MODEL, expense)
+
+    assert outcome.attempts == 2
+    assert not outcome.reconciliation.ok  # nothing usable: flagged for review
+    assert outcome.document.warnings
 
 
 def test_model_not_calling_the_tool_raises(bedrock, expense):

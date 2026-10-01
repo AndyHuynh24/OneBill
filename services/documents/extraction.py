@@ -231,25 +231,30 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
     if not isinstance(raw_lines, list):
         raise ExtractionError("lines must be a list")
     lines: list[Line] = []
+    warnings: list[str] = []
     for index, raw in enumerate(raw_lines, start=1):
+        # One unreadable line must not lose the whole scan: skip it, keep the rest, and say so
+        # (the warning sends the document to review, where the user can fix it).
         if not isinstance(raw, dict):
-            raise ExtractionError(f"line {index} is not an object")
+            warnings.append(f"Skipped line {index}: it couldn't be read.")
+            continue
         kind, amount = raw.get("kind"), raw.get("amount")
-        if kind not in LINE_KINDS:
-            raise ExtractionError(f"line {index} has unknown kind {kind!r}")
+        description = str(raw.get("description", ""))
         cents = to_cents(_TAX_FLAG.sub("", amount.strip())) if isinstance(amount, str) else None
-        if cents is None:
-            raise ExtractionError(f"line {index} amount {amount!r} is not a printed amount")
+        if kind not in LINE_KINDS or cents is None:
+            warnings.append(
+                f'Skipped line {index} ("{description}"): its amount couldn\'t be read.'
+            )
+            continue
         lines.append(
             Line(
                 row=index,
-                description=str(raw.get("description", "")),
+                description=description,
                 kind=kind,
                 amount_cents=cents,
             )
         )
 
-    warnings: list[str] = []
     deadlines: list[Deadline] = []
     for raw in tool_input.get("deadlines") or []:
         deadline = _deadline(raw)

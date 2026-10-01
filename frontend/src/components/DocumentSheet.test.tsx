@@ -114,6 +114,16 @@ describe("DocumentSheet", () => {
     expect(screen.queryByRole("button", { name: /looks right/i })).not.toBeInTheDocument();
   });
 
+  it("leaves out missing fields instead of showing an error-like message", async () => {
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue({ ...RECEIPT, documentDate: null, issues: [] }),
+    });
+    renderSheet(api);
+
+    expect(await screen.findByRole("table", { name: /items/i })).toBeInTheDocument();
+    expect(screen.queryByText(/no date/i)).not.toBeInTheDocument();
+  });
+
   it("closes with the close button", async () => {
     const { onClose } = renderSheet(fakeApi());
 
