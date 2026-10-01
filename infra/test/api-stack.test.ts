@@ -49,7 +49,7 @@ describe("ApiStack — HTTP API", () => {
       ProtocolType: "HTTP",
       CorsConfiguration: Match.objectLike({
         AllowOrigins: ["http://localhost:5173"],
-        AllowMethods: ["GET", "POST"],
+        AllowMethods: ["GET", "POST", "PATCH"],
         AllowHeaders: ["authorization", "content-type"],
       }),
     });
@@ -162,7 +162,13 @@ describe("ApiStack — /me Lambda", () => {
 });
 
 describe("ApiStack — documents API", () => {
-  it.each(["POST /documents", "GET /documents", "GET /documents/{docId}", "GET /obligations"])(
+  it.each([
+    "POST /documents",
+    "GET /documents",
+    "GET /documents/{docId}",
+    "PATCH /documents/{docId}",
+    "GET /obligations",
+  ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {
       template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
@@ -184,9 +190,10 @@ describe("ApiStack — documents API", () => {
     });
   });
 
-  it("grants documents only the DynamoDB calls it makes: no Scan, Delete, or indexes", () => {
+  it("grants documents only the DynamoDB calls it makes: no Scan, no indexes", () => {
     const statements = statementsFor("api.documents.handler.handler");
     expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:Query",

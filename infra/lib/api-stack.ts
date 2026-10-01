@@ -79,8 +79,15 @@ export class ApiStack extends Stack {
     });
     documentsFn.addToRolePolicy(
       new iam.PolicyStatement({
-        // Get/Query: read own items; Put: new DOC#; Update: atomic quota counters.
-        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"],
+        // Get/Query: read own items. Put: new DOC#, review OBL#. Update: quotas, review.
+        // Delete: obligations replaced during review (inside a transaction).
+        actions: [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+        ],
         resources: [props.table.tableArn],
       }),
     );
@@ -113,7 +120,7 @@ export class ApiStack extends Stack {
       defaultAuthorizationScopes: ["openid"],
       corsPreflight: {
         allowOrigins: [props.frontendUrl],
-        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST],
+        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.PATCH],
         allowHeaders: ["authorization", "content-type"],
         maxAge: Duration.hours(1),
       },
@@ -160,7 +167,11 @@ export class ApiStack extends Stack {
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
       integration: documents,
     });
-    this.api.addRoutes({ path: "/documents/{docId}", methods: [apigwv2.HttpMethod.GET], integration: documents });
+    this.api.addRoutes({
+      path: "/documents/{docId}",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
+      integration: documents,
+    });
     this.api.addRoutes({ path: "/obligations", methods: [apigwv2.HttpMethod.GET], integration: documents });
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
