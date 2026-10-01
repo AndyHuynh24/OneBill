@@ -1,0 +1,34 @@
+[project]
+name = "onetally-services"
+version = "0.1.0"
+description = "OneTally Lambda functions"
+requires-python = ">=3.12,<3.13"
+# Runtime deps are provided by Lambda itself (boto3) and the Powertools layer,
+# so function assets ship only our source code. Everything here is for local dev/test.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "aws-lambda-powertools[tracer]>=3.30,<4",
+    "boto3>=1.40",
+    "moto[dynamodb]>=5.2",
+    "pytest>=9.1",
+    "ruff>=0.16",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Each Lambda asset root is on the path, mirroring /var/task at runtime.
+pythonpath = ["api"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "PT"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
