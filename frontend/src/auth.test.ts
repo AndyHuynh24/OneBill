@@ -15,7 +15,7 @@ const CONFIG = {
 describe("configureAuth", () => {
   beforeEach(() => configure.mockClear());
 
-  it.each(["http://localhost:5173", "https://10.0.0.136:5173"])(
+  it.each(["http://localhost:5173", "https://app.example.com"])(
     "returns from sign-in to the origin the app was opened on (%s)",
     async (origin) => {
       const { configureAuth } = await import("./auth");

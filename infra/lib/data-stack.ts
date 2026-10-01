@@ -4,7 +4,6 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { appOrigins } from "./origins";
 
 /**
  * Storage for every user's data: one single-table DynamoDB table (records) and one
@@ -14,8 +13,6 @@ import { appOrigins } from "./origins";
 export interface DataStackProps extends StackProps {
   /** Browser origin allowed to POST uploads straight to the docs bucket (presigned POST). */
   readonly frontendUrl: string;
-  /** Extra HTTPS origins for testing from another device (see lib/origins.ts). */
-  readonly devOrigins?: string[];
 }
 
 export class DataStack extends Stack {
@@ -95,7 +92,7 @@ export class DataStack extends Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.POST],
-          allowedOrigins: appOrigins(props.frontendUrl, props.devOrigins),
+          allowedOrigins: [props.frontendUrl],
           allowedHeaders: ["*"],
           maxAge: 3000,
         },

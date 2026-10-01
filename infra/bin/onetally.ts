@@ -3,7 +3,6 @@ import { AccountStack } from "../lib/account-stack";
 import { ApiStack } from "../lib/api-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
-import { parseDevOrigins } from "../lib/origins";
 import { PipelineStack } from "../lib/pipeline-stack";
 
 const app = new App();
@@ -11,16 +10,13 @@ const app = new App();
 // Everything lives in us-east-1 (Phase 0 decision: SES inbound needs it later).
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
 const frontendUrl: string = app.node.getContext("frontendUrl");
-// HTTPS origins for opening the dev server from another device on the same network (make dev-lan).
-const devOrigins = parseDevOrigins(app.node.tryGetContext("devOrigins"));
 
-const data = new DataStack(app, "OneTally-Data", { env, frontendUrl, devOrigins });
+const data = new DataStack(app, "OneTally-Data", { env, frontendUrl });
 
 const auth = new AuthStack(app, "OneTally-Auth", {
   env,
   domainPrefix: app.node.getContext("authDomainPrefix"),
   frontendUrl,
-  devOrigins,
 });
 
 new ApiStack(app, "OneTally-Api", {
@@ -31,7 +27,6 @@ new ApiStack(app, "OneTally-Api", {
   userPool: auth.userPool,
   userPoolClient: auth.client,
   frontendUrl,
-  devOrigins,
   // Debug switch: npx cdk deploy OneTally-Api -c tracing=true
   enableTracing: app.node.tryGetContext("tracing") === "true",
 });

@@ -11,8 +11,8 @@ import type { AppConfig } from "./config";
 
 /**
  * Amplify Auth talks to Cognito only; there is no Amplify backend in this project.
- * Sign-in returns to the origin the app was opened on (localhost, or the LAN address from
- * `make dev-lan`); Cognito only accepts origins registered in the Auth stack.
+ * Sign-in returns to the origin the app was opened on; Cognito only accepts origins registered
+ * in the Auth stack.
  */
 export function configureAuth(config: AppConfig, origin: string = window.location.origin): void {
   Amplify.configure({

@@ -10,7 +10,6 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
-import { appOrigins } from "./origins";
 import { newServiceFunction } from "./python-code";
 
 export interface ApiStackProps extends StackProps {
@@ -23,8 +22,6 @@ export interface ApiStackProps extends StackProps {
   readonly userPoolClient: cognito.IUserPoolClient;
   /** Only this browser origin may call the API (CORS). */
   readonly frontendUrl: string;
-  /** Extra HTTPS origins for testing from another device (see lib/origins.ts). */
-  readonly devOrigins?: string[];
   /**
    * Active X-Ray tracing. Off by default: X-Ray samples every request at ~1/s and can't be
    * turned down, which dominated the abuse-case cost (decision R1). Enable while debugging.
@@ -122,7 +119,7 @@ export class ApiStack extends Stack {
       // Access tokens carry a `scope` claim; ID tokens don't, so requiring one rejects ID tokens.
       defaultAuthorizationScopes: ["openid"],
       corsPreflight: {
-        allowOrigins: appOrigins(props.frontendUrl, props.devOrigins),
+        allowOrigins: [props.frontendUrl],
         allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.PATCH],
         allowHeaders: ["authorization", "content-type"],
         maxAge: Duration.hours(1),

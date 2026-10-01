@@ -244,28 +244,3 @@ describe("ApiStack — tracing switch", () => {
     });
   });
 });
-
-describe("ApiStack — dev origins", () => {
-  it("allows dev origins in CORS", () => {
-    const app = new App();
-    const env = { account: "123456789012", region: "us-east-1" };
-    const data = new DataStack(app, "DevD", { env, frontendUrl: "http://localhost:5173" });
-    const auth = new AuthStack(app, "DevA", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
-    const stack = new ApiStack(app, "DevApi", {
-      env,
-      table: data.table,
-      dataKey: data.key,
-      docsBucket: data.docsBucket,
-      userPool: auth.userPool,
-      userPoolClient: auth.client,
-      frontendUrl: "http://localhost:5173",
-      devOrigins: ["https://10.0.0.136:5173"],
-    });
-
-    Template.fromStack(stack).hasResourceProperties("AWS::ApiGatewayV2::Api", {
-      CorsConfiguration: Match.objectLike({
-        AllowOrigins: ["http://localhost:5173", "https://10.0.0.136:5173"],
-      }),
-    });
-  });
-});

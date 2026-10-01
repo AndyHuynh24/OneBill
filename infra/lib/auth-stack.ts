@@ -1,15 +1,12 @@
 import { CfnOutput, RemovalPolicy, Stack, StackProps, Tags } from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import { Construct } from "constructs";
-import { appOrigins } from "./origins";
 
 export interface AuthStackProps extends StackProps {
   /** Globally unique prefix for the hosted login URL (<prefix>.auth.<region>.amazoncognito.com). */
   readonly domainPrefix: string;
   /** Where the React app runs; Cognito only redirects to URLs registered here. */
   readonly frontendUrl: string;
-  /** Extra HTTPS origins for testing from another device (see lib/origins.ts). */
-  readonly devOrigins?: string[];
 }
 
 /**
@@ -55,7 +52,6 @@ export class AuthStack extends Stack {
     });
 
     // Public client (no secret): code lives in the browser, which can't keep secrets. PKCE protects the code exchange.
-    const origins = appOrigins(props.frontendUrl, props.devOrigins);
     this.client = this.userPool.addClient("WebClient", {
       generateSecret: false,
       authFlows: {},
@@ -68,8 +64,8 @@ export class AuthStack extends Stack {
           cognito.OAuthScope.EMAIL,
           cognito.OAuthScope.PROFILE,
         ],
-        callbackUrls: origins.map((origin) => `${origin}/callback`),
-        logoutUrls: origins.map((origin) => `${origin}/`),
+        callbackUrls: [`${props.frontendUrl}/callback`],
+        logoutUrls: [`${props.frontendUrl}/`],
       },
     });
 
