@@ -84,7 +84,7 @@ describe("ApiStack — /me Lambda", () => {
     template.hasResourceProperties("AWS::Lambda::Function", {
       Runtime: "python3.12",
       Architectures: ["arm64"],
-      Handler: "me.handler.handler",
+      Handler: "api.me.handler.handler",
       MemorySize: 256,
       Timeout: 10,
       Layers: [Match.stringLikeRegexp("AWSLambdaPowertoolsPythonV3-python312-arm64")],

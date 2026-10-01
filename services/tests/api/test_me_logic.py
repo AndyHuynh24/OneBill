@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
 
 import pytest
-from me.logic import get_or_create_profile
+
+from api.me.logic import get_or_create_profile
 
 NOW = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
 LATER = datetime(2026, 10, 1, 8, 30, 0, tzinfo=UTC)

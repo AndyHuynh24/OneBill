@@ -1,4 +1,3 @@
-import * as path from "node:path";
 import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
@@ -11,6 +10,7 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
+import { servicesCode } from "./python-code";
 
 // Pinned (not "latest") so deploys are reproducible. Source: Powertools install docs.
 const POWERTOOLS_LAYER_VERSION = 38;
@@ -52,11 +52,8 @@ export class ApiStack extends Stack {
       description: "GET /me: return the caller's PROFILE item, creating it on first call",
       runtime: lambda.Runtime.PYTHON_3_12,
       architecture: lambda.Architecture.ARM_64,
-      // The asset is the source folder only; boto3 comes with the runtime, Powertools with the layer.
-      code: lambda.Code.fromAsset(path.join(__dirname, "../../services/api"), {
-        exclude: ["**/__pycache__/**", "**/*.pyc"],
-      }),
-      handler: "me.handler.handler",
+      code: servicesCode(),
+      handler: "api.me.handler.handler",
       memorySize: 256,
       timeout: Duration.seconds(10),
       tracing: props.enableTracing ? lambda.Tracing.ACTIVE : undefined,

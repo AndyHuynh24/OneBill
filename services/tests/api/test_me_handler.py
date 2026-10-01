@@ -42,9 +42,9 @@ def http_event(path="/me", method="GET", claims=None, query=None, body=None):
 @pytest.fixture
 def handler_module(table):
     """Import the handler inside the moto mock so its module-level boto3 resource is mocked."""
-    import me.handler
+    import api.me.handler
 
-    return importlib.reload(me.handler)
+    return importlib.reload(api.me.handler)
 
 
 def call(handler_module, event):
