@@ -11,14 +11,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from documents.grounding import ungrounded
 from documents.reconcile import Line, Reconciliation, reconcile
 from documents.textract import ExpenseResult
 from shared.dates import parse_iso_date
-from shared.money import to_cents
+from shared.money import format_cents, to_cents
 from shared.pii import redact
 
 # Stored on every DOC item, so eval results and production behaviour map to a prompt version.
-PROMPT_VERSION = "2026-09-30.1"
+PROMPT_VERSION = "2026-10-01.1"
 TOOL_NAME = "record_document"
 MAX_OUTPUT_TOKENS = 4096
 
@@ -129,7 +130,12 @@ tendered); change = change given back; balance_due = amount due / balance on a b
 info = anything that is not part of the bill's arithmetic (unit prices like "2 @ 1.29", \
 "you saved" recaps of discounts already listed, loyalty points, item counts).
 - A line whose text says SUBTOTAL, TOTAL, TAX, CASH, CHANGE, a card name, or BALANCE is never \
-an item.
+an item. A positive amount is a discount only when the document presents it as savings \
+(coupon, markdown, "you saved"); a purchased product such as a bag is an item.
+- Lines printed after the final total that break down or repeat amounts already listed (a tax \
+breakdown, a charge printed a second time, a "pay with cash" price offer) are info.
+- Never invent a line or an amount. If the printed amounts don't add up, still record them \
+exactly as printed.
 - deadlines: return windows, payment due dates, warranty expiry, renewal dates. Quote the exact \
 evidence text. If the document gives a window ("returns within 30 days") rather than a date, \
 set days_after_purchase and leave date null. Do not invent deadlines.
@@ -171,6 +177,8 @@ class ExtractionOutcome:
     model_id: str
     prompt_version: str = PROMPT_VERSION
     redactions: dict[str, int] = field(default_factory=dict)
+    # Why the repair pass ran (contains document text: for local evals only, never logged).
+    repair_feedback: str | None = None
 
 
 def build_request(
@@ -273,11 +281,12 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
     try:
         document = parse_output(tool_use["input"])
         result = reconcile(document.lines, expense.summary_money, _total_required(document))
-        if result.ok:
+        invented = ungrounded(document.lines, expense.lines)
+        if result.ok and not invented:
             return ExtractionOutcome(
                 document, result, 1, usage, model_id, redactions=redaction.counts
             )
-        feedback = _math_feedback(result)
+        feedback = _math_feedback(result, invented)
     except ExtractionError as err:
         feedback = (
             f"Your previous output was invalid: {err}. Call {TOOL_NAME} again with valid input "
@@ -289,7 +298,9 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
     tool_use = _tool_use(response, usage)
     document = parse_output(tool_use["input"])  # a second invalid output is a hard failure
     result = reconcile(document.lines, expense.summary_money, _total_required(document))
-    return ExtractionOutcome(document, result, 2, usage, model_id, redactions=redaction.counts)
+    return ExtractionOutcome(
+        document, result, 2, usage, model_id, redactions=redaction.counts, repair_feedback=feedback
+    )
 
 
 def _total_required(document: ExtractedDocument) -> bool:
@@ -318,9 +329,17 @@ def _tool_use(response: dict[str, Any], usage: dict[str, int]) -> dict[str, Any]
     raise ExtractionError(f"The model did not call {TOOL_NAME}.")
 
 
-def _math_feedback(result: Reconciliation) -> str:
-    parts = ["The amounts you labelled don't reconcile with the printed totals:"]
-    parts += [f"- {issue}" for issue in result.issues]
+def _math_feedback(result: Reconciliation, invented: list[Line]) -> str:
+    parts = []
+    if result.issues:
+        parts.append("The amounts you labelled don't reconcile with the printed totals:")
+        parts += [f"- {issue}" for issue in result.issues]
+    if invented:
+        named = ", ".join(
+            f'line {line.row} ("{line.description}", {format_cents(line.amount_cents)})'
+            for line in invented
+        )
+        parts.append(f"These amounts aren't printed anywhere on the document: {named}.")
     if result.suspect_rows:
         named = ", ".join(
             f'line {line.row} ("{line.description}")'
@@ -331,10 +350,12 @@ def _math_feedback(result: Reconciliation) -> str:
             f"These lines' amounts match printed summary values, so check their kind: {named}."
         )
     parts.append(
-        "Re-check every line's kind, especially item versus subtotal, total, payment, change, "
-        "and info, and make sure no purchased item is missing or labelled info. Copy amounts "
-        f"exactly as printed, never compute them, and call {TOOL_NAME} again with the complete "
-        "corrected list."
+        "Re-check every line against the document: copy each amount exactly as printed and pick "
+        "the kind that describes what the line is. Never invent a line or an amount, and never "
+        "change a line's kind just to make the numbers match. If the printed numbers genuinely "
+        "don't add up (for example a misread number), keep the lines as printed: the document "
+        "will go to a person for review, which is the right outcome. Then call "
+        f"{TOOL_NAME} again with the complete list."
     )
     return "\n".join(parts)
 

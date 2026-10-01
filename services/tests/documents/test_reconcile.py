@@ -249,7 +249,9 @@ def test_mismatch_beyond_tolerance_needs_review_with_readable_reason():
     assert any("Items add up to $9.00" in i and "$12.00" in i for i in r.issues)
 
 
-def test_cash_and_change_must_match_total():
+def test_payment_mismatch_is_a_note_when_the_bill_itself_adds_up():
+    """The items/subtotal/total arithmetic already confirms the total; a confusing payment
+    section (misread change, dual-pricing offer) shouldn't send the document to review."""
     r = reconcile(
         lines(
             ("A", "item", 1000),
@@ -259,8 +261,77 @@ def test_cash_and_change_must_match_total():
         )
     )
 
+    assert r.ok
+    assert r.total_cents == 1000
+    assert any("Paid $20.00 minus change $5.00" in n for n in r.notes)
+
+
+def test_amount_applied_plus_tendered_and_change_reconciles():
+    """receipt10: "Cash 58.40" (applied), "Total Tender 60.00" (handed over), "Change 1.60"."""
+    r = reconcile(
+        lines(
+            ("FRENCH TOAST", "item", 5840),
+            ("TOTAL", "total", 5840),
+            ("CASH", "payment", 5840),
+            ("TOTAL TENDER", "payment", 6000),
+            ("CHANGE", "change", 160),
+        )
+    )
+
+    assert r.ok
+    assert r.notes == []
+
+
+def test_dual_pricing_offer_does_not_block():
+    """receipt4: "Pay With Cash 55.49" is a cash-price offer printed under the real total."""
+    r = reconcile(
+        lines(
+            ("TACOS", "item", 5270),
+            ("SUBTOTAL", "subtotal", 5270),
+            ("SALES TAX", "tax", 501),
+            ("TOTAL", "total", 5771),
+            ("PAY WITH CASH", "payment", 5549),
+        )
+    )
+
+    assert r.ok
+    assert r.total_cents == 5771
+
+
+def test_tax_recap_and_repeated_charge_are_recognized_as_info():
+    """receipt9: tax breakdown printed after the total, and the gratuity printed twice."""
+    r = reconcile(
+        lines(
+            ("PASTA", "item", 49950),
+            ("20% GRATUITY", "tip", 9990),
+            ("SUBTOTAL", "subtotal", 49950),
+            ("SALES TAX", "tax", 3374),
+            ("SERVICE CHRG", "fee", 9990),
+            ("TOTAL", "total", 63314),
+            ("SALES TAX", "tax", 2244),
+            ("LIQUOR TAX", "tax", 1130),
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.tax_cents == 3374
+    assert r.tip_cents == 9990
+    assert r.fees_cents == 0
+    relabelled = {(c.row, c.to_kind) for c in r.corrections}
+    assert relabelled == {(5, "info"), (7, "info"), (8, "info")}
+
+
+def test_overage_rule_never_touches_purchased_items():
+    r = reconcile(
+        lines(
+            ("A", "item", 1000),
+            ("B", "item", 500),  # total says only A was paid: genuinely doesn't add up
+            ("TOTAL", "total", 1000),
+        )
+    )
+
     assert not r.ok
-    assert any("Paid $20.00 minus change $5.00" in i for i in r.issues)
+    assert r.corrections == []
 
 
 def test_bill_with_amount_due_and_no_total_line():

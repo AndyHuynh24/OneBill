@@ -12,8 +12,10 @@ from datetime import date, timedelta
 from typing import Any
 
 from documents.extraction import Deadline, ExtractionOutcome
+from documents.grounding import ungrounded
 from documents.textract import ExpenseResult
 from shared.dates import parse_iso_date
+from shared.money import format_cents
 from shared.pii import redact
 
 MIN_TOTAL_CONFIDENCE = 80.0
@@ -45,6 +47,7 @@ class ValidationResult:
     lines: list[dict[str, Any]]
     corrections: list[dict[str, Any]]
     obligations: list[Obligation] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # oddities that don't need a review
 
 
 def validate(
@@ -53,6 +56,12 @@ def validate(
     doc = outcome.document
     rec = outcome.reconciliation
     issues = list(rec.issues) + list(doc.warnings)
+
+    for line in ungrounded(rec.lines, expense.lines):
+        issues.append(
+            f'A line ("{line.description}", {format_cents(line.amount_cents)}) '
+            "isn't printed on the document."
+        )
 
     confidence = expense.total_confidence
     if confidence is not None and confidence < MIN_TOTAL_CONFIDENCE:
@@ -120,6 +129,7 @@ def validate(
             for c in rec.corrections
         ],
         obligations=obligations,
+        notes=list(rec.notes),
     )
 
 

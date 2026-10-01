@@ -19,13 +19,16 @@ from shared.money import format_cents, to_cents
         ("-$2.50", -250),
         ("$-2.50", -250),
         (" 12.30 ", 1230),
+        (".00", 0),  # Whole Foods prints "TOTAL TAX .00"
+        (".99", 99),
+        ("-.50", -50),
     ],
 )
 def test_to_cents_parses_receipt_amounts(raw, expected):
     assert to_cents(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["", "abc", "1.2.3", "12.345", None, "N/A"])
+@pytest.mark.parametrize("raw", ["", "abc", "1.2.3", "12.345", None, "N/A", ".", "-", "$"])
 def test_to_cents_rejects_unparseable_amounts(raw):
     assert to_cents(raw) is None
 

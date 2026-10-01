@@ -81,7 +81,11 @@ class Reconciliation:
     printed_subtotal_cents: int | None = None
     total_cents: int | None = None  # always a *printed* total, never a computed one
     issues: list[str] = field(default_factory=list)
+    # Oddities that don't affect the bill's arithmetic (e.g. a confusing payment section).
+    notes: list[str] = field(default_factory=list)
     suspect_rows: list[int] = field(default_factory=list)
+    total_ok: bool | None = None  # None when there is no total to check
+    overage_cents: int = 0  # computed − printed total, when the total check fails
 
     @property
     def ok(self) -> bool:
@@ -113,22 +117,70 @@ def reconcile(
         relabelled, corrections = _apply(
             normalized, candidates, "text names a summary or payment line"
         )
-        hypothesis = _check(relabelled, total_required)
+        hypothesis = _with_overage_rule(relabelled, corrections, total_required)
         if hypothesis.ok:
-            hypothesis.corrections = corrections
             return hypothesis
 
     evidence = _evidence_candidates(normalized, candidates, textract_values)
-    if evidence:
-        relabelled, corrections = _apply(
-            normalized, evidence, "amount matches a printed summary value"
-        )
-        result = _check(relabelled, total_required)
-        result.corrections = corrections
-    else:
-        result = as_given
+    current, corrections = (
+        _apply(normalized, evidence, "amount matches a printed summary value")
+        if evidence
+        else (normalized, [])
+    )
+    result = _with_overage_rule(current, corrections, total_required)
     result.suspect_rows = _suspect_rows(result, textract_values)
     return result
+
+
+# Summary lines that a recap or a repeated charge can duplicate. Items are never touched.
+_RECAP_KINDS = frozenset({"tax", "tip", "fee"})
+_MAX_RECAP_CANDIDATES = 10
+
+
+def _with_overage_rule(
+    lines: list[Line], corrections: list[Correction], total_required: bool
+) -> Reconciliation:
+    """If the computed total is too high by exactly the sum of some tax/tip/fee lines, those
+    lines repeat amounts already counted (a tax breakdown after the total, a gratuity printed
+    twice): relabel them as info.
+
+    Among the subsets that fix the total, prefer lines printed after the final total (recaps),
+    then later lines (the repeat rather than the first mention).
+    """
+    result = _check(lines, total_required)
+    result.corrections = list(corrections)
+    if result.total_ok is not False or result.overage_cents <= 0:
+        return result
+    candidates = [line for line in lines if line.kind in _RECAP_KINDS]
+    if not candidates or len(candidates) > _MAX_RECAP_CANDIDATES:
+        return result
+    last_total_row = max((line.row for line in lines if line.kind == "total"), default=0)
+
+    best: tuple[tuple, list[Line]] | None = None
+    for subset in _subsets(candidates):
+        if not _close(sum(line.amount_cents for line in subset), result.overage_cents):
+            continue
+        rows = sorted((line.row for line in subset), reverse=True)
+        preference = (sum(1 for row in rows if row > last_total_row), rows)
+        if best is None or preference > best[0]:
+            best = (preference, subset)
+    if best is None:
+        return result
+
+    relabel = {line.row: "info" for line in best[1]}
+    fixed_lines, extra = _apply(
+        lines, relabel, "repeats an amount already counted (recap or duplicate)"
+    )
+    fixed = _check(fixed_lines, total_required)
+    if fixed.total_ok is not True:
+        return result
+    fixed.corrections = list(corrections) + extra
+    return fixed
+
+
+def _subsets(items: list[Line]):
+    for mask in range(1, 1 << len(items)):
+        yield [item for i, item in enumerate(items) if mask >> i & 1]
 
 
 def _normalize(description: str) -> str:
@@ -262,7 +314,9 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
     else:
         final = totals[-1]
         r.total_cents = final
-        if not _close(final, expected):
+        r.total_ok = _close(final, expected)
+        r.overage_cents = expected - final
+        if not r.total_ok:
             parts = [f"subtotal {format_cents(basis)}"]
             if r.tax_cents:
                 parts.append(f"tax {format_cents(r.tax_cents)}")
@@ -283,15 +337,27 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
             shown = f"{format_cents(other)} and {format_cents(final)}"
             r.issues.append(f"The document shows conflicting totals ({shown}).")
 
-    # 3. what was paid − change ≈ total
-    if r.payment_cents and r.total_cents is not None:
+    # 3. what was paid − change ≈ total. Receipts print payments in several ways: the amount
+    # applied ("CASH 58.40"), the amount handed over ("TENDER 60.00", then "CHANGE 1.60"), or
+    # both. Any of them matching confirms the total.
+    payments = [line.amount_cents for line in lines if line.kind == "payment"]
+    if payments and r.total_cents is not None:
+        total = r.total_cents
         net = r.payment_cents - r.change_cents
-        if not _close(net, r.total_cents):
+        confirmed = (
+            _close(net, total)
+            or any(_close(p, total) for p in payments)
+            or any(_close(p - r.change_cents, total) for p in payments)
+        )
+        if not confirmed:
             paid, change = format_cents(r.payment_cents), format_cents(r.change_cents)
-            r.issues.append(
+            message = (
                 f"Paid {paid} minus change {change} is {format_cents(net)} "
-                f"but the total is {format_cents(r.total_cents)}."
+                f"but the total is {format_cents(total)}."
             )
+            # If the bill's own arithmetic already confirms the total, a confusing payment
+            # section (misread change, a "pay with cash" price offer) is only a note.
+            (r.notes if not r.issues else r.issues).append(message)
     return r
 
 

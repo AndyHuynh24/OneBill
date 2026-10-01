@@ -329,3 +329,51 @@ def test_warranty_without_a_total_needs_no_repair_call(bedrock, expense):
 
     assert outcome.attempts == 1
     assert outcome.reconciliation.ok
+
+
+def test_repair_feedback_names_amounts_that_are_not_printed(bedrock, expense):
+    client, stub = bedrock
+    sent = capture_requests(client)
+    invented = bedrock_fixture("grocery_correct.json")
+    lines = invented["output"]["message"]["content"][0]["toolUse"]["input"]["lines"]
+    lines.append({"description": "SERVICE CHARGE", "amount": "7.77", "kind": "fee"})
+    stub.add_response(
+        "converse",
+        invented,
+        {
+            "modelId": MODEL,
+            "system": ANY,
+            "messages": ANY,
+            "toolConfig": ANY,
+            "inferenceConfig": ANY,
+        },
+    )
+    expect_converse(stub, "grocery_repaired.json")
+
+    outcome = extract(client, MODEL, expense)
+
+    feedback = sent[1]["messages"][2]["content"][0]["toolResult"]["content"][0]["text"]
+    assert "$7.77" in feedback
+    assert "aren't printed anywhere" in feedback
+    assert outcome.attempts == 2
+
+
+def test_repair_feedback_forbids_forcing_the_math():
+    from documents.reconcile import Line, reconcile
+
+    result = reconcile(
+        [
+            Line(1, "A", "item", 400),
+            Line(2, "SUBTOTAL", "subtotal", 1200),
+            Line(3, "TOTAL", "total", 1200),
+        ]
+    )
+
+    text = extraction._math_feedback(result, [])
+
+    assert "never invent" in text.lower()
+    assert "review" in text.lower()
+
+
+def test_prompt_version_bumped_for_round_three():
+    assert extraction.PROMPT_VERSION == "2026-10-01.1"

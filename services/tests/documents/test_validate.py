@@ -172,3 +172,30 @@ def test_lines_are_kept_with_their_kinds_for_the_review_screen():
         ("BANANAS", "item", 129),
         ("TOTAL", "total", 129),
     ]
+
+
+def test_payment_notes_are_kept_without_forcing_review():
+    lines = [
+        {"description": "BANANAS", "amount": "1.29", "kind": "item"},
+        {"description": "TOTAL", "amount": "1.29", "kind": "total"},
+        {"description": "PAY WITH CASH", "amount": "1.25", "kind": "payment"},
+    ]
+
+    result = validate(outcome(lines=lines), expense(OCR_LINES + ["PAY WITH CASH 1.25"]))
+
+    assert result.status == "ready"
+    assert len(result.notes) == 1
+    assert "Paid $1.25" in result.notes[0]
+
+
+def test_amount_not_printed_on_the_document_needs_review():
+    lines = [
+        {"description": "BANANAS", "amount": "1.29", "kind": "item"},
+        {"description": "TOTAL", "amount": "1.29", "kind": "total"},
+        {"description": "SERVICE CHRG", "amount": "1.50", "kind": "info"},  # not printed
+    ]
+
+    result = validate(outcome(lines=lines), expense())
+
+    assert result.status == "needs_review"
+    assert any("$1.50" in issue and "isn't printed" in issue for issue in result.issues)
