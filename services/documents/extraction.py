@@ -178,7 +178,7 @@ class ExtractionOutcome:
     prompt_version: str = PROMPT_VERSION
     redactions: dict[str, int] = field(default_factory=dict)
     # Why the repair pass ran (contains document text: for local evals only, never logged).
-    repair_feedback: str | None = None
+    repair_feedback: str | None = field(default=None, repr=False)
 
 
 def build_request(
@@ -339,18 +339,15 @@ def _math_feedback(result: Reconciliation, invented: list[Line]) -> str:
     if result.issues:
         parts.append("The amounts you labelled don't reconcile with the printed totals:")
         parts += [f"- {issue}" for issue in result.issues]
+    # Lines are named by row number and amount only: document text never leaves the fenced
+    # document view, so it can't speak in this message's voice (prompt injection).
     if invented:
         named = ", ".join(
-            f'line {line.row} ("{line.description}", {format_cents(line.amount_cents)})'
-            for line in invented
+            f"line {line.row} ({format_cents(line.amount_cents)})" for line in invented
         )
         parts.append(f"These amounts aren't printed anywhere on the document: {named}.")
     if result.suspect_rows:
-        named = ", ".join(
-            f'line {line.row} ("{line.description}")'
-            for line in result.lines
-            if line.row in result.suspect_rows
-        )
+        named = ", ".join(f"line {row}" for row in result.suspect_rows)
         parts.append(
             f"These lines' amounts match printed summary values, so check their kind: {named}."
         )
