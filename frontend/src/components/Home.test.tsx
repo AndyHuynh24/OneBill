@@ -113,6 +113,30 @@ describe("Home — signed in", () => {
     expect(api.getDocument).toHaveBeenCalledWith("d1");
   });
 
+  it("refreshes deadlines once when a document finishes, instead of polling them", async () => {
+    const processing = { ...DOCS, documents: [DOCS.documents[0]] }; // one doc being read
+    const finished = {
+      ...DOCS,
+      documents: [{ ...DOCS.documents[0], status: "ready", vendor: "New Shop" }],
+    };
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValueOnce(processing).mockResolvedValue(finished),
+    });
+    renderHome("signedIn", api);
+    expect(await screen.findByText("Reading…")).toBeInTheDocument();
+    expect(api.listObligations).toHaveBeenCalledTimes(1);
+
+    // Any documents refresh (here: after an upload) that shows the doc finished…
+    await userEvent.upload(
+      screen.getByLabelText(/scan or upload/i),
+      new File(["x"], "a.jpg", { type: "image/jpeg" }),
+    );
+
+    expect(await screen.findByText("New Shop")).toBeInTheDocument();
+    // …refreshes the deadlines exactly once more.
+    await vi.waitFor(() => expect(api.listObligations).toHaveBeenCalledTimes(2));
+  });
+
   it("signs out", async () => {
     const props = renderHome("signedIn");
 

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OneTallyApi } from "../api";
-import { hasProcessing } from "../documents";
+import { hasProcessing, processingCount } from "../documents";
 import { todayIso } from "../format";
 import { DocumentSheet } from "./DocumentSheet";
 import { RecentDocuments } from "./RecentDocuments";
@@ -64,8 +64,15 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
   const obligations = useQuery({
     queryKey: ["obligations"],
     queryFn: () => api.listObligations(todayIso()),
-    refetchInterval: hasProcessing(documents.data?.documents) ? 5000 : false,
   });
+
+  // Deadlines only change when a document finishes: refresh them then, instead of polling.
+  const busy = processingCount(documents.data?.documents);
+  const previousBusy = useRef(busy);
+  useEffect(() => {
+    if (busy < previousBusy.current) queryClient.invalidateQueries({ queryKey: ["obligations"] });
+    previousBusy.current = busy;
+  }, [busy, queryClient]);
 
   const upload = useMutation({
     mutationFn: (file: File) => api.uploadDocument(file),
