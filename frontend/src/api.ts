@@ -59,6 +59,54 @@ export interface DocumentDetail extends DocumentSummary {
   feesCents?: number;
   discountsCents?: number;
   obligations?: DocumentDeadline[];
+  split?: Split;
+}
+
+export interface Friend {
+  friendId: string;
+  name: string;
+  color: number;
+  timesUsed: number;
+  lastUsedAt: string;
+}
+
+export type ChargeChoice =
+  | { mode: "proportional" }
+  | { mode: "even" }
+  | { mode: "person"; member: number };
+
+/** People go by seat (0 = first) and lines by row number; amounts always come from the server. */
+export interface SplitRequest {
+  members: { name: string; self?: boolean }[];
+  assignments: Record<string, number[]>;
+  charges: Record<string, ChargeChoice>;
+  expectedVersion: number;
+}
+
+export interface SplitMember {
+  id: string;
+  name: string;
+  self: boolean;
+  color: number;
+  friendId?: string;
+}
+
+export interface SplitShare {
+  member: string;
+  totalCents: number;
+  itemsCents: number;
+  extrasCents: number;
+  rows: number[];
+}
+
+export interface Split {
+  version: number;
+  members: SplitMember[];
+  assignments: Record<string, string[]>;
+  charges: Record<string, { mode: string; member?: string }>;
+  shares: SplitShare[];
+  totalCents: number;
+  updatedAt?: string;
 }
 
 export interface Obligation {
@@ -114,6 +162,9 @@ export interface OneTallyApi {
   listObligations(fromDate: string, withinDays?: number): Promise<{ obligations: Obligation[] }>;
   /** Ask the API for an upload ticket, then send the file straight to S3. */
   uploadDocument(file: File): Promise<string>;
+  listFriends(): Promise<{ friends: Friend[] }>;
+  deleteFriend(friendId: string): Promise<void>;
+  saveSplit(docId: string, request: SplitRequest): Promise<Split>;
 }
 
 export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneTallyApi {
@@ -143,6 +194,11 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
       call<DocumentDetail>("PATCH", `documents/${encodeURIComponent(docId)}`, request),
     listObligations: (fromDate, withinDays = 30) =>
       call("GET", `obligations?from=${encodeURIComponent(fromDate)}&withinDays=${withinDays}`),
+    listFriends: () => call("GET", "friends"),
+    deleteFriend: async (friendId) => {
+      await call("DELETE", `friends/${encodeURIComponent(friendId)}`);
+    },
+    saveSplit: (docId, request) => call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split`, request),
     async uploadDocument(file) {
       const ticket = await call<UploadTicket>("POST", "documents", {
         filename: file.name,

@@ -137,6 +137,35 @@ describe("Home — signed in", () => {
     await vi.waitFor(() => expect(api.listObligations).toHaveBeenCalledTimes(2));
   });
 
+  it("opens a scan automatically once it has been read", async () => {
+    const empty = { ...DOCS, documents: [] };
+    const read = {
+      ...DOCS,
+      documents: [{ docId: "new-doc", status: "needs_review", vendor: "Thai Basil", createdAt: "x" }],
+    };
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValueOnce(empty).mockResolvedValue(read),
+      uploadDocument: vi.fn().mockResolvedValue("new-doc"),
+    });
+    renderHome("signedIn", api);
+    expect(await screen.findByText(/nothing yet/i)).toBeInTheDocument();
+
+    await userEvent.upload(
+      screen.getByLabelText(/scan or upload/i),
+      new File(["x"], "dinner.jpg", { type: "image/jpeg" }),
+    );
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(api.getDocument).toHaveBeenCalledWith("new-doc");
+  });
+
+  it("doesn't reopen documents that were already there", async () => {
+    renderHome("signedIn", fakeApi({ listDocuments: vi.fn().mockResolvedValue(DOCS) }));
+
+    expect(await screen.findByText("Target")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("signs out", async () => {
     const props = renderHome("signedIn");
 

@@ -3,14 +3,14 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { OneTallyApi } from "../api";
-import { RECEIPT, fakeApi } from "../test/fakeApi";
+import { DINNER, RECEIPT, fakeApi } from "../test/fakeApi";
 import { DocumentSheet } from "./DocumentSheet";
 
-function renderSheet(api: OneTallyApi, onClose = vi.fn()) {
+function renderSheet(api: OneTallyApi, onClose = vi.fn(), docId = RECEIPT.docId) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <DocumentSheet api={api} docId={RECEIPT.docId} onClose={onClose} />
+      <DocumentSheet api={api} docId={docId} onClose={onClose} />
     </QueryClientProvider>,
   );
   return { onClose };
@@ -188,5 +188,35 @@ describe("DocumentSheet", () => {
     await userEvent.click(await screen.findByRole("button", { name: /close/i }));
 
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("after 'Looks right' on a bill that adds up, asks whether to split it", async () => {
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue({ ...DINNER, status: "needs_review" }),
+      reviewDocument: vi.fn().mockResolvedValue(DINNER),
+    });
+    const { onClose } = renderSheet(api, vi.fn(), DINNER.docId);
+
+    await userEvent.click(await screen.findByRole("button", { name: /looks right/i }));
+
+    expect(await screen.findByText(/split this bill\?/i)).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: /just me/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("'Split with friends' opens Who's here", async () => {
+    const api = fakeApi({ getDocument: vi.fn().mockResolvedValue(DINNER) });
+    renderSheet(api, vi.fn(), DINNER.docId);
+
+    await userEvent.click(await screen.findByRole("button", { name: /split bill/i }));
+
+    expect(await screen.findByRole("heading", { name: /who's here/i })).toBeInTheDocument();
+  });
+
+  it("a bill that doesn't add up can't be split until it's fixed", async () => {
+    renderSheet(fakeApi({ getDocument: vi.fn().mockResolvedValue({ ...RECEIPT, status: "ready" }) }));
+
+    expect(await screen.findByRole("button", { name: /fix items to split/i })).toBeDisabled();
   });
 });

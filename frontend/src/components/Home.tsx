@@ -52,6 +52,8 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
   const [uploading, setUploading] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [openDoc, setOpenDoc] = useState<string | null>(null);
+  // Scans from this session: each opens by itself once it's been read (review → split flow).
+  const [justScanned, setJustScanned] = useState<string[]>([]);
 
   // Creates the PROFILE item on first sign-in (GET /me); nothing to show yet.
   useQuery({ queryKey: ["me"], queryFn: api.getProfile });
@@ -74,8 +76,20 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
     previousBusy.current = busy;
   }, [busy, queryClient]);
 
+  // The first of this session's scans that has finished reading opens by itself.
+  const readScan = justScanned.find((id) => {
+    const doc = documents.data?.documents.find((d) => d.docId === id);
+    return doc && doc.status !== "pending_upload" && doc.status !== "processing";
+  });
+  const shownDoc = openDoc ?? readScan ?? null;
+  const closeSheet = () => {
+    setOpenDoc(null);
+    setJustScanned((ids) => ids.filter((id) => id !== shownDoc));
+  };
+
   const upload = useMutation({
     mutationFn: (file: File) => api.uploadDocument(file),
+    onSuccess: (docId) => setJustScanned((ids) => [...ids, docId]),
     onMutate: (file) => {
       setNotice(null);
       setUploading((names) => [...names, file.name]);
@@ -122,7 +136,7 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
 
       <ScanButton onFile={(file) => upload.mutate(file)} busy={upload.isPending} />
 
-      {openDoc && <DocumentSheet api={api} docId={openDoc} onClose={() => setOpenDoc(null)} />}
+      {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
     </main>
   );
 }

@@ -84,6 +84,34 @@ describe("createApi", () => {
     expect(entries).toEqual(["key", "policy", "file"]); // file must come last
   });
 
+  it("lists and forgets friends; friend IDs are path-encoded", async () => {
+    const { api, fetchMock } = setup([json({ friends: [] }), new Response(null, { status: 204 })]);
+
+    await api.listFriends();
+    await api.deleteFriend("abc123");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_URL}friends`);
+    expect(fetchMock.mock.calls[1][0]).toBe(`${API_URL}friends/abc123`);
+    expect(fetchMock.mock.calls[1][1].method).toBe("DELETE");
+  });
+
+  it("saves a split with PUT; people go by seat and lines by row, never amounts", async () => {
+    const { api, fetchMock } = setup([json({ version: 1, members: [], shares: [] })]);
+    const request = {
+      members: [{ name: "Me", self: true }, { name: "Bao" }],
+      assignments: { "1": [0], "2": [1] },
+      charges: { "3": { mode: "proportional" as const } },
+      expectedVersion: 0,
+    };
+
+    await api.saveSplit("doc-1", request);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_URL}documents/doc-1/split`);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual(request);
+  });
+
   it("reports a failed S3 upload", async () => {
     const ticket = { docId: "doc-1", upload: { url: "https://bucket.s3.amazonaws.com/", fields: {} } };
     const { api } = setup([json(ticket, 201), new Response("<Error/>", { status: 403 })]);

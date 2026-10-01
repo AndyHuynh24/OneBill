@@ -424,3 +424,96 @@ section h2 {
 .line-amount {
   text-align: right;
 }
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.avatar-sm {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.8rem;
+}
+
+.avatar-md {
+  width: 3.25rem;
+  height: 3.25rem;
+  font-size: 1.05rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.friend-chip {
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+}
+
+.friend-chip[aria-pressed="true"] {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.friend-chip.forget {
+  border-style: dashed;
+}
+
+.add-names {
+  margin: 1rem 0 0.5rem;
+}
+
+.add-names label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.add-names-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.add-names-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem;
+  font-size: 1rem;
+}
+
+.seats {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.seat {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.25rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+}
+
+.split-prompt h3 {
+  margin: 1rem 0 0.25rem;
+}

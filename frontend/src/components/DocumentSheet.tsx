@@ -9,6 +9,8 @@ import type {
   ReviewRequest,
 } from "../api";
 import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars, parseSignedDollars } from "../format";
+import { addsUp } from "../split";
+import { SplitFlow } from "./SplitFlow";
 
 const ITEM_KINDS = new Set(["item", "discount", "fee"]);
 const SUMMARY_KINDS = new Set(["subtotal", "tax", "tip", "total", "payment", "change", "balance_due"]);
@@ -26,15 +28,19 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     queryKey: ["document", docId],
     queryFn: () => api.getDocument(docId),
   });
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"view" | "edit" | "ask" | "split">("view");
+  const editing = mode === "edit";
+  const setEditing = (on: boolean) => setMode(on ? "edit" : "view");
 
   const review = useMutation({
     mutationFn: (request: ReviewRequest) => api.reviewDocument(docId, request),
-    onSuccess: () => {
+    onSuccess: (updated, request) => {
       for (const key of [["documents"], ["obligations"], ["document", docId]]) {
         queryClient.invalidateQueries({ queryKey: key });
       }
-      onClose();
+      // A bill that adds up can be split: ask right away instead of closing.
+      if (request.action === "accept" && addsUp(updated.lines, updated.totalCents)) setMode("ask");
+      else onClose();
     },
   });
 
@@ -46,6 +52,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
 
   const currency = doc?.currency ?? "USD";
   const reviewable = doc?.status === "ready" || doc?.status === "needs_review";
+  const splittable = !!doc && addsUp(doc.lines, doc.totalCents);
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -94,7 +101,21 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
               </div>
             )}
 
-            {editing ? (
+            {mode === "split" ? (
+              <SplitFlow api={api} doc={doc} onCancel={() => setMode("view")} />
+            ) : mode === "ask" ? (
+              <div className="split-prompt">
+                <h3>Split this bill?</h3>
+                <div className="sheet-actions">
+                  <button type="button" className="primary" onClick={() => setMode("split")}>
+                    Split with friends
+                  </button>
+                  <button type="button" onClick={onClose}>
+                    Just me
+                  </button>
+                </div>
+              </div>
+            ) : editing ? (
               <ReviewForm
                 doc={doc}
                 saving={review.isPending}
@@ -138,6 +159,13 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                     </button>
                     <button type="button" onClick={() => setEditing(true)}>
                       Fix
+                    </button>
+                  </div>
+                )}
+                {doc.status === "ready" && (
+                  <div className="sheet-actions">
+                    <button type="button" disabled={!splittable} onClick={() => setMode("split")}>
+                      {splittable ? "Split bill" : "Fix items to split"}
                     </button>
                   </div>
                 )}
