@@ -1,0 +1,36 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets and local env (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# CDK
+infra/cdk.out/
+infra/cdk.context.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+infra/cdk-outputs.json
+
+# Local-only notes (not part of the project)
+docs/learn/
+docs/pr/
+docs/LEARNING_LOG.md
