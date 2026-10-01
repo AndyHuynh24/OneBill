@@ -1,0 +1,174 @@
+import { App } from "aws-cdk-lib";
+import { Match, Template } from "aws-cdk-lib/assertions";
+import { beforeAll, describe, expect, it } from "vitest";
+import { ApiStack } from "../lib/api-stack";
+import { AuthStack } from "../lib/auth-stack";
+import { DataStack } from "../lib/data-stack";
+
+let template: Template;
+
+beforeAll(() => {
+  const app = new App();
+  const env = { account: "123456789012", region: "us-east-1" };
+  const data = new DataStack(app, "TestData", { env });
+  const auth = new AuthStack(app, "TestAuth", {
+    env,
+    domainPrefix: "onetally-test",
+    frontendUrl: "http://localhost:5173",
+  });
+  const api = new ApiStack(app, "TestApi", {
+    env,
+    table: data.table,
+    dataKey: data.key,
+    userPool: auth.userPool,
+    userPoolClient: auth.client,
+    frontendUrl: "http://localhost:5173",
+  });
+  template = Template.fromStack(api);
+});
+
+describe("ApiStack — HTTP API", () => {
+  it("is an HTTP API with CORS limited to the frontend origin", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Api", {
+      ProtocolType: "HTTP",
+      CorsConfiguration: Match.objectLike({
+        AllowOrigins: ["http://localhost:5173"],
+        AllowMethods: ["GET"],
+        AllowHeaders: ["authorization", "content-type"],
+      }),
+    });
+  });
+
+  it("protects GET /me with the JWT authorizer, accepting access tokens only", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+      RouteKey: "GET /me",
+      AuthorizationType: "JWT",
+      AuthorizerId: Match.anyValue(),
+      // ID tokens have no `scope` claim, so requiring a scope rejects them.
+      AuthorizationScopes: ["openid"],
+    });
+  });
+
+  it("has no unauthenticated routes", () => {
+    const routes = template.findResources("AWS::ApiGatewayV2::Route");
+    for (const route of Object.values(routes)) {
+      expect(route.Properties.AuthorizationType).toBe("JWT");
+    }
+  });
+
+  it("configures the authorizer with the Cognito issuer and app client audience", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Authorizer", {
+      AuthorizerType: "JWT",
+      IdentitySource: ["$request.header.Authorization"],
+      JwtConfiguration: {
+        Audience: [Match.anyValue()],
+        Issuer: Match.objectLike({
+          "Fn::Join": ["", Match.arrayWith(["https://cognito-idp.us-east-1.amazonaws.com/"])],
+        }),
+      },
+    });
+  });
+
+  it("throttles the default stage and writes access logs", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+      StageName: "$default",
+      AutoDeploy: true,
+      DefaultRouteSettings: { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+      AccessLogSettings: { DestinationArn: Match.anyValue(), Format: Match.stringLikeRegexp("requestId") },
+    });
+  });
+});
+
+describe("ApiStack — /me Lambda", () => {
+  it("runs Python 3.12 on arm64 with Powertools and small limits", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Runtime: "python3.12",
+      Architectures: ["arm64"],
+      Handler: "me.handler.handler",
+      MemorySize: 256,
+      Timeout: 10,
+      Layers: [Match.stringLikeRegexp("AWSLambdaPowertoolsPythonV3-python312-arm64")],
+      Environment: {
+        Variables: Match.objectLike({
+          TABLE_NAME: Match.anyValue(),
+          // Keep response bodies (future: transactions) out of X-Ray traces.
+          POWERTOOLS_TRACER_CAPTURE_RESPONSE: "false",
+          // X-Ray is off by default (cost decision R1); enable with -c tracing=true.
+          POWERTOOLS_TRACE_DISABLED: "true",
+        }),
+      },
+    });
+  });
+
+  it("does not enable active X-Ray tracing by default", () => {
+    const fns = Object.values(template.findResources("AWS::Lambda::Function"));
+    for (const fn of fns) {
+      expect(fn.Properties.TracingConfig).toBeUndefined();
+    }
+  });
+
+  it("keeps all logs for two weeks, encrypted with the customer-managed key", () => {
+    const groups = template.findResources("AWS::Logs::LogGroup");
+    expect(Object.keys(groups).length).toBeGreaterThanOrEqual(2);
+    for (const group of Object.values(groups)) {
+      expect(group.Properties.RetentionInDays).toBe(14);
+      expect(group.Properties.KmsKeyId).toBeDefined();
+    }
+  });
+
+  it("grants /me only GetItem and PutItem on the table itself (no Scan, no indexes)", () => {
+    const statements = Object.values(template.findResources("AWS::IAM::Policy")).flatMap(
+      (p) => p.Properties.PolicyDocument.Statement,
+    );
+    const dynamo = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith("dynamodb:")));
+    expect(dynamo).toHaveLength(1);
+    expect([dynamo[0].Action].flat().sort()).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
+    expect(JSON.stringify(dynamo[0].Resource)).not.toContain("index");
+  });
+
+  it("allows KMS use only through DynamoDB, with no wildcard KMS actions", () => {
+    const statements = Object.values(template.findResources("AWS::IAM::Policy")).flatMap(
+      (p) => p.Properties.PolicyDocument.Statement,
+    );
+    const kms = statements.filter((s) => [s.Action].flat().some((a: string) => a.startsWith("kms:")));
+    expect(kms).toHaveLength(1);
+    for (const action of [kms[0].Action].flat()) {
+      expect(action).not.toContain("*");
+    }
+    expect(kms[0].Condition).toEqual({
+      StringEquals: { "kms:ViaService": "dynamodb.us-east-1.amazonaws.com" },
+    });
+  });
+
+  it("never grants wildcard actions", () => {
+    const policies = template.findResources("AWS::IAM::Policy");
+    for (const policy of Object.values(policies)) {
+      for (const stmt of policy.Properties.PolicyDocument.Statement) {
+        expect([stmt.Action].flat()).not.toContain("*");
+      }
+    }
+  });
+});
+
+describe("ApiStack — tracing switch", () => {
+  it("turns on active X-Ray tracing when enableTracing is set", () => {
+    const app = new App();
+    const env = { account: "123456789012", region: "us-east-1" };
+    const data = new DataStack(app, "D", { env });
+    const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
+    const api = new ApiStack(app, "Api", {
+      env,
+      table: data.table,
+      dataKey: data.key,
+      userPool: auth.userPool,
+      userPoolClient: auth.client,
+      frontendUrl: "http://localhost:5173",
+      enableTracing: true,
+    });
+    const t = Template.fromStack(api);
+    t.hasResourceProperties("AWS::Lambda::Function", {
+      TracingConfig: { Mode: "Active" },
+      Environment: { Variables: Match.objectLike({ POWERTOOLS_TRACE_DISABLED: "false" }) },
+    });
+  });
+});
