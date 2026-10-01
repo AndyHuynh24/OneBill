@@ -1,0 +1,45 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "toolUse": {
+            "toolUseId": "tooluse_1",
+            "name": "record_document",
+            "input": {
+              "doc_type": "receipt",
+              "vendor": "TARGET",
+              "document_date": "2026-09-28",
+              "currency": "USD",
+              "deadlines": [
+                {
+                  "type": "return_by",
+                  "date": null,
+                  "days_after_purchase": 30,
+                  "evidence": "RETURNS ACCEPTED WITHIN 30 DAYS WITH RECEIPT"
+                }
+              ],
+              "lines": [
+                {
+                  "description": "BANANAS",
+                  "amount": "one twenty-nine",
+                  "kind": "produce"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "stopReason": "tool_use",
+  "usage": {
+    "inputTokens": 2100,
+    "outputTokens": 650,
+    "totalTokens": 2750
+  },
+  "metrics": {
+    "latencyMs": 1800
+  }
+}

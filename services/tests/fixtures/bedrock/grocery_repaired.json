@@ -1,0 +1,95 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "toolUse": {
+            "toolUseId": "tooluse_2",
+            "name": "record_document",
+            "input": {
+              "doc_type": "receipt",
+              "vendor": "TARGET",
+              "document_date": "2026-09-28",
+              "currency": "USD",
+              "deadlines": [
+                {
+                  "type": "return_by",
+                  "date": null,
+                  "days_after_purchase": 30,
+                  "evidence": "RETURNS ACCEPTED WITHIN 30 DAYS WITH RECEIPT"
+                }
+              ],
+              "lines": [
+                {
+                  "description": "BANANAS",
+                  "amount": "1.29",
+                  "kind": "item"
+                },
+                {
+                  "description": "MILK 1 GAL",
+                  "amount": "4.19",
+                  "kind": "item"
+                },
+                {
+                  "description": "BREAD",
+                  "amount": "3.50",
+                  "kind": "item"
+                },
+                {
+                  "description": "EGGS",
+                  "amount": "5.50",
+                  "kind": "item"
+                },
+                {
+                  "description": "CHICKEN",
+                  "amount": "12.00",
+                  "kind": "item"
+                },
+                {
+                  "description": "COUPON",
+                  "amount": "2.00-",
+                  "kind": "discount"
+                },
+                {
+                  "description": "SUBTOTAL",
+                  "amount": "24.48",
+                  "kind": "subtotal"
+                },
+                {
+                  "description": "TAX",
+                  "amount": "1.70",
+                  "kind": "tax"
+                },
+                {
+                  "description": "TOTAL",
+                  "amount": "26.18",
+                  "kind": "total"
+                },
+                {
+                  "description": "CASH",
+                  "amount": "30.00",
+                  "kind": "payment"
+                },
+                {
+                  "description": "CHANGE",
+                  "amount": "3.82",
+                  "kind": "change"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "stopReason": "tool_use",
+  "usage": {
+    "inputTokens": 2900,
+    "outputTokens": 640,
+    "totalTokens": 3540
+  },
+  "metrics": {
+    "latencyMs": 1800
+  }
+}

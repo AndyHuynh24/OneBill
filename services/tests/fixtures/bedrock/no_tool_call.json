@@ -1,0 +1,21 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "text": "I can't read this document."
+        }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {
+    "inputTokens": 1200,
+    "outputTokens": 12,
+    "totalTokens": 1212
+  },
+  "metrics": {
+    "latencyMs": 900
+  }
+}
