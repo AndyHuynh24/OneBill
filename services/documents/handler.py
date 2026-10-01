@@ -53,6 +53,7 @@ MAX_PDF_PAGES = 10
 UNREADABLE = "We couldn't read this document. Try a clearer, well-lit photo."
 TOO_MANY_PAGES = f"PDFs can have at most {MAX_PDF_PAGES} pages."
 UNKNOWN_PAGES = "We couldn't check how many pages this PDF has. Try a photo instead."
+DAILY_LIMIT = "Today's processing limit has been reached. Please upload it again tomorrow."
 GENERIC_FAILURE = "Something went wrong while reading this document. Please upload it again."
 TEXTRACT_REJECTIONS = frozenset(
     {
@@ -106,10 +107,14 @@ def _on_upload(detail: dict[str, Any]) -> None:
                 raise Refused(UNKNOWN_PAGES)
             if pages > MAX_PDF_PAGES:
                 raise Refused(TOO_MANY_PAGES)
+            if not store.consume_page_budget(table, pages, _now()):
+                raise Refused(DAILY_LIMIT)
             job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
             store.record_textract_job(table, user_id, doc_id, job_id, _now())
             logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
             return
+        if not store.consume_page_budget(table, 1, _now()):
+            raise Refused(DAILY_LIMIT)
         _process(user_id, doc_id, parse_expense(analyze_sync(textract, BUCKET, key, version)))
 
 

@@ -110,11 +110,14 @@ def test_per_user_daily_quota(table, s3):
         upload(table, s3)
 
 
+def test_decision_r2_limits():
+    assert (logic.USER_DAILY_LIMIT, logic.GLOBAL_DAILY_LIMIT) == (10, 15)
+
+
 def test_global_daily_quota_refunds_the_user_counter(table, s3):
-    users = [f"user-{i}" for i in range(logic.GLOBAL_DAILY_LIMIT // logic.USER_DAILY_LIMIT)]
-    for user in users:
-        for _ in range(logic.USER_DAILY_LIMIT):
-            upload(table, s3, user=user)
+    # Fill the global cap using several users, none of them over their own limit.
+    for i in range(logic.GLOBAL_DAILY_LIMIT):
+        upload(table, s3, user=f"user-{i // logic.USER_DAILY_LIMIT}")
 
     with pytest.raises(QuotaExceeded):
         upload(table, s3, user="someone-new")

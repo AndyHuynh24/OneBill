@@ -7,13 +7,17 @@ process a document twice, and a late write can't overwrite a newer state.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from botocore.exceptions import ClientError
 
 from documents.validate import Obligation, ValidationResult
 from shared.ids import is_valid_id, new_id
+
+# Decision R2: OCR pages per day across all users (photos count 1, PDFs their page count).
+DAILY_PAGE_BUDGET = 30
+USAGE_TTL_DAYS = 7
 
 _UPLOAD_KEY = re.compile(r"^uploads/(?P<user>[A-Za-z0-9-]{1,128})/(?P<doc>[^/]+)$")
 
@@ -63,6 +67,30 @@ def claim(
             return None
         raise
     return response["Attributes"]
+
+
+def consume_page_budget(
+    table: Any, pages: int, now: datetime, limit: int = DAILY_PAGE_BUDGET
+) -> bool:
+    """Reserve `pages` from today's global OCR budget. False (nothing reserved) if it won't fit."""
+    if pages > limit:
+        return False
+    try:
+        table.update_item(
+            Key={"PK": "GLOBAL", "SK": f"USAGE#{now.date().isoformat()}"},
+            UpdateExpression="ADD pages :n SET expiresAt = if_not_exists(expiresAt, :exp)",
+            ConditionExpression="attribute_not_exists(pages) OR pages <= :room",
+            ExpressionAttributeValues={
+                ":n": pages,
+                ":room": limit - pages,
+                ":exp": int((now + timedelta(days=USAGE_TTL_DAYS)).timestamp()),
+            },
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False
+        raise
+    return True
 
 
 def get(table: Any, user_id: str, doc_id: str) -> dict[str, Any] | None:

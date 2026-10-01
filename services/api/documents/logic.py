@@ -21,8 +21,9 @@ UPLOADERS_GROUP = "uploaders"
 ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
 MAX_BYTES = 10 * 1024 * 1024
 MAX_FILENAME = 120
-USER_DAILY_LIMIT = 20
-GLOBAL_DAILY_LIMIT = 40
+# Decision R2: low enough that the worst case (every limit hit, every day) stays ~$16/month.
+USER_DAILY_LIMIT = 10
+GLOBAL_DAILY_LIMIT = 15
 UPLOAD_URL_TTL_SECONDS = 300
 USAGE_TTL_DAYS = 7
 MAX_OBLIGATION_WINDOW_DAYS = 366

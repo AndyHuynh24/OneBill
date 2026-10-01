@@ -168,3 +168,24 @@ def test_mark_failed_records_a_friendly_reason(table):
     item = doc_item(table)
     assert item["status"] == "failed"
     assert item["failureReason"] == "We couldn't read this document."
+
+
+# --- global daily page budget (decision R2) -----------------------------------------------------
+
+
+def test_page_budget_allows_pages_up_to_the_limit(table):
+    assert store.consume_page_budget(table, 20, NOW, limit=30) is True
+    assert store.consume_page_budget(table, 10, NOW, limit=30) is True
+    assert store.consume_page_budget(table, 1, NOW, limit=30) is False
+
+    usage = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert usage["pages"] == 30
+    assert usage["expiresAt"] > int(NOW.timestamp())
+
+
+def test_page_budget_refuses_a_document_that_would_cross_the_limit(table):
+    store.consume_page_budget(table, 25, NOW, limit=30)
+
+    assert store.consume_page_budget(table, 6, NOW, limit=30) is False
+    usage = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert usage["pages"] == 25  # nothing consumed by the refused document

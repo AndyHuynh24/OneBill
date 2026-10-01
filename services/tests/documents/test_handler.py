@@ -168,6 +168,26 @@ def test_duplicate_event_makes_no_paid_calls(env):
     assert doc(env)["status"] == "ready"
 
 
+def test_daily_page_budget_refuses_before_ocr(env):
+    from documents import store
+
+    for _ in range(store.DAILY_PAGE_BUDGET):
+        store.consume_page_budget(env["table"], 1, store_now())
+    version = upload(env)
+
+    run(env, s3_event(version=version))  # nothing queued: an OCR call would raise
+
+    item = doc(env)
+    assert item["status"] == "failed"
+    assert "limit" in item["failureReason"].lower()
+
+
+def store_now():
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC)
+
+
 def test_event_for_unexpected_key_is_ignored(env):
     run(env, s3_event(key="tmp/something"))  # no exception, no calls
 
