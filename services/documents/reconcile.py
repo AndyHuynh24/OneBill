@@ -183,6 +183,11 @@ def _subsets(items: list[Line]):
         yield [item for i, item in enumerate(items) if mask >> i & 1]
 
 
+def check(lines: list[Line], total_required: bool = True) -> Reconciliation:
+    """Check lines exactly as labelled, without relabelling: for a person's own corrections."""
+    return _check([_normalize_discount(line) for line in lines], total_required)
+
+
 def _normalize(description: str) -> str:
     return " ".join(re.sub(r"[^A-Z0-9]+", " ", description.upper()).split())
 

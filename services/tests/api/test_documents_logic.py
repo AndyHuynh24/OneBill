@@ -481,3 +481,99 @@ def test_concurrent_corrections_cannot_orphan_obligations(table):
         )
 
     assert len(obligations_for(table)) == 1
+
+
+# --- step 6: fixing individual lines ---------------------------------------------------------
+
+DINNER = [
+    {"description": "PAD THAI", "kind": "item", "amountCents": 1450},
+    {"description": "CURRY", "kind": "item", "amountCents": 1200},
+    {"description": "SUBTOTAL", "kind": "subtotal", "amountCents": 2650},
+    {"description": "TAX", "kind": "tax", "amountCents": 236},
+    {"description": "TOTAL", "kind": "total", "amountCents": 2886},
+]
+
+
+def correct_lines(table, doc_id, lines, **extra):
+    fields = {"lines": lines} | extra
+    return review_document(table, "user-a", doc_id, {"action": "correct", "fields": fields}, NOW)
+
+
+def test_corrected_lines_that_add_up_make_the_document_ready(table):
+    doc_id = processed_doc(table)
+
+    doc = correct_lines(table, doc_id, DINNER)
+
+    assert doc["status"] == "ready"
+    assert doc["issues"] == []
+    assert [line["row"] for line in doc["lines"]] == [1, 2, 3, 4, 5]  # numbered by the server
+    assert (doc["totalCents"], doc["subtotalCents"], doc["taxCents"]) == (2886, 2650, 236)
+    assert doc["correctedFields"] == ["lines"]
+
+
+def test_corrected_lines_that_dont_add_up_say_exactly_whats_off(table):
+    doc_id = processed_doc(table)
+    wrong = [dict(line) for line in DINNER]
+    wrong[1]["amountCents"] = 1000  # CURRY misread
+
+    doc = correct_lines(table, doc_id, wrong)
+
+    assert doc["status"] == "needs_review"
+    assert any("subtotal" in issue for issue in doc["issues"])
+
+
+def test_user_labels_are_kept_as_given_not_relabelled_by_code(table):
+    """reconcile() may relabel model output; a person's correction is never second-guessed."""
+    doc_id = processed_doc(table)
+    lines = [
+        {"description": "CASH BACK", "kind": "item", "amountCents": 2000},  # looks like payment
+        {"description": "TOTAL", "kind": "total", "amountCents": 2000},
+    ]
+
+    doc = correct_lines(table, doc_id, lines)
+
+    assert doc["lines"][0]["kind"] == "item"
+    assert doc["corrections"] == []
+    assert doc["status"] == "ready"
+
+
+def test_a_positive_discount_amount_is_stored_as_a_reduction(table):
+    doc_id = processed_doc(table)
+    lines = [
+        {"description": "MILK", "kind": "item", "amountCents": 500},
+        {"description": "COUPON", "kind": "discount", "amountCents": 100},
+        {"description": "TOTAL", "kind": "total", "amountCents": 400},
+    ]
+
+    doc = correct_lines(table, doc_id, lines)
+
+    assert doc["lines"][1]["amountCents"] == -100
+    assert doc["status"] == "ready"
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        [],
+        "PAD THAI 14.50",
+        [{"description": "X", "kind": "produce", "amountCents": 100}],
+        [{"description": "X", "kind": "item", "amountCents": 1.5}],
+        [{"description": "X", "kind": "item", "amountCents": True}],
+        [{"description": "", "kind": "item", "amountCents": 100}],
+        [{"description": "x" * 121, "kind": "item", "amountCents": 100}],
+        [{"description": "X", "kind": "item", "amountCents": 10**12}],
+        [{"description": "X", "kind": "item", "amountCents": 100}] * 201,
+    ],
+)
+def test_invalid_lines_are_rejected(table, lines):
+    doc_id = processed_doc(table)
+
+    with pytest.raises(BadRequest):
+        correct_lines(table, doc_id, lines)
+
+
+def test_lines_and_a_separate_total_cant_be_edited_together(table):
+    doc_id = processed_doc(table)
+
+    with pytest.raises(BadRequest, match="total line"):
+        correct_lines(table, doc_id, DINNER, totalCents=100)

@@ -11,7 +11,8 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from documents.extraction import DEADLINE_TYPES
+from documents.extraction import DEADLINE_TYPES, LINE_KINDS, NO_TOTAL_TYPES
+from documents.reconcile import Line, check
 from documents.store import obligation_item
 from documents.validate import Obligation
 from shared.dates import parse_iso_date
@@ -32,7 +33,11 @@ MAX_OBLIGATION_WINDOW_DAYS = 366
 STALE_UPLOAD = timedelta(minutes=15)
 STALE_PROCESSING = timedelta(minutes=15)
 REVIEWABLE_STATUSES = frozenset({"ready", "needs_review"})
-EDITABLE_FIELDS = frozenset({"vendor", "documentDate", "totalCents", "currency", "deadlines"})
+EDITABLE_FIELDS = frozenset(
+    {"vendor", "documentDate", "totalCents", "currency", "deadlines", "lines"}
+)
+MAX_LINES = 200
+MAX_DESCRIPTION = 120
 MAX_VENDOR = 200
 MAX_DEADLINES = 10
 MAX_ABS_CENTS = 10**11
@@ -59,6 +64,10 @@ class Forbidden(DocumentsError):
 
 class NotFound(DocumentsError):
     status = 404
+
+
+class Conflict(DocumentsError):
+    status = 409
 
 
 class QuotaExceeded(DocumentsError):
@@ -271,7 +280,8 @@ def _summary(item: dict[str, Any]) -> dict[str, Any]:
 def review_document(
     table: Any, user_id: str, doc_id: str, body: dict[str, Any], now: datetime
 ) -> dict[str, Any]:
-    """Looks right → accept; Fix → corrected fields (re-validated). Both mark the doc ready.
+    """Looks right → accept; Fix → corrected fields (re-validated). Both mark the doc ready,
+    except corrected lines: those are re-checked, and the doc stays in review if they don't add up.
 
     Corrected deadlines replace the document's obligations and their GSI1 entries atomically.
     """
@@ -289,6 +299,7 @@ def review_document(
     }
     deletes: list[str] = []
     puts: list[dict[str, Any]] = []
+    removes: list[str] = []
     # The deadlines as they were when this review was read; the write only applies if they're
     # unchanged (a concurrent save, e.g. a double-click, can't orphan obligations).
     expected_keys = _current_keys(table, user_id, doc_id)
@@ -299,7 +310,11 @@ def review_document(
         updates["reviewOutcome"] = "corrected"
         updates["correctedFields"] = sorted(fields)
         deadlines = fields.pop("deadlines", None)
+        lines = fields.pop("lines", None)
         updates.update(fields)
+        if lines is not None:
+            updates.update(_rechecked(lines, current.get("docType")))
+            removes.append("split")  # rows may have changed: an old split can't be trusted
         if deadlines is not None:
             vendor = fields.get("vendor", current.get("vendor"))
             amount = fields.get("totalCents", current.get("totalCents"))
@@ -320,7 +335,9 @@ def review_document(
                 for item in puts
             ]
 
-    _write_review(table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys)
+    _write_review(
+        table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys, removes=removes
+    )
     return get_document(table, user_id, doc_id, now)
 
 
@@ -330,6 +347,55 @@ def review_stats(documents: list[dict[str, Any]]) -> dict[str, Any]:
     accepted = sum(1 for d in reviewed if d["reviewOutcome"] == "accepted")
     rate = round(accepted / len(reviewed), 2) if reviewed else None
     return {"reviewed": len(reviewed), "acceptedUnchanged": accepted, "acceptanceRate": rate}
+
+
+def _rechecked(lines: list[Line], doc_type: str | None) -> dict[str, Any]:
+    """Corrected lines become the document's lines; totals and status follow from the math."""
+    rec = check(lines, total_required=doc_type not in NO_TOTAL_TYPES)
+    return {
+        "lines": [
+            {
+                "row": line.row,
+                "description": line.description,
+                "kind": line.kind,
+                "amountCents": line.amount_cents,
+            }
+            for line in rec.lines
+        ],
+        "totalCents": rec.total_cents,
+        "subtotalCents": rec.printed_subtotal_cents,
+        "taxCents": rec.tax_cents,
+        "tipCents": rec.tip_cents,
+        "feesCents": rec.fees_cents,
+        "discountsCents": rec.discounts_cents,
+        "corrections": [],  # the person's labels replace any automatic relabelling
+        "issues": rec.issues,
+        "notes": rec.notes,
+        # Ready only when the corrected bill adds up; otherwise the issues say what's off.
+        "status": "ready" if rec.ok else "needs_review",
+    }
+
+
+def _validated_lines(raw: Any) -> list[Line]:
+    if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_LINES:
+        raise BadRequest(f"lines must be a list of 1–{MAX_LINES} lines.")
+    lines = []
+    for row, entry in enumerate(raw, start=1):  # rows are numbered here, never by the client
+        if not isinstance(entry, dict):
+            raise BadRequest(f"Line {row} must be an object.")
+        description, kind, cents = (
+            entry.get("description"),
+            entry.get("kind"),
+            entry.get("amountCents"),
+        )
+        if not isinstance(description, str) or not 0 < len(description.strip()) <= MAX_DESCRIPTION:
+            raise BadRequest(f"Line {row} needs a description of 1–{MAX_DESCRIPTION} characters.")
+        if kind not in LINE_KINDS:
+            raise BadRequest(f"Line {row} has an unknown kind.")
+        if not isinstance(cents, int) or isinstance(cents, bool) or abs(cents) > MAX_ABS_CENTS:
+            raise BadRequest(f"Line {row} needs a whole number of cents.")
+        lines.append(Line(row=row, description=description.strip(), kind=kind, amount_cents=cents))
+    return lines
 
 
 def _current_keys(table: Any, user_id: str, doc_id: str) -> list[str]:
@@ -371,6 +437,10 @@ def _validated_corrections(fields: Any) -> dict[str, Any]:
         ):
             raise BadRequest("currency must be a 3-letter code like USD.")
         out["currency"] = value
+    if "lines" in fields:
+        if "totalCents" in fields:
+            raise BadRequest("When editing lines, change the total line instead of totalCents.")
+        out["lines"] = _validated_lines(fields["lines"])
     if "deadlines" in fields:
         raw = fields["deadlines"]
         if not isinstance(raw, list) or len(raw) > MAX_DEADLINES:
@@ -394,9 +464,12 @@ def _write_review(
     delete_keys: list[str],
     puts: list[dict[str, Any]],
     expected_keys: list[str],
+    removes: list[str] = (),
 ) -> None:
     pk = f"USER#{user_id}"
     names = {f"#f{i}": name for i, name in enumerate(updates)}
+    names |= {f"#r{i}": name for i, name in enumerate(removes)}
+    remove = (" REMOVE " + ", ".join(f"#r{i}" for i in range(len(removes)))) if removes else ""
     values = {f":v{i}": value for i, value in enumerate(updates.values())}
     values |= {":ready": "ready", ":review": "needs_review", ":expected": expected_keys}
     unchanged = "obligationKeys = :expected"
@@ -406,7 +479,9 @@ def _write_review(
         "Update": {
             "TableName": table.name,
             "Key": {"PK": pk, "SK": f"DOC#{doc_id}"},
-            "UpdateExpression": "SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(updates))),
+            "UpdateExpression": "SET "
+            + ", ".join(f"#f{i} = :v{i}" for i in range(len(updates)))
+            + remove,
             # Only processed documents change here, and only if no other save changed their
             # deadlines since this review read them.
             "ConditionExpression": f"#status IN (:ready, :review) AND {unchanged}",
