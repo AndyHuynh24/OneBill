@@ -20,7 +20,7 @@ dev = [
 testpaths = ["tests"]
 # Mirrors /var/task at runtime: every Lambda ships the services root (api/, documents/, shared/, …).
 pythonpath = ["."]
-addopts = "-q"
+addopts = "-q --import-mode=importlib"
 
 [tool.ruff]
 line-length = 100
