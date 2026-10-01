@@ -102,7 +102,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
             )}
 
             {mode === "split" ? (
-              <SplitFlow api={api} doc={doc} onCancel={() => setMode("view")} />
+              <SplitFlow api={api} doc={doc} onCancel={() => setMode("view")} onClose={onClose} />
             ) : mode === "ask" ? (
               <div className="split-prompt">
                 <h3>Split this bill?</h3>
@@ -165,7 +165,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                 {doc.status === "ready" && (
                   <div className="sheet-actions">
                     <button type="button" disabled={!splittable} onClick={() => setMode("split")}>
-                      {splittable ? "Split bill" : "Fix items to split"}
+                      {!splittable ? "Fix items to split" : doc.split ? "View split" : "Split bill"}
                     </button>
                   </div>
                 )}

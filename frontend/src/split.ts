@@ -1,5 +1,6 @@
 /** Split-bill helpers for the screens. Final shares are always computed by the server. */
-import type { DocumentLine } from "./api";
+import type { DocumentLine, Split } from "./api";
+import { formatCents, formatDate } from "./format";
 
 export const MAX_PEOPLE = 12;
 
@@ -59,4 +60,25 @@ export function addsUp(lines: DocumentLine[] | undefined, totalCents: number | n
   if (totalCents == null || !lines?.some((l) => l.kind === "item")) return false;
   const sum = lines.filter((l) => SPLIT_KINDS.has(l.kind)).reduce((acc, l) => acc + l.amountCents, 0);
   return Math.abs(sum - totalCents) <= TOLERANCE_CENTS;
+}
+
+/** The message for the share sheet: "Bao $15.79 (PAD THAI + tax/tip/fees)". */
+export function shareText(
+  split: Split,
+  lines: DocumentLine[],
+  meta: { vendor?: string | null; documentDate?: string | null; currency?: string | null },
+): string {
+  const currency = meta.currency ?? "USD";
+  const description = new Map(lines.map((l) => [l.row, l.description]));
+  const header = [meta.vendor, meta.documentDate && formatDate(meta.documentDate), formatCents(split.totalCents, currency)]
+    .filter(Boolean)
+    .join(" · ");
+  const rows = split.shares.map((share) => {
+    const member = split.members.find((m) => m.id === share.member);
+    const items = share.rows.map((r) => description.get(r)).filter(Boolean).join(", ");
+    const extras = share.extrasCents ? " + tax/tip/fees" : "";
+    const detail = items || extras ? ` (${items || "—"}${extras})` : "";
+    return `${member?.name ?? "?"} ${formatCents(share.totalCents, currency)}${detail}`;
+  });
+  return [header, ...rows].join("\n");
 }
