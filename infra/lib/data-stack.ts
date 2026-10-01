@@ -89,8 +89,6 @@ export class DataStack extends Stack {
         { id: "abort-incomplete-uploads", abortIncompleteMultipartUploadAfter: Duration.days(1) },
         { id: "expire-old-versions", noncurrentVersionExpiration: Duration.days(30) },
       ],
-      // "Object Created" events go to EventBridge, where a rule routes uploads/ to the extract Lambda.
-      eventBridgeEnabled: true,
       cors: [
         {
           allowedMethods: [s3.HttpMethods.POST],
@@ -101,5 +99,11 @@ export class DataStack extends Stack {
       ],
       removalPolicy: RemovalPolicy.RETAIN,
     });
+    // "Object Created" events go to EventBridge, where a rule routes uploads/ to the extract
+    // Lambda. Set as a plain bucket property: `eventBridgeEnabled: true` would add a
+    // custom-resource Lambda (with a never-expiring log group) just to flip this switch.
+    (this.docsBucket.node.defaultChild as s3.CfnBucket).notificationConfiguration = {
+      eventBridgeConfiguration: { eventBridgeEnabled: true },
+    };
   }
 }

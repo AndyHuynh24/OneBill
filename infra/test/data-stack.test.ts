@@ -169,10 +169,12 @@ describe("DataStack — S3 docs bucket", () => {
 });
 
 describe("DataStack — Phase 1 upload pipeline settings", () => {
-  it("sends bucket events to EventBridge", () => {
-    template.hasResourceProperties("Custom::S3BucketNotifications", {
-      NotificationConfiguration: { EventBridgeConfiguration: {} },
+  it("sends bucket events to EventBridge via a bucket property (no custom-resource Lambda)", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      NotificationConfiguration: { EventBridgeConfiguration: { EventBridgeEnabled: true } },
     });
+    template.resourceCountIs("Custom::S3BucketNotifications", 0);
+    template.resourceCountIs("AWS::Lambda::Function", 0);
   });
 
   it("allows browser POST uploads only from the frontend origin", () => {

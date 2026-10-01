@@ -85,6 +85,8 @@ export function newServiceFunction(scope: Construct, id: string, props: ServiceF
       POWERTOOLS_LOG_LEVEL: "INFO",
       // Don't copy response bodies into X-Ray (it bypasses our KMS key and PII redaction).
       POWERTOOLS_TRACER_CAPTURE_RESPONSE: "false",
+      // Exception messages can quote document content: keep them out of traces too.
+      POWERTOOLS_TRACER_CAPTURE_ERROR: "false",
       POWERTOOLS_TRACE_DISABLED: props.enableTracing ? "false" : "true",
     },
     logGroup: new logs.LogGroup(scope, `${id}Logs`, {

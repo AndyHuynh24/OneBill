@@ -87,13 +87,20 @@ describe("PipelineStack — upload trigger", () => {
 });
 
 describe("PipelineStack — extract Lambda", () => {
+  it("keeps exception messages (possible document content) out of traces", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Handler: "documents.handler.handler",
+      Environment: { Variables: Match.objectLike({ POWERTOOLS_TRACER_CAPTURE_ERROR: "false" }) },
+    });
+  });
+
   it("has the environment the handler reads, and room for OCR + two model calls", () => {
     template.hasResourceProperties("AWS::Lambda::Function", {
       Handler: "documents.handler.handler",
       Runtime: "python3.12",
       Architectures: ["arm64"],
       MemorySize: 512,
-      Timeout: 180,
+      Timeout: 300,
       Environment: {
         Variables: Match.objectLike({
           TABLE_NAME: Match.anyValue(),
@@ -146,14 +153,18 @@ describe("PipelineStack — extract Lambda", () => {
     expect(pass?.Condition).toEqual({ StringEquals: { "iam:PassedToService": "textract.amazonaws.com" } });
   });
 
-  it("uses the data key only through S3 and DynamoDB", () => {
+  it("uses the data key through DynamoDB, and only decrypts through S3 (it never writes files)", () => {
     const kms = extractStatements().filter((st) => actionsOf([st], "kms:").length);
-    expect(kms).toHaveLength(1);
-    expect(kms[0].Condition).toEqual({
-      StringEquals: {
-        "kms:ViaService": ["dynamodb.us-east-1.amazonaws.com", "s3.us-east-1.amazonaws.com"],
-      },
-    });
+    const via = (service: string) =>
+      kms.find((st) => JSON.stringify(st.Condition).includes(`${service}.us-east-1.amazonaws.com`));
+    expect(kms).toHaveLength(2);
+    expect([via("s3")?.Action].flat()).toEqual(["kms:Decrypt"]);
+    expect(actionsOf([via("dynamodb")!], "kms:")).toEqual([
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:Encrypt",
+      "kms:GenerateDataKey",
+    ]);
   });
 
   it("never grants wildcard actions", () => {
@@ -197,6 +208,21 @@ describe("PipelineStack — Textract completion (SNS)", () => {
     expect(JSON.stringify(statements[0].Resource)).toMatch(/"Ref":"TextractDoneTopic/);
   });
 
+  it("topic refuses publishes from anyone but the Textract role", () => {
+    template.hasResourceProperties("AWS::SNS::TopicPolicy", {
+      PolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Effect: "Deny",
+            Action: "sns:Publish",
+            Principal: { AWS: "*" },
+            Condition: { ArnNotEquals: { "aws:PrincipalArn": Match.anyValue() } },
+          }),
+        ]),
+      },
+    });
+  });
+
   it("topic accepts only TLS", () => {
     template.hasResourceProperties("AWS::SNS::TopicPolicy", {
       PolicyDocument: {
@@ -233,6 +259,7 @@ describe("PipelineStack — reminders", () => {
   it("gives the reminders Lambda the pool, sender, and app URL", () => {
     template.hasResourceProperties("AWS::Lambda::Function", {
       Handler: "reminders.handler.handler",
+      Timeout: 120,
       Environment: {
         Variables: Match.objectLike({
           TABLE_NAME: Match.anyValue(),

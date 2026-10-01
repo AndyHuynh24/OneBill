@@ -73,6 +73,16 @@ export class PipelineStack extends Stack {
       }),
     });
     textractDone.grantPublish(textractPublishRole);
+    // Nobody else may publish "job done" messages (the handler also checks them against the doc).
+    textractDone.addToResourcePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.DENY,
+        principals: [new iam.AnyPrincipal()],
+        actions: ["sns:Publish"],
+        resources: [textractDone.topicArn],
+        conditions: { ArnNotEquals: { "aws:PrincipalArn": textractPublishRole.roleArn } },
+      }),
+    );
 
     const extractFn = newServiceFunction(this, "ExtractFunction", {
       handler: "documents.handler.handler",
@@ -80,7 +90,8 @@ export class PipelineStack extends Stack {
       serviceName: "onetally-documents",
       logKey: props.dataKey,
       memorySize: 512,
-      timeout: Duration.seconds(180),
+      // Fits Textract plus the Bedrock budget (2 calls × 2 attempts × 45 s read timeout).
+      timeout: Duration.seconds(300),
       deadLetterQueue: deadLetters,
       enableTracing: props.enableTracing,
       environment: {
@@ -131,7 +142,15 @@ export class PipelineStack extends Stack {
       new iam.PolicyStatement({
         actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
         resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": [viaDynamo, viaS3] } },
+        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
+      }),
+    );
+    extractFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // Reading uploads only: decrypt, never encrypt, through S3.
+        actions: ["kms:Decrypt"],
+        resources: [props.dataKey.keyArn],
+        conditions: { StringEquals: { "kms:ViaService": viaS3 } },
       }),
     );
     extractFn.addToRolePolicy(
@@ -176,7 +195,7 @@ export class PipelineStack extends Stack {
       description: "Daily digest of deadlines due in 7, 3, and 1 days",
       serviceName: "onetally-reminders",
       logKey: props.dataKey,
-      timeout: Duration.seconds(60),
+      timeout: Duration.seconds(120),
       enableTracing: props.enableTracing,
       environment: {
         TABLE_NAME: props.table.tableName,
