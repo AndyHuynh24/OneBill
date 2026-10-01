@@ -50,6 +50,6 @@ if (budgetEmail) {
   new AccountStack(app, "OneTally-Account", {
     env,
     budgetEmail,
-    githubRepo: app.node.getContext("githubRepo"),
+    githubSubject: app.node.getContext("githubSubject"),
   });
 }
