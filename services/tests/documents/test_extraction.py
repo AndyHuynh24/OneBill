@@ -413,5 +413,11 @@ def test_repair_feedback_forbids_forcing_the_math():
     assert "review" in text.lower()
 
 
-def test_prompt_version_bumped_for_round_three():
-    assert extraction.PROMPT_VERSION == "2026-10-01.1"
+def test_prompt_version_is_current():
+    assert extraction.PROMPT_VERSION == "2026-10-01.2"
+
+
+def test_prompt_limits_receipt_deadlines_to_printed_return_policies():
+    assert "receipt" in extraction.SYSTEM_PROMPT
+    assert "only a return window" in extraction.SYSTEM_PROMPT
+    assert extraction.PROMPT_VERSION == "2026-10-01.2"

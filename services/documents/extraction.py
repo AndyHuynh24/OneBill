@@ -19,7 +19,7 @@ from shared.money import format_cents, to_cents
 from shared.pii import redact
 
 # Stored on every DOC item, so eval results and production behaviour map to a prompt version.
-PROMPT_VERSION = "2026-10-01.1"
+PROMPT_VERSION = "2026-10-01.2"
 TOOL_NAME = "record_document"
 MAX_OUTPUT_TOKENS = 4096
 
@@ -136,7 +136,8 @@ an item. A positive amount is a discount only when the document presents it as s
 breakdown, a charge printed a second time, a "pay with cash" price offer) are info.
 - Never invent a line or an amount. If the printed amounts don't add up, still record them \
 exactly as printed.
-- deadlines: return windows, payment due dates, warranty expiry, renewal dates. Quote the exact \
+- deadlines: return windows, payment due dates, warranty expiry, renewal dates. On a receipt, \
+record only a return window, and only when a return policy is printed. Quote the exact \
 evidence text. If the document gives a window ("returns within 30 days") rather than a date, \
 set days_after_purchase and leave date null. Do not invent deadlines.
 - Dates as YYYY-MM-DD (assume month/day order for US documents). Use null when not printed.
