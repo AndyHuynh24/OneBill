@@ -1,0 +1,312 @@
+"""The "understanding" tests: summary, payment, and change lines must never be summed as items.
+
+Each case is a receipt as the model might label it, including the mistakes we must survive.
+"""
+
+from documents.reconcile import Line, reconcile
+
+
+def lines(*rows: tuple[str, str, int]) -> list[Line]:
+    """Build Line objects from (description, kind, amount_cents) tuples, numbering rows in order."""
+    return [
+        Line(row=i + 1, description=d, kind=k, amount_cents=a) for i, (d, k, a) in enumerate(rows)
+    ]
+
+
+GROCERY_CORRECT = lines(
+    ("BANANAS", "item", 129),
+    ("MILK 1 GAL", "item", 419),
+    ("BREAD", "item", 350),
+    ("EGGS", "item", 550),
+    ("CHICKEN", "item", 1200),
+    ("COUPON", "discount", -200),
+    ("SUBTOTAL", "subtotal", 2448),
+    ("TAX", "tax", 170),
+    ("TOTAL", "total", 2618),
+    ("CASH", "payment", 3000),
+    ("CHANGE", "change", 382),
+)
+
+
+def test_correctly_labelled_receipt_reconciles():
+    r = reconcile(GROCERY_CORRECT)
+
+    assert r.ok
+    assert r.total_cents == 2618
+    assert r.items_cents == 2648
+    assert r.discounts_cents == -200
+    assert r.tax_cents == 170
+    assert r.issues == []
+    assert r.corrections == []
+
+
+def test_total_subtotal_cash_change_mislabelled_as_items_are_corrected():
+    """Andy's bug: the model calls every money line an 'item'. The total must still be $26.18."""
+    mislabelled = lines(
+        ("BANANAS", "item", 129),
+        ("MILK 1 GAL", "item", 419),
+        ("BREAD", "item", 350),
+        ("EGGS", "item", 550),
+        ("CHICKEN", "item", 1200),
+        ("COUPON", "discount", -200),
+        ("SUBTOTAL", "item", 2448),
+        ("TAX", "item", 170),
+        ("TOTAL", "item", 2618),
+        ("CASH", "item", 3000),
+        ("CHANGE", "item", 382),
+    )
+
+    r = reconcile(mislabelled)
+
+    assert r.ok, r.issues
+    assert r.total_cents == 2618
+    assert r.items_cents == 2648
+    assert {(c.row, c.to_kind) for c in r.corrections} == {
+        (7, "subtotal"),
+        (8, "tax"),
+        (9, "total"),
+        (10, "payment"),
+        (11, "change"),
+    }
+
+
+def test_textract_summary_values_confirm_a_mislabelled_total():
+    """No other line carries the printed total, but Textract's TOTAL summary field does."""
+    r = reconcile(
+        lines(("SANDWICH", "item", 899), ("SODA", "item", 249), ("TOTAL", "item", 1148)),
+        textract_summary={"TOTAL": 1148},
+    )
+
+    assert r.ok
+    assert r.total_cents == 1148
+    assert r.items_cents == 1148
+
+
+def test_item_whose_name_contains_a_keyword_is_not_reclassified():
+    """'TOTAL WIRELESS' is a product. Its amount doesn't match any printed summary value."""
+    r = reconcile(
+        lines(
+            ("TOTAL WIRELESS CARD", "item", 2500),
+            ("CASHEWS", "item", 699),
+            ("SUBTOTAL", "subtotal", 3199),
+            ("TAX", "tax", 0),
+            ("TOTAL", "total", 3199),
+        )
+    )
+
+    assert r.ok
+    assert r.corrections == []
+    assert r.items_cents == 3199
+
+
+def test_card_payment_equal_to_total_reconciles():
+    r = reconcile(
+        lines(
+            ("COFFEE", "item", 450),
+            ("MUFFIN", "item", 325),
+            ("TAX", "tax", 62),
+            ("TOTAL", "total", 837),
+            ("VISA ****1234", "payment", 837),
+        )
+    )
+
+    assert r.ok
+    assert r.total_cents == 837
+    assert r.payment_cents == 837
+    assert r.change_cents == 0
+
+
+def test_repeated_total_line_is_not_a_conflict():
+    r = reconcile(
+        lines(
+            ("PASTA", "item", 1500),
+            ("TOTAL", "total", 1500),
+            ("AMOUNT TENDERED", "payment", 2000),
+            ("CHANGE DUE", "change", 500),
+            ("TOTAL", "total", 1500),
+        )
+    )
+
+    assert r.ok
+    assert r.total_cents == 1500
+
+
+def test_restaurant_slip_with_pre_tip_and_final_total():
+    r = reconcile(
+        lines(
+            ("BURGER", "item", 1600),
+            ("FRIES", "item", 500),
+            ("SUBTOTAL", "subtotal", 2100),
+            ("TAX", "tax", 189),
+            ("TOTAL", "total", 2289),
+            ("TIP", "tip", 400),
+            ("TOTAL", "total", 2689),
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.tip_cents == 400
+    assert r.total_cents == 2689
+
+
+def test_multiple_tax_lines_are_summed():
+    r = reconcile(
+        lines(
+            ("WIDGET", "item", 1000),
+            ("STATE TAX", "tax", 60),
+            ("CITY TAX", "tax", 25),
+            ("TOTAL", "total", 1085),
+        )
+    )
+
+    assert r.ok
+    assert r.tax_cents == 85
+
+
+def test_fee_outside_subtotal():
+    r = reconcile(
+        lines(
+            ("GROCERIES", "item", 2000),
+            ("SUBTOTAL", "subtotal", 2000),
+            ("BAG FEE", "fee", 10),
+            ("TAX", "tax", 160),
+            ("TOTAL", "total", 2170),
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.fees_cents == 10
+
+
+def test_fee_included_in_subtotal():
+    r = reconcile(
+        lines(
+            ("GROCERIES", "item", 2000),
+            ("BAG FEE", "fee", 10),
+            ("SUBTOTAL", "subtotal", 2010),
+            ("TAX", "tax", 160),
+            ("TOTAL", "total", 2170),
+        )
+    )
+
+    assert r.ok, r.issues
+
+
+def test_savings_recap_line_is_info_not_a_second_discount():
+    """'YOU SAVED $2.00' repeats the coupon. If it were counted again, the math would break."""
+    r = reconcile(
+        lines(
+            ("SHAMPOO", "item", 899),
+            ("COUPON", "discount", -200),
+            ("SUBTOTAL", "subtotal", 699),
+            ("TOTAL", "total", 699),
+            ("YOU SAVED", "discount", 200),  # model mistake: recap labelled as a discount
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.discounts_cents == -200
+    assert any(c.row == 5 and c.to_kind == "info" for c in r.corrections)
+
+
+def test_positive_discount_amount_is_treated_as_negative():
+    r = reconcile(
+        lines(
+            ("JACKET", "item", 5000),
+            ("MEMBER DISCOUNT", "discount", 500),
+            ("SUBTOTAL", "subtotal", 4500),
+            ("TOTAL", "total", 4500),
+        )
+    )
+
+    assert r.ok
+    assert r.discounts_cents == -500
+
+
+def test_rounding_within_two_cents_is_accepted():
+    r = reconcile(
+        lines(("A", "item", 333), ("B", "item", 333), ("C", "item", 333), ("TOTAL", "total", 1000))
+    )
+
+    assert r.ok
+    assert r.total_cents == 1000
+
+
+def test_mismatch_beyond_tolerance_needs_review_with_readable_reason():
+    """Textract missed an item: items sum to $9.00 but the printed subtotal is $12.00."""
+    r = reconcile(
+        lines(
+            ("A", "item", 400),
+            ("B", "item", 500),
+            ("SUBTOTAL", "subtotal", 1200),
+            ("TAX", "tax", 0),
+            ("TOTAL", "total", 1200),
+        )
+    )
+
+    assert not r.ok
+    assert r.total_cents == 1200  # the printed total is still reported, never replaced
+    assert any("Items add up to $9.00" in i and "$12.00" in i for i in r.issues)
+
+
+def test_cash_and_change_must_match_total():
+    r = reconcile(
+        lines(
+            ("A", "item", 1000),
+            ("TOTAL", "total", 1000),
+            ("CASH", "payment", 2000),
+            ("CHANGE", "change", 500),  # should be 10.00: a misread
+        )
+    )
+
+    assert not r.ok
+    assert any("Paid $20.00 minus change $5.00" in i for i in r.issues)
+
+
+def test_bill_with_amount_due_and_no_total_line():
+    r = reconcile(
+        lines(
+            ("ELECTRIC SERVICE", "item", 7210),
+            ("TAXES AND FEES", "tax", 1200),
+            ("AMOUNT DUE", "balance_due", 8410),
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.total_cents == 8410
+
+
+def test_no_printed_total_needs_review():
+    r = reconcile(lines(("A", "item", 500), ("B", "item", 700)))
+
+    assert not r.ok
+    assert r.total_cents is None
+    assert any("No total" in i for i in r.issues)
+
+
+def test_conflicting_totals_need_review():
+    r = reconcile(
+        lines(
+            ("A", "item", 1000),
+            ("TOTAL", "total", 1000),
+            ("TOTAL", "total", 1300),  # not explained by a tip line
+        )
+    )
+
+    assert not r.ok
+
+
+def test_suspect_rows_point_at_lines_that_explain_a_mismatch():
+    """Feeds the targeted repair prompt: 'rows 4 look like summary lines'."""
+    r = reconcile(
+        lines(
+            ("A", "item", 1000),
+            ("B", "item", 500),
+            ("SUBTOTAL", "subtotal", 1500),
+            ("GRAND TTL", "item", 1500),  # odd OCR text the keyword list doesn't know
+            ("TOTAL", "total", 1500),
+        )
+    )
+
+    assert not r.ok
+    assert 4 in r.suspect_rows

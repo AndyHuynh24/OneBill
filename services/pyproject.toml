@@ -18,8 +18,8 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Each Lambda asset root is on the path, mirroring /var/task at runtime.
-pythonpath = ["api"]
+# Mirrors /var/task at runtime: the services root (shared/, documents/, …) plus the api asset root.
+pythonpath = [".", "api"]
 addopts = "-q"
 
 [tool.ruff]
