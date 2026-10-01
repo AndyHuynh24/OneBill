@@ -2,7 +2,7 @@
 # AWS commands use the "onetally" SSO profile unless AWS_PROFILE is already set.
 export AWS_PROFILE ?= onetally
 
-.PHONY: install test lint synth diff dev frontend-env \
+.PHONY: install test lint synth diff dev frontend-env eval \
 	test-services test-infra test-frontend lint-services lint-infra lint-frontend
 
 install:
@@ -24,7 +24,7 @@ test-frontend:
 lint: lint-services lint-infra lint-frontend
 
 lint-services:
-	cd services && uv run ruff check . && uv run ruff format --check .
+	cd services && uv run ruff check . ../eval && uv run ruff format --check . ../eval
 
 lint-infra:
 	cd infra && npm run lint
@@ -44,3 +44,7 @@ frontend-env:
 
 dev:
 	cd frontend && npm run dev
+
+# Extraction accuracy on your labelled receipts (eval/receipts/, local only). Dry run unless ARGS="--yes".
+eval:
+	cd services && uv run python ../eval/run_eval.py --profile $(AWS_PROFILE) $(ARGS)

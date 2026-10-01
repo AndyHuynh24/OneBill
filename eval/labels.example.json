@@ -1,0 +1,32 @@
+{
+  "receipts": [
+    {
+      "file": "grocery-cash.jpg",
+      "tricky": true,
+      "expected": {
+        "vendor": "Example Market",
+        "document_date": "2026-09-28",
+        "subtotal_cents": 2448,
+        "tax_cents": 170,
+        "tip_cents": 0,
+        "total_cents": 2618,
+        "item_count": 5,
+        "deadlines": [{ "type": "return_by", "due_date": "2026-10-28" }],
+        "lines": [
+          { "description": "SUBTOTAL", "kind": "subtotal" },
+          { "description": "TOTAL", "kind": "total" },
+          { "description": "CASH", "kind": "payment" },
+          { "description": "CHANGE", "kind": "change" }
+        ]
+      }
+    },
+    {
+      "file": "coffee-card.png",
+      "tricky": false,
+      "expected": {
+        "vendor": "Example Coffee",
+        "total_cents": 837
+      }
+    }
+  ]
+}
