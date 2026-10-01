@@ -85,7 +85,7 @@ def save_result(
     old_keys = existing.get("obligationKeys", [])
 
     obligation_items = [
-        _obligation_item(user_id, doc_id, result.vendor, o, now) for o in result.obligations
+        obligation_item(user_id, doc_id, result.vendor, o, now) for o in result.obligations
     ]
     fields = {
         "status": result.status,
@@ -157,9 +157,10 @@ def mark_failed(table: Any, user_id: str, doc_id: str, reason: str, now: datetim
             raise
 
 
-def _obligation_item(
+def obligation_item(
     user_id: str, doc_id: str, vendor: str | None, obligation: Obligation, now: datetime
 ) -> dict[str, Any]:
+    """An OBL# item with its GSI1 keys. Used by extraction and by review corrections."""
     obl_id = new_id(int(now.timestamp() * 1000))
     due = obligation.due_date.isoformat()
     return {

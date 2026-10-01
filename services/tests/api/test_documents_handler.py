@@ -108,6 +108,43 @@ def test_get_other_users_document_is_404(handler):
     assert status == 404
 
 
+def test_get_documents_includes_review_stats(handler):
+    _, body = call(handler, http_event("GET", "/documents", UPLOADER))
+
+    assert body["review"] == {"reviewed": 0, "acceptedUnchanged": 0, "acceptanceRate": None}
+
+
+def test_patch_review_of_a_pending_document_is_400(handler):
+    _, created = call(handler, http_event("POST", "/documents", UPLOADER, NEW_DOC))
+    doc_id = created["docId"]
+
+    status, body = call(
+        handler,
+        http_event(
+            "PATCH",
+            f"/documents/{doc_id}",
+            UPLOADER,
+            {"action": "accept"},
+            path_params={"docId": doc_id},
+        ),
+    )
+
+    assert status == 400
+    assert "processed" in body["message"]
+
+
+def test_patch_review_of_someone_elses_document_is_404(handler):
+    _, created = call(handler, http_event("POST", "/documents", UPLOADER, NEW_DOC))
+    doc_id = created["docId"]
+
+    status, _ = call(
+        handler,
+        http_event("PATCH", f"/documents/{doc_id}", {"sub": "user-b"}, {"action": "accept"}),
+    )
+
+    assert status == 404
+
+
 def test_get_obligations_default_window(handler):
     status, body = call(handler, http_event("GET", "/obligations", UPLOADER))
 

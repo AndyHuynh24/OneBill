@@ -230,3 +230,179 @@ def test_list_obligations_caps_the_window(table):
 )
 def test_parse_groups(claim, expected):
     assert parse_groups(claim) == expected
+
+
+# --- PATCH /documents/{id} (review) -------------------------------------------------------------
+
+from api.documents.logic import review_document  # noqa: E402
+
+
+def processed_doc(table, user="user-a", status="needs_review", obligations=("2026-10-28",)):
+    doc_id = "1790000000000aaaaaaaa"
+    keys = []
+    for i, due in enumerate(obligations):
+        sk = f"OBL#{due}#17900000000{i:02d}bbbbbbbb"
+        keys.append(sk)
+        table.put_item(
+            Item={
+                "PK": f"USER#{user}",
+                "SK": sk,
+                "type": "OBLIGATION",
+                "oblId": sk.rsplit("#", 1)[1],
+                "docId": doc_id,
+                "kind": "return_by",
+                "dueDate": due,
+                "remindersSent": [7],
+                "GSI1PK": f"DUE#{due}",
+                "GSI1SK": f"USER#{user}#OBL#{sk.rsplit('#', 1)[1]}",
+            }
+        )
+    table.put_item(
+        Item={
+            "PK": f"USER#{user}",
+            "SK": f"DOC#{doc_id}",
+            "type": "DOCUMENT",
+            "docId": doc_id,
+            "status": status,
+            "vendor": "TARGT",
+            "documentDate": "2026-09-28",
+            "totalCents": 2618,
+            "currency": "USD",
+            "issues": ["The total was hard to read (OCR confidence 62%). Please check it."],
+            "obligationKeys": keys,
+            "createdAt": "2026-09-28T10:00:00+00:00",
+        }
+    )
+    return doc_id
+
+
+def obligations_for(table, user="user-a"):
+    return table.query(
+        KeyConditionExpression="PK = :pk AND begins_with(SK, :p)",
+        ExpressionAttributeValues={":pk": f"USER#{user}", ":p": "OBL#"},
+    )["Items"]
+
+
+def test_accept_marks_ready_and_records_outcome(table):
+    doc_id = processed_doc(table)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "accept"}, now=NOW)
+
+    assert doc["status"] == "ready"
+    assert doc["reviewOutcome"] == "accepted"
+    assert doc["reviewedAt"] == NOW.isoformat()
+    assert len(obligations_for(table)) == 1  # untouched
+
+
+def test_correct_updates_fields_and_records_what_changed(table):
+    doc_id = processed_doc(table)
+
+    doc = review_document(
+        table,
+        "user-a",
+        doc_id,
+        {"action": "correct", "fields": {"vendor": "Target", "totalCents": 2681}},
+        now=NOW,
+    )
+
+    assert doc["status"] == "ready"
+    assert doc["vendor"] == "Target"
+    assert doc["totalCents"] == 2681
+    assert doc["reviewOutcome"] == "corrected"
+    assert sorted(doc["correctedFields"]) == ["totalCents", "vendor"]
+
+
+def test_correcting_deadlines_replaces_obligations_and_their_index_entries(table):
+    doc_id = processed_doc(table)
+
+    review_document(
+        table,
+        "user-a",
+        doc_id,
+        {
+            "action": "correct",
+            "fields": {"deadlines": [{"kind": "return_by", "dueDate": "2026-11-15"}]},
+        },
+        now=NOW,
+    )
+
+    remaining = obligations_for(table)
+    assert [o["dueDate"] for o in remaining] == ["2026-11-15"]
+    assert remaining[0]["GSI1PK"] == "DUE#2026-11-15"
+    assert remaining[0]["remindersSent"] == []
+    assert remaining[0]["evidence"] == "Entered during review"
+    item = table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"})["Item"]
+    assert item["obligationKeys"] == [remaining[0]["SK"]]
+
+
+def test_removing_all_deadlines(table):
+    doc_id = processed_doc(table)
+
+    review_document(
+        table, "user-a", doc_id, {"action": "correct", "fields": {"deadlines": []}}, now=NOW
+    )
+
+    assert obligations_for(table) == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"action": "delete"},
+        {"action": "correct"},
+        {"action": "correct", "fields": {}},
+        {"action": "correct", "fields": {"status": "ready"}},  # not editable
+        {"action": "correct", "fields": {"documentDate": "28/09/2026"}},
+        {"action": "correct", "fields": {"totalCents": 12.5}},
+        {"action": "correct", "fields": {"totalCents": True}},
+        {"action": "correct", "fields": {"currency": "dollars"}},
+        {"action": "correct", "fields": {"vendor": "x" * 201}},
+        {
+            "action": "correct",
+            "fields": {"deadlines": [{"kind": "someday", "dueDate": "2026-11-15"}]},
+        },
+        {"action": "correct", "fields": {"deadlines": [{"kind": "return_by", "dueDate": "soon"}]}},
+    ],
+)
+def test_review_rejects_invalid_requests(table, body):
+    doc_id = processed_doc(table)
+
+    with pytest.raises(BadRequest):
+        review_document(table, "user-a", doc_id, body, now=NOW)
+
+
+@pytest.mark.parametrize("status", ["pending_upload", "processing", "failed"])
+def test_cannot_review_a_document_that_is_not_processed(table, status):
+    doc_id = processed_doc(table, status=status)
+
+    with pytest.raises(BadRequest):
+        review_document(table, "user-a", doc_id, {"action": "accept"}, now=NOW)
+
+
+def test_cannot_review_someone_elses_document(table):
+    doc_id = processed_doc(table, user="user-b")
+
+    with pytest.raises(NotFound):
+        review_document(table, "user-a", doc_id, {"action": "accept"}, now=NOW)
+
+
+def test_list_documents_reports_acceptance_rate(table):
+    for i, outcome in enumerate(["accepted", "accepted", "corrected", None]):
+        item = {
+            "PK": "USER#user-a",
+            "SK": f"DOC#17900000000{i:02d}aaaaaaaa",
+            "docId": f"17900000000{i:02d}aaaaaaaa",
+            "status": "ready",
+        }
+        if outcome:
+            item["reviewOutcome"] = outcome
+        table.put_item(Item=item)
+
+    from api.documents.logic import review_stats
+
+    assert review_stats(list_documents(table, "user-a")) == {
+        "reviewed": 3,
+        "acceptedUnchanged": 2,
+        "acceptanceRate": 0.67,
+    }

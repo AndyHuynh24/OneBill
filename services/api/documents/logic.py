@@ -11,6 +11,10 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from documents.extraction import DEADLINE_TYPES
+from documents.store import obligation_item
+from documents.validate import Obligation
+from shared.dates import parse_iso_date
 from shared.ids import is_valid_id, new_id
 
 UPLOADERS_GROUP = "uploaders"
@@ -22,6 +26,11 @@ GLOBAL_DAILY_LIMIT = 40
 UPLOAD_URL_TTL_SECONDS = 300
 USAGE_TTL_DAYS = 7
 MAX_OBLIGATION_WINDOW_DAYS = 366
+REVIEWABLE_STATUSES = frozenset({"ready", "needs_review"})
+EDITABLE_FIELDS = frozenset({"vendor", "documentDate", "totalCents", "currency", "deadlines"})
+MAX_VENDOR = 200
+MAX_DEADLINES = 10
+MAX_ABS_CENTS = 10**11
 
 # Attributes that describe storage, not the document; never returned to clients.
 _PRIVATE_ATTRS = frozenset({"PK", "SK", "GSI1PK", "GSI1SK", "GSI2PK", "GSI2SK", "type", "s3Key"})
@@ -215,8 +224,161 @@ _SUMMARY_ATTRS = (
     "documentDate",
     "totalCents",
     "currency",
+    "reviewOutcome",
 )
 
 
 def _summary(item: dict[str, Any]) -> dict[str, Any]:
     return _plain({k: item[k] for k in _SUMMARY_ATTRS if k in item})
+
+
+def review_document(
+    table: Any, user_id: str, doc_id: str, body: dict[str, Any], now: datetime
+) -> dict[str, Any]:
+    """Looks right → accept; Fix → corrected fields (re-validated). Both mark the doc ready.
+
+    Corrected deadlines replace the document's obligations and their GSI1 entries atomically.
+    """
+    action = body.get("action")
+    if action not in {"accept", "correct"}:
+        raise BadRequest('action must be "accept" or "correct".')
+    current = get_document(table, user_id, doc_id)  # NotFound for other users' documents
+    if current.get("status") not in REVIEWABLE_STATUSES:
+        raise BadRequest("Only processed documents can be reviewed.")
+
+    updates: dict[str, Any] = {
+        "status": "ready",
+        "reviewedAt": now.isoformat(),
+        "updatedAt": now.isoformat(),
+    }
+    deletes: list[str] = []
+    puts: list[dict[str, Any]] = []
+    if action == "accept":
+        updates["reviewOutcome"] = "accepted"
+    else:
+        fields = _validated_corrections(body.get("fields"))
+        updates["reviewOutcome"] = "corrected"
+        updates["correctedFields"] = sorted(fields)
+        deadlines = fields.pop("deadlines", None)
+        updates.update(fields)
+        if deadlines is not None:
+            vendor = fields.get("vendor", current.get("vendor"))
+            amount = fields.get("totalCents", current.get("totalCents"))
+            puts = [
+                obligation_item(
+                    user_id,
+                    doc_id,
+                    vendor,
+                    Obligation(kind, due, "Entered during review", amount),
+                    now,
+                )
+                for kind, due in deadlines
+            ]
+            deletes = _current_keys(table, user_id, doc_id)
+            updates["obligationKeys"] = [item["SK"] for item in puts]
+            updates["obligations"] = [
+                {"kind": item["kind"], "dueDate": item["dueDate"], "evidence": item["evidence"]}
+                for item in puts
+            ]
+
+    _write_review(table, user_id, doc_id, updates, deletes, puts)
+    return get_document(table, user_id, doc_id)
+
+
+def review_stats(documents: list[dict[str, Any]]) -> dict[str, Any]:
+    """Acceptance rate: share of reviewed documents the user accepted without changes."""
+    reviewed = [d for d in documents if d.get("reviewOutcome")]
+    accepted = sum(1 for d in reviewed if d["reviewOutcome"] == "accepted")
+    rate = round(accepted / len(reviewed), 2) if reviewed else None
+    return {"reviewed": len(reviewed), "acceptedUnchanged": accepted, "acceptanceRate": rate}
+
+
+def _current_keys(table: Any, user_id: str, doc_id: str) -> list[str]:
+    item = table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"}).get("Item") or {}
+    return list(item.get("obligationKeys", []))
+
+
+def _validated_corrections(fields: Any) -> dict[str, Any]:
+    if not isinstance(fields, dict) or not fields:
+        raise BadRequest("fields must be a non-empty object.")
+    unknown = set(fields) - EDITABLE_FIELDS
+    if unknown:
+        raise BadRequest(f"These fields can't be edited: {', '.join(sorted(unknown))}.")
+    out: dict[str, Any] = {}
+    if "vendor" in fields:
+        vendor = fields["vendor"]
+        if vendor is not None and (
+            not isinstance(vendor, str) or not 0 < len(vendor.strip()) <= MAX_VENDOR
+        ):
+            raise BadRequest(f"vendor must be 1–{MAX_VENDOR} characters.")
+        out["vendor"] = vendor.strip() if isinstance(vendor, str) else None
+    if "documentDate" in fields:
+        value = fields["documentDate"]
+        if value is not None and parse_iso_date(value) is None:
+            raise BadRequest("documentDate must be YYYY-MM-DD.")
+        out["documentDate"] = value
+    if "totalCents" in fields:
+        value = fields["totalCents"]
+        if not isinstance(value, int) or isinstance(value, bool) or abs(value) > MAX_ABS_CENTS:
+            raise BadRequest("totalCents must be a whole number of cents.")
+        out["totalCents"] = value
+    if "currency" in fields:
+        value = fields["currency"]
+        if (
+            not isinstance(value, str)
+            or len(value) != 3
+            or not value.isalpha()
+            or not value.isupper()
+        ):
+            raise BadRequest("currency must be a 3-letter code like USD.")
+        out["currency"] = value
+    if "deadlines" in fields:
+        raw = fields["deadlines"]
+        if not isinstance(raw, list) or len(raw) > MAX_DEADLINES:
+            raise BadRequest(f"deadlines must be a list of at most {MAX_DEADLINES}.")
+        deadlines = []
+        for entry in raw:
+            kind = entry.get("kind") if isinstance(entry, dict) else None
+            due = parse_iso_date(entry.get("dueDate")) if isinstance(entry, dict) else None
+            if kind not in DEADLINE_TYPES or due is None:
+                raise BadRequest("Each deadline needs a valid kind and a YYYY-MM-DD dueDate.")
+            deadlines.append((kind, due))
+        out["deadlines"] = deadlines
+    return out
+
+
+def _write_review(
+    table: Any,
+    user_id: str,
+    doc_id: str,
+    updates: dict[str, Any],
+    delete_keys: list[str],
+    puts: list[dict[str, Any]],
+) -> None:
+    pk = f"USER#{user_id}"
+    names = {f"#f{i}": name for i, name in enumerate(updates)}
+    values = {f":v{i}": value for i, value in enumerate(updates.values())}
+    values |= {":ready": "ready", ":review": "needs_review"}
+    update = {
+        "Update": {
+            "TableName": table.name,
+            "Key": {"PK": pk, "SK": f"DOC#{doc_id}"},
+            "UpdateExpression": "SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(updates))),
+            # Guards against a concurrent re-process: only processed documents change here.
+            "ConditionExpression": "#status IN (:ready, :review)",
+            "ExpressionAttributeNames": names | {"#status": "status"},
+            "ExpressionAttributeValues": values,
+        }
+    }
+    deletes = [
+        {"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": sk}}} for sk in delete_keys
+    ]
+    put_items = [{"Put": {"TableName": table.name, "Item": item}} for item in puts]
+    try:
+        table.meta.client.transact_write_items(TransactItems=[update, *deletes, *put_items])
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            raise BadRequest(
+                "This document changed while you were reviewing it. Reload and try again."
+            ) from err
+        raise

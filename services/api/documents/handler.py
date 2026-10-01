@@ -1,4 +1,4 @@
-"""Documents API Lambda: POST/GET /documents, GET /documents/{docId}, GET /obligations.
+"""Documents API Lambda: POST/GET /documents, GET/PATCH /documents/{docId}, GET /obligations.
 
 Thin: read the verified user ID and groups from the JWT claims, validate the request shape,
 call logic, map errors to HTTP status codes.
@@ -74,13 +74,27 @@ def create_document() -> tuple[dict[str, Any], int]:
 @app.get("/documents")
 @tracer.capture_method
 def list_documents() -> dict[str, Any]:
-    return {"documents": logic.list_documents(table, _user_id())}
+    documents = logic.list_documents(table, _user_id())
+    return {"documents": documents, "review": logic.review_stats(documents)}
 
 
 @app.get("/documents/<doc_id>")
 @tracer.capture_method
 def get_document(doc_id: str) -> dict[str, Any]:
     return logic.get_document(table, _user_id(), doc_id)
+
+
+@app.patch("/documents/<doc_id>")
+@tracer.capture_method
+def review_document(doc_id: str) -> dict[str, Any]:
+    body = app.current_event.json_body or {}
+    if not isinstance(body, dict):
+        raise logic.BadRequest("Body must be a JSON object.")
+    document = logic.review_document(table, _user_id(), doc_id, body, now=datetime.now(UTC))
+    logger.info(
+        "document_reviewed", extra={"docId": doc_id, "outcome": document.get("reviewOutcome")}
+    )
+    return document
 
 
 @app.get("/obligations")
