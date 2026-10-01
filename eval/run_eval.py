@@ -33,10 +33,12 @@ OUT = EVAL_DIR / "out"
 RESULTS = EVAL_DIR / "results"
 SUFFIXES = {".jpg", ".jpeg", ".png", ".pdf"}
 
-# Anthropic list prices for Claude Haiku 4.5 (per million tokens); Bedrock's rate may differ.
-INPUT_PER_M, OUTPUT_PER_M = 1.00, 5.00
+# Claude Haiku 4.5 per million tokens via the Bedrock "us." cross-region profile (likely a 10%
+# premium over Anthropic's $1/$5 list price; verify on the Bedrock pricing page).
+INPUT_PER_M, OUTPUT_PER_M = 1.10, 5.50
 TEXTRACT_PER_PAGE = 0.01
 EST_TOKENS_PER_DOC = (3000, 1000)
+REPAIR_FACTOR = 2.0  # upper bound: every document needs the repair pass
 
 
 def init_labels(receipts: Path = RECEIPTS, labels_path: Path = LABELS) -> list[str]:
@@ -140,7 +142,9 @@ def main() -> int:
     entries = json.loads(LABELS.read_text())["receipts"][: args.limit]
     est = len(entries) * (
         TEXTRACT_PER_PAGE
-        + (EST_TOKENS_PER_DOC[0] * INPUT_PER_M + EST_TOKENS_PER_DOC[1] * OUTPUT_PER_M) / 1e6
+        + REPAIR_FACTOR
+        * (EST_TOKENS_PER_DOC[0] * INPUT_PER_M + EST_TOKENS_PER_DOC[1] * OUTPUT_PER_M)
+        / 1e6
     )
     print(f"{len(entries)} receipts · model {model} · prompt {PROMPT_VERSION}")
     print(f"Estimated cost: ≤ ${est:.2f} (Textract is cached per file after the first run)")
