@@ -49,7 +49,7 @@ describe("ApiStack — HTTP API", () => {
       ProtocolType: "HTTP",
       CorsConfiguration: Match.objectLike({
         AllowOrigins: ["http://localhost:5173"],
-        AllowMethods: ["GET", "POST", "PATCH"],
+        AllowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
         AllowHeaders: ["authorization", "content-type"],
       }),
     });
@@ -168,6 +168,9 @@ describe("ApiStack — documents API", () => {
     "GET /documents/{docId}",
     "PATCH /documents/{docId}",
     "GET /obligations",
+    "PUT /documents/{docId}/split",
+    "GET /friends",
+    "DELETE /friends/{friendId}",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {
