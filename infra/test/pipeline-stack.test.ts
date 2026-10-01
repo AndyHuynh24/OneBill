@@ -1,6 +1,7 @@
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
+import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
 import { PipelineStack } from "../lib/pipeline-stack";
 
@@ -11,12 +12,15 @@ beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
   const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
+  const auth = new AuthStack(app, "TestAuth", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
   const pipeline = new PipelineStack(app, "TestPipeline", {
     env,
     table: data.table,
     docsBucket: data.docsBucket,
     dataKey: data.key,
     bedrockModelId: MODEL,
+    userPool: auth.userPool,
+    appUrl: "http://localhost:5173",
   });
   template = Template.fromStack(pipeline);
 });
@@ -24,9 +28,11 @@ beforeAll(() => {
 type Statement = { Action: string | string[]; Resource: unknown; Condition?: Record<string, unknown> };
 
 function extractStatements(): Statement[] {
-  const fns = template.findResources("AWS::Lambda::Function", {
-    Properties: { Handler: "documents.handler.handler" },
-  });
+  return statementsFor("documents.handler.handler");
+}
+
+function statementsFor(handler: string): Statement[] {
+  const fns = template.findResources("AWS::Lambda::Function", { Properties: { Handler: handler } });
   const roleId = Object.values(fns)[0].Properties.Role["Fn::GetAtt"][0];
   return Object.values(template.findResources("AWS::IAM::Policy"))
     .filter((p) => p.Properties.Roles.some((r: { Ref: string }) => r.Ref === roleId))
@@ -199,6 +205,65 @@ describe("PipelineStack — Textract completion (SNS)", () => {
         ]),
       },
     });
+  });
+});
+
+describe("PipelineStack — reminders", () => {
+  it("runs daily at 08:00 Los Angeles time, with retries and a dead-letter queue", () => {
+    template.hasResourceProperties("AWS::Scheduler::Schedule", {
+      ScheduleExpression: "cron(0 8 * * ? *)",
+      ScheduleExpressionTimezone: "America/Los_Angeles",
+      Target: Match.objectLike({
+        RetryPolicy: Match.objectLike({ MaximumRetryAttempts: 2 }),
+        DeadLetterConfig: { Arn: Match.anyValue() },
+      }),
+    });
+  });
+
+  it("verifies the sender address in SES, read from SSM (never in code)", () => {
+    template.hasResourceProperties("AWS::SES::EmailIdentity", {
+      EmailIdentity: { Ref: Match.stringLikeRegexp("SsmParameterValue") },
+    });
+    template.hasParameter("*", {
+      Type: "AWS::SSM::Parameter::Value<String>",
+      Default: "/onetally/sender-email",
+    });
+  });
+
+  it("gives the reminders Lambda the pool, sender, and app URL", () => {
+    template.hasResourceProperties("AWS::Lambda::Function", {
+      Handler: "reminders.handler.handler",
+      Environment: {
+        Variables: Match.objectLike({
+          TABLE_NAME: Match.anyValue(),
+          USER_POOL_ID: Match.anyValue(),
+          SENDER_EMAIL: Match.anyValue(),
+          APP_URL: "http://localhost:5173",
+        }),
+      },
+    });
+  });
+
+  it("can query only the due-date index, and update obligations", () => {
+    const statements = statementsFor("reminders.handler.handler");
+    expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]);
+    const query = statements.find((st) => [st.Action].flat().includes("dynamodb:Query"));
+    expect(JSON.stringify(query?.Resource)).toContain("/index/GSI1");
+  });
+
+  it("can only look up users in the OneTally pool and send from the verified sender", () => {
+    const statements = statementsFor("reminders.handler.handler");
+    expect(actionsOf(statements, "cognito-idp:")).toEqual(["cognito-idp:ListUsers"]);
+    expect(actionsOf(statements, "ses:")).toEqual(["ses:SendEmail"]);
+    const ses = statements.find((st) => actionsOf([st], "ses:").length);
+    expect(JSON.stringify(ses?.Resource)).toContain(":identity/");
+    for (const st of statements) {
+      expect([st.Action].flat()).not.toContain("*");
+    }
   });
 });
 

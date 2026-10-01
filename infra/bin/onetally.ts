@@ -37,6 +37,8 @@ new PipelineStack(app, "OneTally-Pipeline", {
   docsBucket: data.docsBucket,
   dataKey: data.key,
   bedrockModelId: app.node.getContext("bedrockModelId"),
+  userPool: auth.userPool,
+  appUrl: frontendUrl,
   enableTracing: app.node.tryGetContext("tracing") === "true",
 });
 
