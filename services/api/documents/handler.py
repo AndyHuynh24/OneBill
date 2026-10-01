@@ -16,8 +16,9 @@ from aws_lambda_powertools.event_handler.exceptions import UnauthorizedError
 from aws_lambda_powertools.logging import correlation_paths
 from botocore.config import Config
 
-from api.documents import logic
+from api.documents import logic, splits
 from shared.dates import app_today, parse_iso_date
+from split import friends
 
 logger = Logger()
 tracer = Tracer()
@@ -109,6 +110,37 @@ def list_obligations() -> dict[str, Any]:
     # The browser may pass its own local date; otherwise use the app time zone.
     today = parse_iso_date(event.get_query_string_value("from")) or app_today(datetime.now(UTC))
     return {"obligations": logic.list_obligations(table, user_id, today, int(raw_days))}
+
+
+@app.put("/documents/<doc_id>/split")
+@tracer.capture_method
+def save_split(doc_id: str) -> dict[str, Any]:
+    body = app.current_event.json_body or {}
+    if not isinstance(body, dict):
+        raise logic.BadRequest("Body must be a JSON object.")
+    split = splits.save_split(table, _user_id(), doc_id, body, now=datetime.now(UTC))
+    # Counts only: names stay out of logs.
+    logger.info(
+        "split_saved",
+        extra={"docId": doc_id, "people": len(split["members"]), "version": split["version"]},
+    )
+    return split
+
+
+@app.get("/friends")
+@tracer.capture_method
+def list_friends() -> dict[str, Any]:
+    return {"friends": friends.list_friends(table, _user_id())}
+
+
+@app.delete("/friends/<friend_id>")
+@tracer.capture_method
+def delete_friend(friend_id: str) -> Response:
+    try:
+        friends.delete_friend(table, _user_id(), friend_id)
+    except friends.InvalidFriend as err:
+        raise logic.NotFound("Friend not found.") from err
+    return Response(status_code=204)
 
 
 @logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_HTTP)

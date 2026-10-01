@@ -165,3 +165,83 @@ def test_invalid_window_is_400_not_500(handler, days):
     )
 
     assert status == 400
+
+
+def test_get_friends_lists_only_mine(handler, table):
+    from datetime import UTC, datetime
+
+    from split.friends import remember_friends
+
+    remember_friends(table, "user-a", ["Bao", "Linh"], datetime(2026, 10, 1, tzinfo=UTC))
+    remember_friends(table, "user-b", ["Stranger"], datetime(2026, 10, 1, tzinfo=UTC))
+
+    status, body = call(handler, http_event("GET", "/friends", {"sub": "user-a"}))
+
+    assert status == 200
+    assert sorted(f["name"] for f in body["friends"]) == ["Bao", "Linh"]
+
+
+def test_delete_friend_removes_the_chip(handler, table):
+    from datetime import UTC, datetime
+
+    from split.friends import friend_id, list_friends, remember_friends
+
+    remember_friends(table, "user-a", ["Bao"], datetime(2026, 10, 1, tzinfo=UTC))
+    fid = friend_id("Bao")
+    event = http_event(
+        "DELETE", f"/friends/{fid}", {"sub": "user-a"}, path_params={"friendId": fid}
+    )
+
+    response = handler.handler(event, FakeLambdaContext())
+
+    assert response["statusCode"] == 204
+    assert list_friends(table, "user-a") == []
+
+
+def test_delete_friend_with_a_malformed_id_is_404(handler):
+    event = http_event("DELETE", "/friends/PROFILE", {"sub": "user-a"})
+
+    status, _ = call(handler, event)
+
+    assert status == 404
+
+
+def test_put_split_saves_and_a_stale_resave_is_409(handler, table):
+    lines = [
+        {"row": 1, "description": "A", "kind": "item", "amountCents": 1000},
+        {"row": 2, "description": "B", "kind": "item", "amountCents": 500},
+        {"row": 3, "description": "TOTAL", "kind": "total", "amountCents": 1500},
+    ]
+    doc_id = "1790000000000aaaaaaaa"
+    table.put_item(
+        Item={
+            "PK": "USER#user-a",
+            "SK": f"DOC#{doc_id}",
+            "docId": doc_id,
+            "status": "ready",
+            "totalCents": 1500,
+            "lines": lines,
+            "updatedAt": "2026-10-01T18:00:00+00:00",
+        }
+    )
+    split = {
+        "members": [{"name": "Me", "self": True}, {"name": "Bao"}],
+        "assignments": {"1": [0], "2": [1]},
+        "charges": {},
+        "expectedVersion": 0,
+    }
+    path = f"/documents/{doc_id}/split"
+
+    def put():
+        event = http_event(
+            "PUT", path, {"sub": "user-a"}, body=split, path_params={"docId": doc_id}
+        )
+        return call(handler, event)
+
+    status, body = put()
+    assert status == 200
+    assert [s["totalCents"] for s in body["shares"]] == [1000, 500]
+
+    status, body = put()  # same expectedVersion again: someone else already saved
+    assert status == 409
+    assert "Reload" in body["message"]
