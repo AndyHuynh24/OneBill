@@ -1,0 +1,326 @@
+[
+  {
+    "JobStatus": "SUCCEEDED",
+    "DocumentMetadata": {
+      "Pages": 2
+    },
+    "NextToken": "token-2",
+    "ExpenseDocuments": [
+      {
+        "ExpenseIndex": 1,
+        "SummaryFields": [
+          {
+            "Type": {
+              "Text": "VENDOR_NAME",
+              "Confidence": 99.5
+            },
+            "ValueDetection": {
+              "Text": "BLUE DOOR BISTRO",
+              "Confidence": 99.0
+            },
+            "PageNumber": 1
+          },
+          {
+            "Type": {
+              "Text": "INVOICE_RECEIPT_DATE",
+              "Confidence": 99.5
+            },
+            "ValueDetection": {
+              "Text": "2026-09-27",
+              "Confidence": 99.0
+            },
+            "PageNumber": 1
+          }
+        ],
+        "LineItemGroups": [
+          {
+            "LineItemGroupIndex": 1,
+            "LineItems": [
+              {
+                "LineItemExpenseFields": [
+                  {
+                    "Type": {
+                      "Text": "ITEM",
+                      "Confidence": 99.0
+                    },
+                    "ValueDetection": {
+                      "Text": "BURGER",
+                      "Confidence": 97.0
+                    },
+                    "PageNumber": 1
+                  },
+                  {
+                    "Type": {
+                      "Text": "PRICE",
+                      "Confidence": 99.0
+                    },
+                    "ValueDetection": {
+                      "Text": "16.00",
+                      "Confidence": 97.0
+                    },
+                    "PageNumber": 1
+                  },
+                  {
+                    "Type": {
+                      "Text": "EXPENSE_ROW",
+                      "Confidence": 99.0
+                    },
+                    "ValueDetection": {
+                      "Text": "BURGER 16.00",
+                      "Confidence": 97.0
+                    },
+                    "PageNumber": 1
+                  }
+                ]
+              },
+              {
+                "LineItemExpenseFields": [
+                  {
+                    "Type": {
+                      "Text": "ITEM",
+                      "Confidence": 99.0
+                    },
+                    "ValueDetection": {
+                      "Text": "FRIES",
+                      "Confidence": 97.0
+                    },
+                    "PageNumber": 1
+                  },
+                  {
+                    "Type": {
+                      "Text": "PRICE",
+                      "Confidence": 99.0
+                    },
+                    "ValueDetection": {
+                      "Text": "5.00",
+                      "Confidence": 97.0
+                    },
+                    "PageNumber": 1
+                  },
+                  {
+                    "Type": {
+                      "Text": "EXPENSE_ROW",
+                      "Confidence": 99.0
+                    },
+                    "ValueDetection": {
+                      "Text": "FRIES 5.00",
+                      "Confidence": 97.0
+                    },
+                    "PageNumber": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "Blocks": [
+          {
+            "BlockType": "PAGE",
+            "Id": "p1",
+            "Page": 1
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l1-0",
+            "Text": "BLUE DOOR BISTRO",
+            "Confidence": 99.0,
+            "Page": 1,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.02,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l1-1",
+            "Text": "2026-09-27",
+            "Confidence": 99.0,
+            "Page": 1,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.06,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l1-2",
+            "Text": "BURGER 16.00",
+            "Confidence": 99.0,
+            "Page": 1,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.1,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l1-3",
+            "Text": "FRIES 5.00",
+            "Confidence": 99.0,
+            "Page": 1,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.13999999999999999,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "JobStatus": "SUCCEEDED",
+    "DocumentMetadata": {
+      "Pages": 2
+    },
+    "ExpenseDocuments": [
+      {
+        "ExpenseIndex": 1,
+        "SummaryFields": [
+          {
+            "Type": {
+              "Text": "SUBTOTAL",
+              "Confidence": 99.5
+            },
+            "ValueDetection": {
+              "Text": "21.00",
+              "Confidence": 99.0
+            },
+            "PageNumber": 2
+          },
+          {
+            "Type": {
+              "Text": "TAX",
+              "Confidence": 99.5
+            },
+            "ValueDetection": {
+              "Text": "1.89",
+              "Confidence": 99.0
+            },
+            "PageNumber": 2
+          },
+          {
+            "Type": {
+              "Text": "GRATUITY",
+              "Confidence": 99.5
+            },
+            "ValueDetection": {
+              "Text": "4.00",
+              "Confidence": 72.0
+            },
+            "PageNumber": 2
+          },
+          {
+            "Type": {
+              "Text": "TOTAL",
+              "Confidence": 99.5
+            },
+            "ValueDetection": {
+              "Text": "26.89",
+              "Confidence": 99.0
+            },
+            "PageNumber": 2
+          }
+        ],
+        "LineItemGroups": [],
+        "Blocks": [
+          {
+            "BlockType": "PAGE",
+            "Id": "p2",
+            "Page": 2
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l2-0",
+            "Text": "SUBTOTAL 21.00",
+            "Confidence": 99.0,
+            "Page": 2,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.02,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l2-1",
+            "Text": "TAX 1.89",
+            "Confidence": 99.0,
+            "Page": 2,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.06,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l2-2",
+            "Text": "TOTAL 22.89",
+            "Confidence": 99.0,
+            "Page": 2,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.1,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l2-3",
+            "Text": "TIP 4.00",
+            "Confidence": 99.0,
+            "Page": 2,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.13999999999999999,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          },
+          {
+            "BlockType": "LINE",
+            "Id": "l2-4",
+            "Text": "TOTAL 26.89",
+            "Confidence": 99.0,
+            "Page": 2,
+            "Geometry": {
+              "BoundingBox": {
+                "Top": 0.18,
+                "Left": 0.1,
+                "Width": 0.8,
+                "Height": 0.03
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
