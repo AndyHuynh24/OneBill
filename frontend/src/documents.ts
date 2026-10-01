@@ -9,3 +9,13 @@ export function processingCount(documents: DocumentSummary[] | undefined): numbe
 export function hasProcessing(documents: DocumentSummary[] | undefined): boolean {
   return processingCount(documents) > 0;
 }
+
+/**
+ * How often the list re-checks while a scan is being read. Measured server time is ~4–9 s, so a
+ * 1.5 s check adds ~0.75 s on average (5 s used to add ~2.5 s). Light: one query of ≤ 50 summaries.
+ */
+export const POLL_MS = 1500;
+
+export function pollInterval(documents: DocumentSummary[] | undefined): number | false {
+  return hasProcessing(documents) ? POLL_MS : false;
+}

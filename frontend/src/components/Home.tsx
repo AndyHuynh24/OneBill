@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { OneTallyApi } from "../api";
-import { hasProcessing, processingCount } from "../documents";
+import { pollInterval, processingCount } from "../documents";
 import { todayIso } from "../format";
 import { DocumentSheet } from "./DocumentSheet";
 import { RecentDocuments } from "./RecentDocuments";
@@ -59,7 +59,7 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
     queryKey: ["documents"],
     queryFn: api.listDocuments,
     // Poll only while something is being read; stop as soon as everything is done.
-    refetchInterval: (query) => (hasProcessing(query.state.data?.documents) ? 5000 : false),
+    refetchInterval: (query) => pollInterval(query.state.data?.documents),
   });
   const obligations = useQuery({
     queryKey: ["obligations"],
