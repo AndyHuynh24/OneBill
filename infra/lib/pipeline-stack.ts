@@ -209,7 +209,8 @@ export class PipelineStack extends Stack {
     remindersFn.addToRolePolicy(
       new iam.PolicyStatement({
         // Get/Update: claim and un-claim each reminder offset on the OBL# item.
-        actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+        // Put/Delete: roll a passed bill/subscription date forward (SUB# + its OBL#, in a transaction).
+        actions: ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:PutItem", "dynamodb:DeleteItem"],
         resources: [props.table.tableArn],
       }),
     );

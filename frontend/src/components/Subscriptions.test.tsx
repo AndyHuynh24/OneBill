@@ -8,7 +8,7 @@ const NOT_CONNECTED = { connected: false, createdAt: null, lastUsedAt: null };
 const SPOTIFY = { ...NETFLIX, serviceKey: "spotify", service: "Spotify", plan: null, amountCents: 1199, nextRenewal: "2026-10-20" };
 
 function setup(props: Partial<Parameters<typeof Subscriptions>[0]> = {}) {
-  const handlers = { onOpen: vi.fn(), onConnect: vi.fn() };
+  const handlers = { onOpen: vi.fn(), onConnect: vi.fn(), onAdd: vi.fn() };
   render(
     <Subscriptions
       subscriptions={[NETFLIX, SPOTIFY]}
@@ -65,5 +65,14 @@ describe("Subscriptions", () => {
     setup({ connection: { connected: true, createdAt: "x", lastUsedAt: "2026-10-01T18:55:00Z" } });
 
     expect(screen.getByText(/gmail connected · last email 5 min ago/i)).toBeInTheDocument();
+  });
+
+  it("bills say when they're due, and + Add opens the form", async () => {
+    const rent = { ...NETFLIX, serviceKey: "rent", service: "Rent", category: "bill" as const, nextRenewal: "2026-10-05" };
+    const { onAdd } = setup({ subscriptions: [rent] });
+
+    expect(screen.getByRole("button", { name: /rent/i })).toHaveTextContent(/due in 4 days/i);
+    await userEvent.click(screen.getByRole("button", { name: /add/i }));
+    expect(onAdd).toHaveBeenCalled();
   });
 });

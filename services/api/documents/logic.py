@@ -17,6 +17,7 @@ from documents.store import obligation_item
 from documents.validate import Obligation
 from shared.dates import parse_iso_date
 from shared.ids import is_valid_id, new_id
+from subscriptions import store as subscriptions
 
 UPLOADERS_GROUP = "uploaders"
 ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
@@ -347,6 +348,84 @@ def review_document(
         table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys, removes=removes
     )
     return get_document(table, user_id, doc_id, now)
+
+
+def remove_obligation(table: Any, user_id: str, obl_id: str, now: datetime) -> None:
+    """× on a reminder. A document's deadline is removed from the document too; a
+    subscription's renewal turns that subscription's reminders off (so the next email doesn't
+    bring it back)."""
+    if not is_valid_id(obl_id):
+        raise NotFound("Reminder not found.")
+    pk = f"USER#{user_id}"
+    found = table.query(
+        KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+        FilterExpression="oblId = :id",
+        ExpressionAttributeValues={":pk": pk, ":prefix": "OBL#", ":id": obl_id},
+    )["Items"]
+    if not found:
+        raise NotFound("Reminder not found.")
+    item = found[0]
+    if item.get("subKey"):
+        subscriptions.set_reminders(table, user_id, item["subKey"], on=False, now=now)
+        return
+    if not item.get("docId"):
+        table.delete_item(Key={"PK": pk, "SK": item["SK"]})
+        return
+    doc = table.get_item(Key={"PK": pk, "SK": f"DOC#{item['docId']}"}).get("Item") or {}
+    keys = list(doc.get("obligationKeys", []))
+    listed = list(doc.get("obligations", []))
+    kept = [(k, o) for k, o in zip(keys, listed, strict=False) if k != item["SK"]]
+    ops: list[dict[str, Any]] = [
+        {"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": item["SK"]}}}
+    ]
+    if doc:
+        ops.append(
+            {
+                "Update": {
+                    "TableName": table.name,
+                    "Key": {"PK": pk, "SK": f"DOC#{item['docId']}"},
+                    "UpdateExpression": (
+                        "SET obligationKeys = :keys, obligations = :listed, updatedAt = :now"
+                    ),
+                    # Only if no other save changed the deadlines since they were read.
+                    "ConditionExpression": "obligationKeys = :expected",
+                    "ExpressionAttributeValues": {
+                        ":keys": [k for k, _ in kept],
+                        ":listed": [o for _, o in kept],
+                        ":now": now.isoformat(),
+                        ":expected": keys,
+                    },
+                }
+            }
+        )
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            raise BadRequest("This document changed. Reload and try again.") from err
+        raise
+
+
+def delete_document(
+    table: Any, s3: Any, bucket: str, user_id: str, doc_id: str, now: datetime
+) -> None:
+    """Delete a receipt or bill: its item, its deadlines, and its photo or PDF."""
+    if not is_valid_id(doc_id):
+        raise NotFound("Document not found.")
+    pk = f"USER#{user_id}"
+    item = table.get_item(Key={"PK": pk, "SK": f"DOC#{doc_id}"}).get("Item")
+    if not item:
+        raise NotFound("Document not found.")
+    if _effective(item, now).get("status") == "processing":
+        raise BadRequest("We're still reading this document. Try again in a minute.")
+    ops = [{"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": f"DOC#{doc_id}"}}}]
+    ops += [
+        {"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": sk}}}
+        for sk in item.get("obligationKeys", [])
+    ]
+    table.meta.client.transact_write_items(TransactItems=ops)
+    # Versioned bucket: this adds a delete marker; the old version expires after 30 days.
+    s3.delete_object(Bucket=bucket, Key=item.get("s3Key") or f"uploads/{user_id}/{doc_id}")
 
 
 def review_stats(documents: list[dict[str, Any]]) -> dict[str, Any]:

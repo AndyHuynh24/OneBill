@@ -272,10 +272,14 @@ describe("PipelineStack — reminders", () => {
     });
   });
 
-  it("can query only the due-date index, and update obligations", () => {
+  it("can query only the due-date index, update obligations, and roll bills forward", () => {
     const statements = statementsFor("reminders.handler.handler");
+    // Put/Delete: rolling a passed due date forward rewrites the SUB# item and replaces its
+    // OBL# reminder in one transaction. Still no Scan, and Query only on the GSI1 index.
     expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:DeleteItem",
       "dynamodb:GetItem",
+      "dynamodb:PutItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);

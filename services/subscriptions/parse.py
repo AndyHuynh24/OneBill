@@ -211,7 +211,7 @@ def _subscription(raw: Any, text: str, received: date) -> ParsedSubscription | N
         if dates["period_end"]:
             renewal, computed = dates["period_end"] + timedelta(days=1), True
         elif dates["charge_date"] and cycle in ("weekly", "monthly", "quarterly", "yearly"):
-            renewal, computed = _add_cycle(dates["charge_date"], cycle), True
+            renewal, computed = add_cycle(dates["charge_date"], cycle), True
     if renewal and not received - timedelta(days=1) <= renewal <= received + timedelta(
         days=MAX_RENEWAL_DAYS
     ):
@@ -281,10 +281,12 @@ def _agrees(d: date, evidence: str) -> bool:
     )
 
 
-def _add_cycle(start: date, cycle: str) -> date:
+def add_cycle(start: date, cycle: str | None = None, *, months: int | None = None) -> date:
+    """One billing cycle after `start` (or `months` months), clamping to the month's last day."""
     if cycle == "weekly":
         return start + timedelta(days=7)
-    months = {"monthly": 1, "quarterly": 3, "yearly": 12}[cycle]
+    if months is None:
+        months = {"monthly": 1, "quarterly": 3, "yearly": 12}[cycle]
     year, month = divmod(start.month - 1 + months, 12)
     year, month = start.year + year, month + 1
     return date(year, month, min(start.day, calendar.monthrange(year, month)[1]))

@@ -327,3 +327,167 @@ def test_invalid_edits_are_rejected(table, body):
 def test_malformed_keys_are_not_found(table):
     with pytest.raises(SubscriptionNotFound):
         edit_subscription(table, USER, "../PROFILE", {"action": "cancel"}, NOW)
+
+
+# --- deleting, and turning reminders off ------------------------------------------------------
+
+from subscriptions.store import delete_subscription, set_reminders  # noqa: E402
+
+
+def test_delete_removes_the_subscription_its_reminder_and_its_email_markers(table):
+    """So re-sending the same emails (e.g. to test again) reads them again."""
+    claim_email(table, USER, "netflix-oct", NOW)
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+    finish_email(table, USER, "netflix-oct", "processed", 1, ["netflix"])
+    claim_email(table, USER, "spotify-oct", NOW)
+    finish_email(table, USER, "spotify-oct", "processed", 1, ["spotify"])
+
+    delete_subscription(table, USER, "netflix")
+
+    assert sub_item(table) is None
+    assert obligations(table) == []
+    assert claim_email(table, USER, "netflix-oct", NOW)  # can be read again
+    assert not claim_email(table, USER, "spotify-oct", NOW)  # other services untouched
+
+
+def test_deleting_an_unknown_subscription_is_not_found(table):
+    with pytest.raises(SubscriptionNotFound):
+        delete_subscription(table, USER, "netflix")
+    with pytest.raises(SubscriptionNotFound):
+        delete_subscription(table, USER, "../PROFILE")
+
+
+def test_a_deleted_subscription_can_come_back_with_new_emails(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+    delete_subscription(table, USER, "netflix")
+
+    save_subscription(table, USER, netflix(), date(2026, 11, 1), NOW)
+
+    assert sub_item(table)["service"] == "Netflix"
+
+
+def test_reminders_off_removes_the_reminder_and_keeps_future_renewals_quiet(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+
+    sub = set_reminders(table, USER, "netflix", on=False, now=NOW)
+    save_subscription(table, USER, netflix(next_renewal=date(2026, 12, 1)), date(2026, 11, 1), NOW)
+
+    assert sub["remindersOff"] is True
+    assert obligations(table) == []
+    assert sub_item(table)["nextRenewal"] == "2026-12-01"  # still tracked and in the total
+
+
+def test_reminders_back_on_restores_the_next_one(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+    set_reminders(table, USER, "netflix", on=False, now=NOW)
+
+    set_reminders(table, USER, "netflix", on=True, now=NOW)
+
+    (reminder,) = obligations(table)
+    assert reminder["dueDate"] == "2026-11-01"
+
+
+# --- added by hand (rent, utilities, anything without emails) ----------------------------------
+
+from subscriptions.store import AlreadyTracked, add_subscription, advance_past_renewal  # noqa: E402
+
+
+def test_add_a_bill_by_hand_with_a_payment_due_reminder(table):
+    rent = {
+        "service": "Rent",
+        "category": "bill",
+        "amountCents": 210000,
+        "cycle": "monthly",
+        "nextRenewal": "2026-11-01",
+    }
+
+    sub = add_subscription(table, USER, rent, NOW)
+
+    assert (sub["service"], sub["category"], sub["source"]) == ("Rent", "bill", "manual")
+    assert (sub["amountCents"], sub["nextRenewal"]) == (210000, "2026-11-01")
+    (reminder,) = obligations(table)
+    assert (reminder["kind"], reminder["vendor"], reminder["dueDate"]) == (
+        "payment_due",
+        "Rent",
+        "2026-11-01",
+    )
+
+
+def test_add_a_subscription_by_hand_says_renews(table):
+    gym = {"service": "Gym", "amountCents": 4000, "cycle": "monthly", "nextRenewal": "2026-10-15"}
+
+    add_subscription(table, USER, gym, NOW)
+
+    assert obligations(table)[0]["kind"] == "renewal"
+    assert sub_item(table, "gym")["category"] == "subscription"
+
+
+def test_an_electric_bill_can_be_added_without_knowing_the_amount(table):
+    add_subscription(
+        table, USER, {"service": "PG&E", "category": "bill", "nextRenewal": "2026-10-20"}, NOW
+    )
+
+    assert sub_item(table, "pg e")["amountCents"] is None
+
+
+def test_adding_something_already_tracked_is_refused(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+
+    with pytest.raises(AlreadyTracked):
+        add_subscription(table, USER, {"service": "netflix", "nextRenewal": "2026-11-01"}, NOW)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"service": "", "nextRenewal": "2026-11-01"},
+        {"service": "x" * 81, "nextRenewal": "2026-11-01"},
+        {"service": "Rent"},  # needs a date
+        {"service": "Rent", "nextRenewal": "soon"},
+        {"service": "Rent", "nextRenewal": "2026-11-01", "amountCents": -1},
+        {"service": "Rent", "nextRenewal": "2026-11-01", "cycle": "fortnightly"},
+        {"service": "Rent", "nextRenewal": "2026-11-01", "category": "loan"},
+        {"service": "???", "nextRenewal": "2026-11-01"},  # nothing to key on
+    ],
+)
+def test_invalid_manual_entries_are_rejected(table, body):
+    with pytest.raises(InvalidEdit):
+        add_subscription(table, USER, body, NOW)
+
+
+def test_after_the_due_date_passes_it_rolls_to_the_next_one(table):
+    """Nobody emails 'rent is due again': the daily job moves the date and the reminder."""
+    add_subscription(
+        table,
+        USER,
+        {"service": "Rent", "category": "bill", "amountCents": 210000, "nextRenewal": "2026-10-01"},
+        NOW,
+    )
+
+    moved = advance_past_renewal(table, USER, "rent", today=date(2026, 10, 2), now=NOW)
+
+    assert moved
+    item = sub_item(table, "rent")
+    assert item["nextRenewal"] == "2026-11-01"
+    (reminder,) = obligations(table)
+    assert reminder["dueDate"] == "2026-11-01"
+
+
+def test_rolling_forward_keeps_the_day_of_month(table):
+    add_subscription(table, USER, {"service": "Rent", "nextRenewal": "2026-01-31"}, NOW)
+
+    advance_past_renewal(table, USER, "rent", today=date(2026, 4, 2), now=NOW)
+
+    assert sub_item(table, "rent")["nextRenewal"] == "2026-04-30"  # Jan 31 → … → Apr 30
+
+
+def test_nothing_rolls_if_it_isnt_past_cancelled_or_has_no_cycle(table):
+    add_subscription(table, USER, {"service": "Rent", "nextRenewal": "2026-11-01"}, NOW)
+    add_subscription(
+        table, USER, {"service": "Gym", "nextRenewal": "2026-09-01", "cycle": "other"}, NOW
+    )
+
+    assert not advance_past_renewal(table, USER, "rent", today=date(2026, 10, 2), now=NOW)
+    assert not advance_past_renewal(table, USER, "gym", today=date(2026, 10, 2), now=NOW)
+    assert not advance_past_renewal(table, USER, "missing", today=date(2026, 10, 2), now=NOW)

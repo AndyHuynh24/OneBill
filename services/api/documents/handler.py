@@ -111,6 +111,21 @@ def review_document(doc_id: str) -> dict[str, Any]:
     return document
 
 
+@app.delete("/obligations/<obl_id>")
+@tracer.capture_method
+def remove_obligation(obl_id: str) -> Response:
+    logic.remove_obligation(table, _user_id(), obl_id, datetime.now(UTC))
+    return Response(status_code=204)
+
+
+@app.delete("/documents/<doc_id>")
+@tracer.capture_method
+def delete_document(doc_id: str) -> Response:
+    logic.delete_document(table, s3, BUCKET, _user_id(), doc_id, datetime.now(UTC))
+    logger.info("document_deleted", extra={"docId": doc_id})
+    return Response(status_code=204)
+
+
 @app.get("/obligations")
 @tracer.capture_method
 def list_obligations() -> dict[str, Any]:
@@ -149,11 +164,29 @@ def list_subscriptions() -> dict[str, Any]:
     }
 
 
+@app.post("/subscriptions")
+@tracer.capture_method
+def add_subscription() -> tuple[dict[str, Any], int]:
+    body = app.current_event.json_body or {}
+    try:
+        return subscriptions.add_subscription(table, _user_id(), body, datetime.now(UTC)), 201
+    except subscriptions.InvalidEdit as err:
+        raise logic.BadRequest(str(err)) from err
+    except subscriptions.AlreadyTracked as err:
+        raise logic.Conflict(f"{err} is already in your list.") from err
+
+
 @app.patch("/subscriptions/<key>")
 @tracer.capture_method
 def edit_subscription(key: str) -> dict[str, Any]:
     body = app.current_event.json_body or {}
     try:
+        if isinstance(body, dict) and body.get("action") == "reminders":
+            if not isinstance(body.get("on"), bool):
+                raise logic.BadRequest('"on" must be true or false.')
+            return subscriptions.set_reminders(
+                table, _user_id(), unquote(key), on=body["on"], now=datetime.now(UTC)
+            )
         return subscriptions.edit_subscription(
             table, _user_id(), unquote(key), body, datetime.now(UTC)
         )
@@ -161,6 +194,16 @@ def edit_subscription(key: str) -> dict[str, Any]:
         raise logic.NotFound("Subscription not found.") from err
     except subscriptions.InvalidEdit as err:
         raise logic.BadRequest(str(err)) from err
+
+
+@app.delete("/subscriptions/<key>")
+@tracer.capture_method
+def delete_subscription(key: str) -> Response:
+    try:
+        subscriptions.delete_subscription(table, _user_id(), unquote(key))
+    except subscriptions.SubscriptionNotFound as err:
+        raise logic.NotFound("Subscription not found.") from err
+    return Response(status_code=204)
 
 
 @app.post("/ingest/keys")

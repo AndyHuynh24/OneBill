@@ -9,10 +9,11 @@ interface SubscriptionsProps {
   now?: Date;
   onOpen: (serviceKey: string) => void;
   onConnect: () => void;
+  onAdd: () => void;
 }
 
 /** Home section: what renews when, and what next month will cost. */
-export function Subscriptions({ subscriptions, connection, today, now = new Date(), onOpen, onConnect }: SubscriptionsProps) {
+export function Subscriptions({ subscriptions, connection, today, now = new Date(), onOpen, onConnect, onAdd }: SubscriptionsProps) {
   const next = nextMonthTotal(subscriptions, today);
   return (
     <div className="subscriptions">
@@ -44,8 +45,13 @@ export function Subscriptions({ subscriptions, connection, today, now = new Date
           </ul>
         </>
       ) : (
-        <p className="muted">No subscriptions yet. Connect Gmail and OneTally reads your subscription emails.</p>
+        <p className="muted">
+          No subscriptions yet. Connect Gmail and OneTally reads your subscription emails, or add rent and bills by hand.
+        </p>
       )}
+      <button type="button" onClick={onAdd}>
+        + Add
+      </button>
       {connection.connected ? (
         <p className="muted connection">
           Gmail connected · last email {connection.lastUsedAt ? timeAgo(connection.lastUsedAt, now) : "not yet"}{" "}
@@ -67,5 +73,6 @@ function describe(s: Subscription, now: Date): string {
   if (s.status === "payment_failed") return "Payment failed";
   if (!s.nextRenewal) return "Renewal date unknown";
   const when = relativeDay(s.nextRenewal, now);
-  return s.status === "trial_ending" ? `Trial ends ${when}` : `Renews ${when}`;
+  if (s.status === "trial_ending") return `Trial ends ${when}`;
+  return s.category === "bill" ? `Due ${when}` : `Renews ${when}`;
 }

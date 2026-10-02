@@ -19,7 +19,7 @@ from botocore.exceptions import ClientError
 from documents.store import obligation_item
 from documents.validate import Obligation
 from shared.dates import parse_iso_date
-from subscriptions.parse import CYCLES, MAX_TEXT, ParsedSubscription
+from subscriptions.parse import CYCLES, MAX_TEXT, ParsedSubscription, add_cycle, service_key
 
 HISTORY_LIMIT = 12
 EMAIL_MARKER_DAYS = 90
@@ -37,6 +37,20 @@ class SubscriptionNotFound(Exception):
 
 class InvalidEdit(ValueError):
     """The message is safe to show to the user."""
+
+
+class AlreadyTracked(Exception):
+    pass
+
+
+CATEGORIES = ("subscription", "bill")
+
+
+def _reminder_kind(item: dict[str, Any]) -> str:
+    """Bills are "due"; subscriptions "renew"; a trial "ends"."""
+    if item.get("status") == "trial_ending":
+        return "trial_ends"
+    return "payment_due" if item.get("category") == "bill" else "renewal"
 
 
 def save_subscription(
@@ -93,6 +107,7 @@ def _save_once(
         "lastEmailAt": received.isoformat(),
         "history": history,
         "issues": sub.issues,
+        "remindersOff": bool((existing or {}).get("remindersOff", False)),
         "createdAt": (existing or {}).get("createdAt", now.isoformat()),
         "updatedAt": now.isoformat(),
     }
@@ -103,8 +118,10 @@ def _save_once(
         item["previousAmountCents"] = existing["previousAmountCents"]
         item["priceChangedAt"] = existing["priceChangedAt"]
 
-    kind = "trial_ends" if sub.status == "trial_ending" else "renewal"
-    deletes, puts = _reminder(user_id, item, existing, kind, f"From your {sub.service} email", now)
+    item["category"] = (existing or {}).get("category", "subscription")
+    deletes, puts = _reminder(
+        user_id, item, existing, _reminder_kind(item), f"From your {sub.service} email", now
+    )
     _transact(table, item, existing, deletes, puts)
     return item
 
@@ -120,6 +137,9 @@ def _reminder(
     """Keep the renewal reminder if nothing changed; otherwise replace it (or remove it).
     Sets the item's obligationKey/renewalKind; returns the OBL# keys to delete and items to put."""
     old_key = (existing or {}).get("obligationKey")
+    if item.get("remindersOff"):  # the user turned reminders off for this subscription
+        item["obligationKey"], item["renewalKind"] = None, None
+        return ([old_key] if old_key else []), []
     if (
         old_key
         and existing.get("nextRenewal") == item["nextRenewal"]
@@ -171,8 +191,7 @@ def edit_subscription(
     table: Any, user_id: str, key: str, body: dict[str, Any], now: datetime
 ) -> dict[str, Any]:
     """Cancel (stops reminders), or correct the amount, next renewal, cycle, or plan."""
-    if not isinstance(key, str) or len(key) > MAX_TEXT or not _KEY.fullmatch(key):
-        raise SubscriptionNotFound(key)
+    _check_key(key)
     changes = _validated_edit(body)
     for attempt in range(2):
         existing = table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"SUB#{key}"}).get("Item")
@@ -185,8 +204,9 @@ def edit_subscription(
             item["renewalComputed"] = False
             if existing.get("status") == "cancelled":
                 item["status"] = "upcoming"  # a new renewal date means it's active again
-        kind = "trial_ends" if item.get("status") == "trial_ending" else "renewal"
-        deletes, puts = _reminder(user_id, item, existing, kind, "Edited in the app", now)
+        deletes, puts = _reminder(
+            user_id, item, existing, _reminder_kind(item), "Edited in the app", now
+        )
         try:
             _transact(table, item, existing, deletes, puts)
             return _public(item)
@@ -194,6 +214,193 @@ def edit_subscription(
             if attempt == 1:
                 raise
     raise AssertionError("unreachable")
+
+
+def set_reminders(table: Any, user_id: str, key: str, *, on: bool, now: datetime) -> dict[str, Any]:
+    """Turn renewal reminders off (the reminder is removed; later emails stay quiet) or back on."""
+    _check_key(key)
+    for attempt in range(2):
+        existing = table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"SUB#{key}"}).get("Item")
+        if not existing:
+            raise SubscriptionNotFound(key)
+        item = dict(existing) | {"remindersOff": not on, "updatedAt": now.isoformat()}
+        kind = "trial_ends" if item.get("status") == "trial_ending" else "renewal"
+        deletes, puts = _reminder(
+            user_id, item, existing, kind, "From your subscription emails", now
+        )
+        try:
+            _transact(table, item, existing, deletes, puts)
+            return _public(item)
+        except SubscriptionConflict:
+            if attempt == 1:
+                raise
+    raise AssertionError("unreachable")
+
+
+def add_subscription(table: Any, user_id: str, body: Any, now: datetime) -> dict[str, Any]:
+    """A subscription or bill added by hand (rent, utilities, anything that doesn't email)."""
+    fields = _validated_new(body)
+    pk, sk = f"USER#{user_id}", f"SUB#{fields['serviceKey']}"
+    if table.get_item(Key={"PK": pk, "SK": sk}).get("Item"):
+        raise AlreadyTracked(fields["service"])
+    item: dict[str, Any] = {
+        "PK": pk,
+        "SK": sk,
+        "type": "SUBSCRIPTION",
+        **fields,
+        "currency": "USD",
+        "status": "upcoming",
+        "source": "manual",
+        "renewalComputed": False,
+        "lastChargedAt": None,
+        "lastEmailAt": "",
+        "history": [],
+        "issues": [],
+        "remindersOff": False,
+        "createdAt": now.isoformat(),
+        "updatedAt": now.isoformat(),
+    }
+    deletes, puts = _reminder(user_id, item, None, _reminder_kind(item), "Added by hand", now)
+    try:
+        _transact(table, item, None, deletes, puts)
+    except SubscriptionConflict as err:
+        raise AlreadyTracked(fields["service"]) from err
+    return _public(item)
+
+
+def advance_past_renewal(table: Any, user_id: str, key: str, *, today: date, now: datetime) -> bool:
+    """Move a renewal/due date that has passed to the next one in its cycle (keeping the day of
+    the month) and replace its reminder. For bills and subscriptions that don't email."""
+    pk = f"USER#{user_id}"
+    existing = table.get_item(Key={"PK": pk, "SK": f"SUB#{key}"}).get("Item")
+    if not existing or existing.get("status") == "cancelled":
+        return False
+    anchor = parse_iso_date(existing.get("nextRenewal"))
+    cycle = existing.get("cycle")
+    if (
+        anchor is None
+        or anchor >= today
+        or cycle not in ("weekly", "monthly", "quarterly", "yearly")
+    ):
+        return False
+    step, due = 0, anchor
+    while due < today:
+        step += 1
+        due = _nth_cycle(anchor, cycle, step)
+    item = dict(existing) | {
+        "nextRenewal": due.isoformat(),
+        "renewalComputed": True,
+        "updatedAt": now.isoformat(),
+    }
+    deletes, puts = _reminder(
+        user_id, item, existing, _reminder_kind(item), "Next in its cycle", now
+    )
+    try:
+        _transact(table, item, existing, deletes, puts)
+    except SubscriptionConflict:
+        return False  # an email updated it meanwhile: that wins
+    return True
+
+
+def _nth_cycle(anchor: date, cycle: str, n: int) -> date:
+    """n cycles after the anchor, keeping the anchor's day (Jan 31 → Feb 28 → Mar 31)."""
+    if cycle == "weekly":
+        return anchor + timedelta(days=7 * n)
+    months = {"monthly": 1, "quarterly": 3, "yearly": 12}[cycle] * n
+    return add_cycle(anchor, months=months)
+
+
+def _validated_new(body: Any) -> dict[str, Any]:
+    if not isinstance(body, dict):
+        raise InvalidEdit("Send the subscription's details.")
+    service = body.get("service")
+    if not isinstance(service, str) or not 0 < len(service.strip()) <= MAX_TEXT:
+        raise InvalidEdit(f"Give it a name of 1–{MAX_TEXT} characters.")
+    service = " ".join(service.split())
+    key = service_key(service)
+    if not key:
+        raise InvalidEdit("The name needs at least one letter or number.")
+    category = body.get("category", "subscription")
+    if category not in CATEGORIES:
+        raise InvalidEdit("category must be subscription or bill.")
+    due = body.get("nextRenewal")
+    if parse_iso_date(due) is None:
+        raise InvalidEdit("Choose the next renewal or due date.")
+    cycle = body.get("cycle", "monthly")
+    if cycle not in CYCLES:
+        raise InvalidEdit(f"cycle must be one of: {', '.join(CYCLES)}.")
+    cents = body.get("amountCents")
+    if cents is not None and (
+        not isinstance(cents, int) or isinstance(cents, bool) or not 0 <= cents <= MAX_EDIT_CENTS
+    ):
+        raise InvalidEdit("amountCents must be a whole number of cents.")
+    plan = body.get("plan")
+    if plan is not None and (not isinstance(plan, str) or len(plan.strip()) > MAX_TEXT):
+        raise InvalidEdit(f"plan must be at most {MAX_TEXT} characters.")
+    return {
+        "serviceKey": key,
+        "service": service,
+        "category": category,
+        "nextRenewal": due,
+        "cycle": cycle,
+        "amountCents": cents,
+        "plan": plan.strip() if isinstance(plan, str) and plan.strip() else None,
+    }
+
+
+def delete_subscription(table: Any, user_id: str, key: str) -> None:
+    """Remove the subscription, its reminder, and the markers of the emails it came from, so
+    those emails are read again if they're sent again (it can come back with new emails)."""
+    _check_key(key)
+    pk = f"USER#{user_id}"
+    existing = table.get_item(Key={"PK": pk, "SK": f"SUB#{key}"}).get("Item")
+    if not existing:
+        raise SubscriptionNotFound(key)
+    ops: list[dict[str, Any]] = [
+        {
+            "Delete": {
+                "TableName": table.name,
+                "Key": {"PK": pk, "SK": f"SUB#{key}"},
+                "ConditionExpression": "version = :v",
+                "ExpressionAttributeValues": {":v": int(existing.get("version", 0))},
+            }
+        }
+    ]
+    if existing.get("obligationKey"):
+        ops.append(
+            {
+                "Delete": {
+                    "TableName": table.name,
+                    "Key": {"PK": pk, "SK": existing["obligationKey"]},
+                }
+            }
+        )
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            raise SubscriptionConflict from err
+        raise
+
+    query: dict[str, Any] = {
+        "KeyConditionExpression": "PK = :pk AND begins_with(SK, :prefix)",
+        "FilterExpression": "contains(subKeys, :key)",
+        "ExpressionAttributeValues": {":pk": pk, ":prefix": "EMAIL#", ":key": key},
+        "ProjectionExpression": "PK, SK",
+    }
+    with table.batch_writer() as batch:
+        while True:
+            page = table.query(**query)
+            for marker in page.get("Items", []):
+                batch.delete_item(Key={"PK": marker["PK"], "SK": marker["SK"]})
+            if "LastEvaluatedKey" not in page:
+                break
+            query["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
+
+def _check_key(key: Any) -> None:
+    if not isinstance(key, str) or len(key) > MAX_TEXT or not _KEY.fullmatch(key):
+        raise SubscriptionNotFound(key)
 
 
 def _validated_edit(body: Any) -> dict[str, Any]:
@@ -332,12 +539,18 @@ def claim_email(table: Any, user_id: str, message_id: str, now: datetime) -> boo
 
 
 def finish_email(
-    table: Any, user_id: str, message_id: str, outcome: str, subscriptions: int
+    table: Any,
+    user_id: str,
+    message_id: str,
+    outcome: str,
+    subscriptions: int,
+    sub_keys: list[str] = (),
 ) -> None:
-    """Record the outcome: processed, ignored (not a subscription), or failed (may be retried)."""
+    """Record the outcome: processed, ignored (not a subscription), or failed (may be retried).
+    `sub_keys` (service keys only, no content) let deleting a subscription forget its emails."""
     table.update_item(
         Key=_email_key(user_id, message_id),
-        UpdateExpression="SET #s = :o, subscriptions = :n, updatedAt = createdAt",
+        UpdateExpression="SET #s = :o, subscriptions = :n, subKeys = :k, updatedAt = createdAt",
         ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={":o": outcome, ":n": subscriptions},
+        ExpressionAttributeValues={":o": outcome, ":n": subscriptions, ":k": list(sub_keys)},
     )

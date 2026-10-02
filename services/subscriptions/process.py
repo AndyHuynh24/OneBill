@@ -57,7 +57,8 @@ def process_email(
     except Exception:
         finish_email(table, user_id, email["messageId"], "failed", 0)  # may be retried
         raise
-    finish_email(table, user_id, email["messageId"], "processed", len(result.subscriptions))
+    keys = sorted({s.service_key for s in result.subscriptions})
+    finish_email(table, user_id, email["messageId"], "processed", len(result.subscriptions), keys)
     return {"status": "processed", "subscriptions": len(result.subscriptions)}
 
 

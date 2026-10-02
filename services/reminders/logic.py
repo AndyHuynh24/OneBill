@@ -8,12 +8,13 @@ run tries again.
 import html
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from botocore.exceptions import ClientError
 
 from shared.money import format_cents
+from subscriptions.store import advance_past_renewal
 
 OFFSETS = (7, 3, 1)
 KIND_LABELS = {
@@ -21,6 +22,7 @@ KIND_LABELS = {
     "return_by": "Return window closes",
     "warranty_expires": "Warranty expires",
     "renewal": "Renews",
+    "trial_ends": "Trial ends",
 }
 
 Directory = Callable[[str], str | None]  # user ID → verified email, or None
@@ -152,6 +154,22 @@ def run_reminders(
         summary["emails"] += 1
         summary["items"] += len(claimed)
     return summary
+
+
+ROLL_FORWARD_DAYS = 3  # look back a few days, in case a daily run was missed
+
+
+def roll_forward(table: Any, today: date, now: datetime) -> int:
+    """Move subscriptions and bills whose renewal/due date just passed to their next date
+    (nobody emails "rent is due again"). Returns how many moved."""
+    moved = 0
+    for days_ago in range(1, ROLL_FORWARD_DAYS + 1):
+        due = (today - timedelta(days=days_ago)).isoformat()
+        for item in _query_due(table, due):
+            if item.get("subKey"):
+                user_id = item["PK"].removeprefix("USER#")
+                moved += advance_past_renewal(table, user_id, item["subKey"], today=today, now=now)
+    return moved
 
 
 def _query_due(table: Any, due: str) -> Iterator[dict[str, Any]]:

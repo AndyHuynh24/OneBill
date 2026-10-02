@@ -219,4 +219,16 @@ describe("DocumentSheet", () => {
 
     expect(await screen.findByRole("button", { name: /fix items to split/i })).toBeDisabled();
   });
+
+  it("Delete removes the document after a confirm", async () => {
+    const api = fakeApi({ getDocument: vi.fn().mockResolvedValue(DINNER) });
+    const onClose = vi.fn();
+    renderSheet(api, onClose, DINNER.docId);
+
+    await userEvent.click(await screen.findByRole("button", { name: /^delete$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /yes, delete/i }));
+
+    expect(api.deleteDocument).toHaveBeenCalledWith(DINNER.docId);
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
 });

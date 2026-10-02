@@ -608,3 +608,102 @@ def test_daily_limits_can_be_switched_off_for_testing(table, s3):
             NOW,
             enforce_limits=False,
         )
+
+
+# --- removing a reminder, deleting a document --------------------------------------------------
+
+from api.documents.logic import delete_document, remove_obligation  # noqa: E402
+
+
+def test_removing_a_deadline_takes_it_off_the_document_too(table):
+    doc_id = processed_doc(table, obligations=("2026-10-28", "2027-09-28"))
+    keep, remove = sorted(o["SK"] for o in obligations_for(table))
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET obligations = :o",
+        ExpressionAttributeValues={
+            ":o": [
+                {"kind": "return_by", "dueDate": "2026-10-28", "evidence": "a"},
+                {"kind": "return_by", "dueDate": "2027-09-28", "evidence": "b"},
+            ]
+        },
+    )
+
+    remove_obligation(table, "user-a", remove.rsplit("#", 1)[1], NOW)
+
+    assert [o["SK"] for o in obligations_for(table)] == [keep]
+    doc = get_document(table, "user-a", doc_id)
+    assert doc["obligations"] == [{"kind": "return_by", "dueDate": "2026-10-28", "evidence": "a"}]
+
+
+def test_removing_a_subscription_reminder_turns_its_reminders_off(table):
+    from subscriptions.parse import ParsedSubscription
+    from subscriptions.store import list_subscriptions, save_subscription
+
+    sub = ParsedSubscription(
+        service="Netflix",
+        service_key="netflix",
+        plan=None,
+        amount_cents=1549,
+        currency="USD",
+        cycle="monthly",
+        status="charged",
+        charge_date=date(2026, 10, 1),
+        period_end=None,
+        next_renewal=date(2026, 11, 1),
+    )
+    save_subscription(table, "user-a", sub, date(2026, 10, 1), NOW)
+    (reminder,) = obligations_for(table)
+
+    remove_obligation(table, "user-a", reminder["oblId"], NOW)
+
+    assert obligations_for(table) == []
+    assert list_subscriptions(table, "user-a")[0]["remindersOff"] is True
+
+
+def test_someone_elses_reminder_is_not_found(table):
+    processed_doc(table, user="user-b")
+    (other,) = obligations_for(table, user="user-b")
+
+    with pytest.raises(NotFound):
+        remove_obligation(table, "user-a", other["oblId"], NOW)
+    with pytest.raises(NotFound):
+        remove_obligation(table, "user-a", "../PROFILE", NOW)
+
+
+def test_deleting_a_document_removes_it_its_deadlines_and_its_photo(table, s3):
+    upload(table, s3)  # a pending upload with an S3 key
+    doc_id = processed_doc(table)
+    key = f"uploads/user-a/{doc_id}"
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET s3Key = :k",
+        ExpressionAttributeValues={":k": key},
+    )
+    s3.put_object(Bucket=BUCKET, Key=key, Body=b"jpeg")
+
+    delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
+
+    with pytest.raises(NotFound):
+        get_document(table, "user-a", doc_id)
+    assert obligations_for(table) == []
+    assert s3.list_objects_v2(Bucket=BUCKET, Prefix=key).get("KeyCount", 0) == 0
+
+
+def test_a_document_still_being_read_cant_be_deleted_yet(table, s3):
+    doc_id = processed_doc(table, status="processing")
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET processingStartedAt = :t",
+        ExpressionAttributeValues={":t": NOW.isoformat()},
+    )
+
+    with pytest.raises(BadRequest, match="still reading"):
+        delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
+
+
+def test_someone_elses_document_cant_be_deleted(table, s3):
+    doc_id = processed_doc(table, user="user-b")
+
+    with pytest.raises(NotFound):
+        delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)

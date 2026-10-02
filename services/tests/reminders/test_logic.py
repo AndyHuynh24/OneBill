@@ -216,3 +216,37 @@ def test_directory_returning_nothing_is_a_skip(table, bad):
     summary = run_reminders(table, TODAY, lambda _: bad, FakeMailer(), app_url="x")
 
     assert summary["skipped"] == 1
+
+
+def test_subscription_reminders_say_renews_or_trial_ends():
+    items = [
+        (3, {"kind": "renewal", "vendor": "Netflix", "dueDate": "2026-10-03", "amountCents": 1549}),
+        (1, {"kind": "trial_ends", "vendor": "Max", "dueDate": "2026-10-01", "amountCents": 1699}),
+    ]
+
+    _, text, _ = render_digest(items, TODAY, app_url="http://localhost:5173")
+
+    assert "Trial ends" in text
+    assert "Renews" in text
+    assert "Due" not in text  # no unlabelled fallback
+
+
+def test_past_due_subscriptions_and_bills_roll_forward_each_morning(table):
+    from datetime import UTC, datetime
+
+    from reminders.logic import roll_forward
+    from subscriptions.store import add_subscription
+
+    now = datetime(2026, 9, 1, tzinfo=UTC)
+    add_subscription(
+        table, "u1", {"service": "Rent", "category": "bill", "nextRenewal": "2026-09-29"}, now
+    )
+    add_subscription(
+        table, "u1", {"service": "Gym", "nextRenewal": "2026-10-05"}, now
+    )  # not due yet
+
+    moved = roll_forward(table, TODAY, now)  # TODAY = Sep 30: Rent's date passed yesterday
+
+    assert moved == 1
+    rent = table.get_item(Key={"PK": "USER#u1", "SK": "SUB#rent"})["Item"]
+    assert rent["nextRenewal"] == "2026-10-29"

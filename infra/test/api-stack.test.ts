@@ -178,9 +178,13 @@ describe("ApiStack — documents API", () => {
     "GET /obligations",
     "PUT /documents/{docId}/split",
     "GET /subscriptions",
+    "POST /subscriptions",
     "PATCH /subscriptions/{key}",
     "POST /ingest/keys",
     "DELETE /ingest/keys",
+    "DELETE /subscriptions/{key}",
+    "DELETE /obligations/{oblId}",
+    "DELETE /documents/{docId}",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {
@@ -216,9 +220,9 @@ describe("ApiStack — documents API", () => {
     expect(JSON.stringify(dynamo?.Resource)).not.toContain("index");
   });
 
-  it("lets documents sign uploads only under uploads/ (PutObject, nothing else in S3)", () => {
+  it("lets documents sign uploads and delete them, only under uploads/ (nothing else in S3)", () => {
     const statements = statementsFor("api.documents.handler.handler");
-    expect(actionsOf(statements, "s3:")).toEqual(["s3:PutObject"]);
+    expect(actionsOf(statements, "s3:")).toEqual(["s3:DeleteObject", "s3:PutObject"]);
     const s3 = statements.find((st) => actionsOf([st], "s3:").length);
     expect(JSON.stringify(s3?.Resource)).toContain("/uploads/*");
   });

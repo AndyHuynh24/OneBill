@@ -121,7 +121,20 @@ export interface Subscription {
   priceChangedAt?: string;
   history: { date: string; amountCents: number; status: string }[];
   issues: string[];
+  remindersOff?: boolean;
+  /** Bills (rent, utilities) are "due"; subscriptions "renew". */
+  category?: "subscription" | "bill";
+  source?: "manual";
   updatedAt?: string;
+}
+
+/** Added by hand: anything that doesn't email (rent, utilities, a gym billed to a card). */
+export interface NewSubscription {
+  service: string;
+  category: "subscription" | "bill";
+  amountCents?: number;
+  cycle: BillingCycle;
+  nextRenewal: string;
 }
 
 /** The Gmail script's connection; the key itself is never returned after creation. */
@@ -200,6 +213,14 @@ export interface OneTallyApi {
   /** Shown once; only its hash is stored. */
   createIngestKey(): Promise<{ key: string }>;
   revokeIngestKey(): Promise<void>;
+  /** Gone from OneTally (with its reminder); it can come back with new emails. */
+  deleteSubscription(serviceKey: string): Promise<void>;
+  addSubscription(subscription: NewSubscription): Promise<Subscription>;
+  setSubscriptionReminders(serviceKey: string, on: boolean): Promise<Subscription>;
+  /** A document's deadline (removed from the document too) or a subscription's renewal (turns its reminders off). */
+  deleteObligation(oblId: string): Promise<void>;
+  /** The receipt or bill, its deadlines, and its photo. */
+  deleteDocument(docId: string): Promise<void>;
 }
 
 export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneTallyApi {
@@ -238,6 +259,18 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
     createIngestKey: () => call("POST", "ingest/keys"),
     revokeIngestKey: async () => {
       await call("DELETE", "ingest/keys");
+    },
+    addSubscription: (subscription) => call<Subscription>("POST", "subscriptions", subscription),
+    deleteSubscription: async (key) => {
+      await call("DELETE", `subscriptions/${encodeURIComponent(key)}`);
+    },
+    setSubscriptionReminders: (key, on) =>
+      call<Subscription>("PATCH", `subscriptions/${encodeURIComponent(key)}`, { action: "reminders", on }),
+    deleteObligation: async (oblId) => {
+      await call("DELETE", `obligations/${encodeURIComponent(oblId)}`);
+    },
+    deleteDocument: async (docId) => {
+      await call("DELETE", `documents/${encodeURIComponent(docId)}`);
     },
     saveSplit: (docId, request) => call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split`, request),
     async uploadDocument(file) {

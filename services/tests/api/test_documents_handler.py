@@ -295,3 +295,54 @@ def test_only_uploaders_can_connect_gmail(handler):
     status, _ = call(handler, http_event("POST", "/ingest/keys", {"sub": "user-b"}))
 
     assert status == 403
+
+
+def test_delete_subscription_and_the_reminders_switch(handler, table):
+    _save_netflix(table)
+    path = "/subscriptions/apple%20music"
+
+    status, body = call(
+        handler,
+        http_event("PATCH", path, {"sub": "user-a"}, body={"action": "reminders", "on": False}),
+    )
+    assert (status, body["remindersOff"]) == (200, True)
+    assert (
+        call(
+            handler,
+            http_event("PATCH", path, {"sub": "user-a"}, body={"action": "reminders", "on": "no"}),
+        )[0]
+        == 400
+    )
+
+    response = handler.handler(http_event("DELETE", path, {"sub": "user-a"}), FakeLambdaContext())
+    assert response["statusCode"] == 204
+    assert call(handler, http_event("DELETE", path, {"sub": "user-a"}))[0] == 404
+
+
+def test_delete_document_and_reminder_routes_are_scoped_to_the_caller(handler):
+    other = "1790000000000aaaaaaaa"
+
+    assert call(handler, http_event("DELETE", f"/documents/{other}", {"sub": "user-a"}))[0] == 404
+    assert call(handler, http_event("DELETE", f"/obligations/{other}", {"sub": "user-a"}))[0] == 404
+
+
+def test_post_subscriptions_adds_one_by_hand(handler):
+    rent = {
+        "service": "Rent",
+        "category": "bill",
+        "amountCents": 210000,
+        "nextRenewal": "2026-11-01",
+    }
+
+    status, body = call(handler, http_event("POST", "/subscriptions", {"sub": "user-a"}, body=rent))
+    assert (status, body["category"], body["source"]) == (201, "bill", "manual")
+
+    assert (
+        call(handler, http_event("POST", "/subscriptions", {"sub": "user-a"}, body=rent))[0] == 409
+    )
+    assert (
+        call(
+            handler, http_event("POST", "/subscriptions", {"sub": "user-a"}, body={"service": ""})
+        )[0]
+        == 400
+    )

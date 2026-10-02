@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import boto3
 from aws_lambda_powertools import Logger, Tracer
 
-from reminders.logic import run_reminders
+from reminders.logic import roll_forward, run_reminders
 from shared.dates import app_today
 
 logger = Logger()
@@ -57,7 +57,10 @@ def send_email(to: str, subject: str, text: str, html: str) -> None:
 @logger.inject_lambda_context
 @tracer.capture_lambda_handler
 def handler(event: dict, context: object) -> dict[str, int]:
-    today = app_today(datetime.now(UTC))
+    now = datetime.now(UTC)
+    today = app_today(now)
+    # First move bills/subscriptions whose date just passed, so their next reminder exists.
+    rolled = roll_forward(table, today, now)
     summary = run_reminders(table, today, find_email, send_email, APP_URL)
-    logger.info("reminders_run", extra={"date": today.isoformat(), **summary})  # counts only
+    logger.info("reminders_run", extra={"date": today.isoformat(), "rolled": rolled, **summary})
     return summary

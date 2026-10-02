@@ -28,7 +28,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     queryKey: ["document", docId],
     queryFn: () => api.getDocument(docId),
   });
-  const [mode, setMode] = useState<"view" | "edit" | "ask" | "split">("view");
+  const [mode, setMode] = useState<"view" | "edit" | "ask" | "split" | "confirm-delete">("view");
   const editing = mode === "edit";
   const setEditing = (on: boolean) => setMode(on ? "edit" : "view");
 
@@ -49,6 +49,14 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const remove = useMutation({
+    mutationFn: () => api.deleteDocument(docId),
+    onSuccess: () => {
+      for (const key of [["documents"], ["obligations"]]) queryClient.invalidateQueries({ queryKey: key });
+      onClose();
+    },
+  });
 
   const currency = doc?.currency ?? "USD";
   const reviewable = doc?.status === "ready" || doc?.status === "needs_review";
@@ -170,6 +178,29 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   </div>
                 )}
               </>
+            )}
+            {doc.status !== "processing" && doc.status !== "pending_upload" && mode === "view" && (
+              <div className="sheet-actions">
+                <button type="button" className="danger" onClick={() => setMode("confirm-delete")}>
+                  Delete
+                </button>
+              </div>
+            )}
+            {mode === "confirm-delete" && (
+              <div className="sheet-actions">
+                <span>Delete this document, its deadlines, and its photo?</span>
+                <button type="button" className="primary" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                  Yes, delete
+                </button>
+                <button type="button" onClick={() => setMode("view")}>
+                  Keep
+                </button>
+              </div>
+            )}
+            {remove.error && (
+              <p role="alert" className="error">
+                {remove.error.message}
+              </p>
             )}
             {review.error && (
               <p role="alert" className="error">

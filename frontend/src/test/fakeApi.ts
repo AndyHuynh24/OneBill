@@ -80,6 +80,11 @@ export function fakeApi(overrides: Partial<OneTallyApi> = {}): OneTallyApi {
     editSubscription: vi.fn().mockResolvedValue(NETFLIX),
     createIngestKey: vi.fn().mockResolvedValue({ key: "otk_" + "k".repeat(43) }),
     revokeIngestKey: vi.fn().mockResolvedValue(undefined),
+    deleteSubscription: vi.fn().mockResolvedValue(undefined),
+    addSubscription: vi.fn().mockResolvedValue({ ...NETFLIX, source: "manual" }),
+    setSubscriptionReminders: vi.fn().mockResolvedValue({ ...NETFLIX, remindersOff: true }),
+    deleteObligation: vi.fn().mockResolvedValue(undefined),
+    deleteDocument: vi.fn().mockResolvedValue(undefined),
     saveSplit: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0 }),
     ...overrides,
   };

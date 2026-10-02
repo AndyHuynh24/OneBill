@@ -21,7 +21,7 @@ interface SubscriptionSheetProps {
 /** One subscription: what the emails said, its charge history, and Fix / Mark cancelled. */
 export function SubscriptionSheet({ api, subscription: s, onClose }: SubscriptionSheetProps) {
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"view" | "edit" | "confirm-cancel">("view");
+  const [mode, setMode] = useState<"view" | "edit" | "confirm-cancel" | "confirm-delete">("view");
   const done = () => {
     for (const key of [["subscriptions"], ["obligations"]]) queryClient.invalidateQueries({ queryKey: key });
     onClose();
@@ -31,7 +31,18 @@ export function SubscriptionSheet({ api, subscription: s, onClose }: Subscriptio
     mutationFn: (fields: SubscriptionEdit) => api.editSubscription(s.serviceKey, fields),
     onSuccess: done,
   });
-  const error = cancel.error ?? edit.error;
+  const remove = useMutation({ mutationFn: () => api.deleteSubscription(s.serviceKey), onSuccess: done });
+  const reminders = useMutation({
+    mutationFn: (on: boolean) => api.setSubscriptionReminders(s.serviceKey, on),
+    onSuccess: () => {
+      for (const key of [["subscriptions"], ["obligations"]]) queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+  // While saving, show the requested state; afterwards, what the server returned.
+  const remindersOn = reminders.isPending
+    ? reminders.variables === true
+    : !(reminders.data?.remindersOff ?? s.remindersOff);
+  const error = cancel.error ?? edit.error ?? remove.error ?? reminders.error;
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -56,7 +67,7 @@ export function SubscriptionSheet({ api, subscription: s, onClose }: Subscriptio
               )}
               <dt>Price</dt>
               <dd>{s.amountCents != null ? `${formatCents(s.amountCents, s.currency)}${cycleSuffix(s.cycle)}` : "Unknown"}</dd>
-              <dt>{s.status === "trial_ending" ? "Trial ends" : "Next renewal"}</dt>
+              <dt>{s.status === "trial_ending" ? "Trial ends" : s.category === "bill" ? "Next due date" : "Next renewal"}</dt>
               <dd>
                 {s.status === "cancelled"
                   ? "Cancelled"
@@ -95,7 +106,31 @@ export function SubscriptionSheet({ api, subscription: s, onClose }: Subscriptio
                 </table>
               </div>
             )}
-            {mode === "confirm-cancel" ? (
+            {s.status !== "cancelled" && (
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={remindersOn}
+                  disabled={reminders.isPending}
+                  onChange={(e) => reminders.mutate(e.target.checked)}
+                />
+                {s.category === "bill" ? "Remind me before it's due" : "Remind me before renewals"}
+              </label>
+            )}
+            {mode === "confirm-delete" ? (
+              <div className="sheet-actions">
+                <span>
+                  Delete {s.service} and its reminders?
+                  {s.source === "manual" ? "" : ` It can come back if new ${s.service} emails arrive.`}
+                </span>
+                <button type="button" className="primary" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                  Yes, delete
+                </button>
+                <button type="button" onClick={() => setMode("view")}>
+                  Keep
+                </button>
+              </div>
+            ) : mode === "confirm-cancel" ? (
               <div className="sheet-actions">
                 <span>Stop reminders for {s.service}?</span>
                 <button type="button" className="primary" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
@@ -115,6 +150,9 @@ export function SubscriptionSheet({ api, subscription: s, onClose }: Subscriptio
                     Mark cancelled
                   </button>
                 )}
+                <button type="button" className="danger" onClick={() => setMode("confirm-delete")}>
+                  Delete subscription
+                </button>
               </div>
             )}
           </>

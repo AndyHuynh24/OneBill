@@ -50,4 +50,25 @@ describe("SubscriptionSheet", () => {
 
     expect(api.editSubscription).toHaveBeenCalledWith("netflix", { amountCents: 1799 });
   });
+
+  it("turns renewal reminders off and on", async () => {
+    const api = fakeApi();
+    renderSheet(api);
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /remind me before renewals/i }));
+
+    expect(api.setSubscriptionReminders).toHaveBeenCalledWith("netflix", false);
+  });
+
+  it("Delete removes the subscription after a confirm", async () => {
+    const api = fakeApi();
+    const onClose = renderSheet(api);
+
+    await userEvent.click(screen.getByRole("button", { name: /delete subscription/i }));
+    expect(screen.getByText(/can come back if new netflix emails arrive/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /yes, delete/i }));
+
+    expect(api.deleteSubscription).toHaveBeenCalledWith("netflix");
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
 });

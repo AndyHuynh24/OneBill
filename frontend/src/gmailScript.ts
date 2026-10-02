@@ -90,6 +90,16 @@ function labelId_() {
   return null;
 }
 
+/**
+ * For testing: forget which emails were sent, so the next run sends them all again. (After
+ * deleting a subscription in OneTally, its emails are read again when they're re-sent.)
+ */
+function forgetSentEmails() {
+  var props = PropertiesService.getScriptProperties();
+  for (var c = 0; c < SENT_CHUNKS; c++) props.deleteProperty('SENT_' + c);
+  console.log('Forgot sent emails. Run sendToOneTally to send them again.');
+}
+
 /** Sent message IDs, kept in a few Script properties (each property holds at most 9 KB). */
 function loadSent_() {
   var props = PropertiesService.getScriptProperties();

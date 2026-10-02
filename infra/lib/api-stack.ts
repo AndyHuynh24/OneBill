@@ -108,7 +108,9 @@ export class ApiStack extends Stack {
     documentsFn.addToRolePolicy(
       new iam.PolicyStatement({
         // A presigned POST carries the signer's permissions: the browser can only write under uploads/.
-        actions: ["s3:PutObject"],
+        // DeleteObject: "Delete document" (versioned bucket: adds a delete marker; the old
+        // version expires after 30 days).
+        actions: ["s3:PutObject", "s3:DeleteObject"],
         resources: [props.docsBucket.arnForObjects("uploads/*")],
       }),
     );
@@ -189,7 +191,7 @@ export class ApiStack extends Stack {
     });
     this.api.addRoutes({
       path: "/documents/{docId}",
-      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration: documents,
     });
     this.api.addRoutes({ path: "/obligations", methods: [apigwv2.HttpMethod.GET], integration: documents });
@@ -202,8 +204,17 @@ export class ApiStack extends Stack {
 
 
     // Subscriptions and the Gmail connection (signed in): same Lambda, no new permissions.
-    this.api.addRoutes({ path: "/subscriptions", methods: [apigwv2.HttpMethod.GET], integration: documents });
-    this.api.addRoutes({ path: "/subscriptions/{key}", methods: [apigwv2.HttpMethod.PATCH], integration: documents });
+    this.api.addRoutes({
+      path: "/subscriptions",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: documents,
+    });
+    this.api.addRoutes({
+      path: "/subscriptions/{key}",
+      methods: [apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
+      integration: documents,
+    });
+    this.api.addRoutes({ path: "/obligations/{oblId}", methods: [apigwv2.HttpMethod.DELETE], integration: documents });
     this.api.addRoutes({
       path: "/ingest/keys",
       methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.DELETE],

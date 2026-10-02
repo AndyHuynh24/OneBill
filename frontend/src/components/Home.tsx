@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { OneTallyApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
+import { AddSubscription } from "./AddSubscription";
 import { ConnectGmail } from "./ConnectGmail";
 import { SubscriptionSheet } from "./SubscriptionSheet";
 import { Subscriptions } from "./Subscriptions";
@@ -71,8 +72,17 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
     queryFn: () => api.listObligations(todayIso()),
   });
   const subscriptions = useQuery({ queryKey: ["subscriptions"], queryFn: api.listSubscriptions });
+  const removeReminder = useMutation({
+    mutationFn: (oblId: string) => api.deleteObligation(oblId),
+    onSettled: () => {
+      for (const key of [["obligations"], ["subscriptions"], ["documents"]]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
   const [openSub, setOpenSub] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const shownSub = subscriptions.data?.subscriptions.find((s) => s.serviceKey === openSub);
 
   // Deadlines only change when a document finishes: refresh them then, instead of polling.
@@ -120,14 +130,14 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
       <section aria-labelledby="upcoming-title">
         <h2 id="upcoming-title">Upcoming</h2>
         {obligations.data ? (
-          <Upcoming obligations={obligations.data.obligations} />
+          <Upcoming obligations={obligations.data.obligations} onRemove={(o) => removeReminder.mutate(o.oblId)} />
         ) : (
           <p className="muted">{obligations.error ? "Couldn't load deadlines." : "Loading…"}</p>
         )}
       </section>
 
       <section aria-labelledby="subscriptions-title">
-        <h2 id="subscriptions-title">Subscriptions</h2>
+        <h2 id="subscriptions-title">Subscriptions &amp; bills</h2>
         {subscriptions.data ? (
           <Subscriptions
             subscriptions={subscriptions.data.subscriptions}
@@ -135,6 +145,7 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
             today={todayIso()}
             onOpen={setOpenSub}
             onConnect={() => setConnecting(true)}
+            onAdd={() => setAdding(true)}
           />
         ) : (
           <p className="muted">{subscriptions.error ? "Couldn't load subscriptions." : "Loading…"}</p>
@@ -160,6 +171,7 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
 
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
       {shownSub && <SubscriptionSheet api={api} subscription={shownSub} onClose={() => setOpenSub(null)} />}
+      {adding && <AddSubscription api={api} onClose={() => setAdding(false)} />}
       {connecting && subscriptions.data && (
         <ConnectGmail api={api} connection={subscriptions.data.connection} onClose={() => setConnecting(false)} />
       )}
