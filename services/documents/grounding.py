@@ -20,18 +20,17 @@ def _printed_forms(cents: int) -> list[str]:
     return forms
 
 
+def is_printed(cents: int, text: str) -> bool:
+    """Is this amount printed in the text (as 15.49, 1,234.56, or .99)?"""
+    # Not part of a longer number: no digit, comma, or point right before; no digit after.
+    return any(
+        re.search(rf"(?<![\d.,]){re.escape(form)}(?!\d)", text) for form in _printed_forms(cents)
+    )
+
+
 def ungrounded(lines: list[Line], ocr_lines: list[str]) -> list[Line]:
     """Lines whose amount doesn't appear in the document text (zero amounts are skipped)."""
     text = "\n".join(ocr_lines)
-    missing = []
-    for line in lines:
-        if line.amount_cents == 0:
-            continue
-        # Not part of a longer number: no digit, comma, or point right before; no digit after.
-        found = any(
-            re.search(rf"(?<![\d.,]){re.escape(form)}(?!\d)", text)
-            for form in _printed_forms(line.amount_cents)
-        )
-        if not found:
-            missing.append(line)
-    return missing
+    return [
+        line for line in lines if line.amount_cents != 0 and not is_printed(line.amount_cents, text)
+    ]
