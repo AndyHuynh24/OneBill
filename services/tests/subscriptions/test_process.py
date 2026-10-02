@@ -169,3 +169,31 @@ def test_the_received_date_is_the_local_calendar_day(table, bedrock):
     process_email(table, client, MODEL, "user-a", EMAIL | {"date": "2026-10-01T05:30:00Z"}, NOW)
 
     assert "Received: 2026-09-30" in sent[0]["messages"][0]["content"][0]["text"]
+
+
+def test_an_obvious_non_subscription_is_skipped_without_the_model_or_the_cap(table, bedrock):
+    client, _ = bedrock  # nothing queued: a model call would fail the test
+    order = EMAIL | {
+        "messageId": "order1",
+        "subject": "Your order shipped",
+        "html": "<p>Total $45.20</p>",
+    }
+
+    result = process_email(table, client, MODEL, "user-a", order, NOW)
+
+    assert result == {"status": "ignored", "subscriptions": 0}
+    usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-10-01"}).get("Item")
+    assert usage is None  # the daily cap wasn't touched
+
+
+def test_an_email_labelled_by_hand_is_always_read(table, bedrock):
+    client, stub = bedrock
+    expect(stub, {"is_subscription_email": True, "subscriptions": [NETFLIX]})
+    labelled = EMAIL | {
+        "messageId": "lbl1",
+        "subject": "Hi",
+        "html": "<p>Netflix $15.49</p>",
+        "labelled": True,
+    }
+
+    assert process_email(table, client, MODEL, "user-a", labelled, NOW)["status"] == "processed"

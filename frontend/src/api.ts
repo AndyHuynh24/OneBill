@@ -102,6 +102,42 @@ export interface Split {
   updatedAt?: string;
 }
 
+export type BillingCycle = "weekly" | "monthly" | "quarterly" | "yearly" | "other";
+export type SubscriptionStatus = "charged" | "upcoming" | "trial_ending" | "payment_failed" | "cancelled";
+
+/** One service, as read from its emails (amounts in cents). */
+export interface Subscription {
+  serviceKey: string;
+  service: string;
+  plan: string | null;
+  amountCents: number | null;
+  currency: string;
+  cycle: BillingCycle | null;
+  status: SubscriptionStatus;
+  nextRenewal: string | null;
+  renewalComputed: boolean;
+  lastChargedAt?: string | null;
+  previousAmountCents?: number;
+  priceChangedAt?: string;
+  history: { date: string; amountCents: number; status: string }[];
+  issues: string[];
+  updatedAt?: string;
+}
+
+/** The Gmail script's connection; the key itself is never returned after creation. */
+export interface GmailConnection {
+  connected: boolean;
+  createdAt: string | null;
+  lastUsedAt: string | null;
+}
+
+export interface SubscriptionEdit {
+  amountCents?: number;
+  nextRenewal?: string;
+  cycle?: BillingCycle;
+  plan?: string | null;
+}
+
 export interface Obligation {
   oblId: string;
   docId: string;
@@ -148,6 +184,8 @@ export class ApiError extends Error {
 export type TokenGetter = () => Promise<string | undefined>;
 
 export interface OneTallyApi {
+  /** The API's address (shown in Connect Gmail, for the Apps Script). */
+  readonly baseUrl: string;
   getProfile(): Promise<Profile>;
   listDocuments(): Promise<{ documents: DocumentSummary[]; review: ReviewStats }>;
   getDocument(docId: string): Promise<DocumentDetail>;
@@ -156,6 +194,12 @@ export interface OneTallyApi {
   /** Ask the API for an upload ticket, then send the file straight to S3. */
   uploadDocument(file: File): Promise<string>;
   saveSplit(docId: string, request: SplitRequest): Promise<Split>;
+  listSubscriptions(): Promise<{ subscriptions: Subscription[]; connection: GmailConnection }>;
+  cancelSubscription(serviceKey: string): Promise<Subscription>;
+  editSubscription(serviceKey: string, fields: SubscriptionEdit): Promise<Subscription>;
+  /** Shown once; only its hash is stored. */
+  createIngestKey(): Promise<{ key: string }>;
+  revokeIngestKey(): Promise<void>;
 }
 
 export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneTallyApi {
@@ -178,6 +222,7 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
   }
 
   return {
+    baseUrl: apiUrl,
     getProfile: () => call<Profile>("GET", "me"),
     listDocuments: () => call("GET", "documents"),
     getDocument: (docId) => call<DocumentDetail>("GET", `documents/${encodeURIComponent(docId)}`),
@@ -185,6 +230,15 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
       call<DocumentDetail>("PATCH", `documents/${encodeURIComponent(docId)}`, request),
     listObligations: (fromDate, withinDays = 30) =>
       call("GET", `obligations?from=${encodeURIComponent(fromDate)}&withinDays=${withinDays}`),
+    listSubscriptions: () => call("GET", "subscriptions"),
+    cancelSubscription: (key) =>
+      call<Subscription>("PATCH", `subscriptions/${encodeURIComponent(key)}`, { action: "cancel" }),
+    editSubscription: (key, fields) =>
+      call<Subscription>("PATCH", `subscriptions/${encodeURIComponent(key)}`, { action: "edit", fields }),
+    createIngestKey: () => call("POST", "ingest/keys"),
+    revokeIngestKey: async () => {
+      await call("DELETE", "ingest/keys");
+    },
     saveSplit: (docId, request) => call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split`, request),
     async uploadDocument(file) {
       const ticket = await call<UploadTicket>("POST", "documents", {

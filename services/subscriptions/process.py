@@ -12,6 +12,7 @@ from shared.dates import APP_TIMEZONE, app_today
 from subscriptions.html_text import html_to_text, tidy_text
 from subscriptions.ingest import consume_email_quota, record_use
 from subscriptions.parse import read_subscription_email
+from subscriptions.signals import looks_like_subscription
 from subscriptions.store import claim_email, finish_email, save_subscription
 
 MAX_BODY_CHARS = 300_000
@@ -28,15 +29,18 @@ def process_email(
     email = _validated(payload, now)
     if not claim_email(table, user_id, email["messageId"], now):
         return {"status": "duplicate", "subscriptions": 0}
+    record_use(table, user_id, now)
+    text = tidy_text(email["text"]) if email["text"] else html_to_text(email["html"] or "")
+    # Free checks first: an empty email, or one with no price and no word about recurring
+    # billing, is skipped without a model call and without using the daily cap. Emails the
+    # user labelled by hand are always read.
+    if not text or not (email["labelled"] or looks_like_subscription(email["subject"], text)):
+        finish_email(table, user_id, email["messageId"], "ignored", 0)
+        return {"status": "ignored", "subscriptions": 0}
     if not consume_email_quota(table, user_id, now):
         finish_email(table, user_id, email["messageId"], "failed", 0)  # retried after the reset
         return {"status": "limit", "subscriptions": 0}
     try:
-        record_use(table, user_id, now)
-        text = tidy_text(email["text"]) if email["text"] else html_to_text(email["html"] or "")
-        if not text:
-            finish_email(table, user_id, email["messageId"], "ignored", 0)
-            return {"status": "ignored", "subscriptions": 0}
         result = read_subscription_email(
             bedrock,
             model_id,
@@ -78,6 +82,7 @@ def _validated(payload: Any, now: datetime) -> dict[str, Any]:
         "text": text if isinstance(text, str) else None,
         "html": html if isinstance(html, str) else None,
         "received": _received(payload.get("date"), now),
+        "labelled": payload.get("labelled") is True,
     }
 
 

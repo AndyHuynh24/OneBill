@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { OneTallyApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
+import { ConnectGmail } from "./ConnectGmail";
+import { SubscriptionSheet } from "./SubscriptionSheet";
+import { Subscriptions } from "./Subscriptions";
 import { todayIso } from "../format";
 import { DocumentSheet } from "./DocumentSheet";
 import { RecentDocuments } from "./RecentDocuments";
@@ -67,6 +70,10 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
     queryKey: ["obligations"],
     queryFn: () => api.listObligations(todayIso()),
   });
+  const subscriptions = useQuery({ queryKey: ["subscriptions"], queryFn: api.listSubscriptions });
+  const [openSub, setOpenSub] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const shownSub = subscriptions.data?.subscriptions.find((s) => s.serviceKey === openSub);
 
   // Deadlines only change when a document finishes: refresh them then, instead of polling.
   const busy = processingCount(documents.data?.documents);
@@ -119,6 +126,21 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
         )}
       </section>
 
+      <section aria-labelledby="subscriptions-title">
+        <h2 id="subscriptions-title">Subscriptions</h2>
+        {subscriptions.data ? (
+          <Subscriptions
+            subscriptions={subscriptions.data.subscriptions}
+            connection={subscriptions.data.connection}
+            today={todayIso()}
+            onOpen={setOpenSub}
+            onConnect={() => setConnecting(true)}
+          />
+        ) : (
+          <p className="muted">{subscriptions.error ? "Couldn't load subscriptions." : "Loading…"}</p>
+        )}
+      </section>
+
       <section aria-labelledby="recent-title">
         <h2 id="recent-title">Recent</h2>
         {documents.data ? (
@@ -137,6 +159,10 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
       <ScanButton onFile={(file) => upload.mutate(file)} busy={upload.isPending} />
 
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
+      {shownSub && <SubscriptionSheet api={api} subscription={shownSub} onClose={() => setOpenSub(null)} />}
+      {connecting && subscriptions.data && (
+        <ConnectGmail api={api} connection={subscriptions.data.connection} onClose={() => setConnecting(false)} />
+      )}
     </main>
   );
 }

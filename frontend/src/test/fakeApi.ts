@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { DocumentDetail, OneTallyApi } from "../api";
+import type { DocumentDetail, OneTallyApi, Subscription } from "../api";
 
 export const RECEIPT: DocumentDetail = {
   docId: "1790000000000aaaaaaaa",
@@ -44,6 +44,21 @@ export const DINNER: DocumentDetail = {
   obligations: [],
 };
 
+export const NETFLIX: Subscription = {
+  serviceKey: "netflix",
+  service: "Netflix",
+  plan: "Standard",
+  amountCents: 1549,
+  currency: "USD",
+  cycle: "monthly",
+  status: "charged",
+  nextRenewal: "2026-11-01",
+  renewalComputed: false,
+  lastChargedAt: "2026-10-01",
+  history: [{ date: "2026-10-01", amountCents: 1549, status: "charged" }],
+  issues: [],
+};
+
 /** An OneTallyApi whose every method is a vi.fn() with an empty, successful default. */
 export function fakeApi(overrides: Partial<OneTallyApi> = {}): OneTallyApi {
   return {
@@ -56,6 +71,15 @@ export function fakeApi(overrides: Partial<OneTallyApi> = {}): OneTallyApi {
     reviewDocument: vi.fn().mockResolvedValue({ ...RECEIPT, status: "ready" }),
     listObligations: vi.fn().mockResolvedValue({ obligations: [] }),
     uploadDocument: vi.fn().mockResolvedValue("new-doc"),
+    baseUrl: "https://api.example.com/",
+    listSubscriptions: vi.fn().mockResolvedValue({
+      subscriptions: [],
+      connection: { connected: false, createdAt: null, lastUsedAt: null },
+    }),
+    cancelSubscription: vi.fn().mockResolvedValue({ ...NETFLIX, status: "cancelled", nextRenewal: null }),
+    editSubscription: vi.fn().mockResolvedValue(NETFLIX),
+    createIngestKey: vi.fn().mockResolvedValue({ key: "otk_" + "k".repeat(43) }),
+    revokeIngestKey: vi.fn().mockResolvedValue(undefined),
     saveSplit: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0 }),
     ...overrides,
   };

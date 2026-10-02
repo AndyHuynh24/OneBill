@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centsToInput, daysUntil, formatCents, formatDate, parseDollars, parseSignedDollars, relativeDay, todayIso } from "./format";
+import { centsToInput, daysUntil, formatCents, formatDate, parseDollars, parseSignedDollars, relativeDay, timeAgo, todayIso } from "./format";
 
 describe("parseDollars", () => {
   it.each([
@@ -70,5 +70,17 @@ describe("parseSignedDollars", () => {
 
   it.each(["", "-", "abc", "1.234", "--2"])("rejects %j", (input) => {
     expect(parseSignedDollars(input)).toBeNull();
+  });
+});
+
+describe("timeAgo", () => {
+  const now = new Date("2026-10-01T19:00:00Z");
+  it.each([
+    ["2026-10-01T18:59:40Z", "just now"],
+    ["2026-10-01T18:55:00Z", "5 min ago"],
+    ["2026-10-01T16:00:00Z", "3 h ago"],
+    ["2026-09-28T19:00:00Z", "3 days ago"],
+  ])("%s → %s", (iso, text) => {
+    expect(timeAgo(iso, now)).toBe(text);
   });
 });

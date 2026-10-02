@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type OneTallyApi } from "../api";
-import { fakeApi } from "../test/fakeApi";
+import { NETFLIX, fakeApi } from "../test/fakeApi";
 import { type AuthStatus, Home } from "./Home";
 
 function renderHome(status: AuthStatus, api: OneTallyApi = fakeApi()) {
@@ -164,6 +164,29 @@ describe("Home — signed in", () => {
 
     expect(await screen.findByText("Target")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows subscriptions with next month's total, and opens one", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: true, createdAt: "x", lastUsedAt: null },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    expect(await screen.findByRole("heading", { name: /subscriptions/i })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /netflix/i }));
+
+    expect(await screen.findByRole("dialog", { name: "Netflix" })).toBeInTheDocument();
+  });
+
+  it("Connect Gmail opens the setup sheet", async () => {
+    renderHome("signedIn");
+
+    await userEvent.click(await screen.findByRole("button", { name: /connect gmail/i }));
+
+    expect(await screen.findByRole("dialog", { name: /connect gmail/i })).toBeInTheDocument();
   });
 
   it("signs out", async () => {

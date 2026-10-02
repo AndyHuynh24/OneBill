@@ -646,3 +646,30 @@ section h2 {
   font-weight: 600;
   color: #15803d;
 }
+
+.next-month {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.connection {
+  margin-top: 0.5rem;
+}
+
+.copy-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.75rem 0 0.35rem;
+  font-weight: 600;
+}
+
+.copy-field input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  padding: 0.5rem;
+}
+
+.steps {
+  padding-left: 1.25rem;
+  line-height: 1.5;
+}
