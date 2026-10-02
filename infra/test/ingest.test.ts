@@ -50,6 +50,9 @@ describe("ApiStack — Gmail ingest (POST /ingest/email)", () => {
     template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
       RouteKey: "POST /ingest/email",
       AuthorizationType: "NONE",
+      // API Gateway rejects scopes on a route without a JWT authorizer (first deploy failed on
+      // this): the API's default "openid" scope must not be inherited here.
+      AuthorizationScopes: Match.absent(),
     });
   });
 

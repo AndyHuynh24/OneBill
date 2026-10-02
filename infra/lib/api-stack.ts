@@ -243,6 +243,7 @@ export class ApiStack extends Stack {
       methods: [apigwv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration("IngestIntegration", ingestFn),
       authorizer: new HttpNoneAuthorizer(),
+      authorizationScopes: [], // don't inherit the API's default "openid" scope (JWT-only)
     });
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
