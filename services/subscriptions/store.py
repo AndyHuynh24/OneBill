@@ -9,22 +9,34 @@
 """
 
 import hashlib
+import re
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from botocore.exceptions import ClientError
 
 from documents.store import obligation_item
 from documents.validate import Obligation
-from subscriptions.parse import ParsedSubscription
+from shared.dates import parse_iso_date
+from subscriptions.parse import CYCLES, MAX_TEXT, ParsedSubscription
 
 HISTORY_LIMIT = 12
 EMAIL_MARKER_DAYS = 90
+STALE_PROCESSING = timedelta(minutes=5)  # longer than any request can run (API Gateway: 30 s)
 _HISTORY_STATUSES = frozenset({"charged", "upcoming", "trial_ending"})
 
 
 class SubscriptionConflict(Exception):
     """Another email for the same service was saved at the same time; retry."""
+
+
+class SubscriptionNotFound(Exception):
+    pass
+
+
+class InvalidEdit(ValueError):
+    """The message is safe to show to the user."""
 
 
 def save_subscription(
@@ -91,34 +103,148 @@ def _save_once(
         item["previousAmountCents"] = existing["previousAmountCents"]
         item["priceChangedAt"] = existing["priceChangedAt"]
 
-    # The reminder: keep it if nothing changed, otherwise replace it (or remove it).
     kind = "trial_ends" if sub.status == "trial_ending" else "renewal"
+    deletes, puts = _reminder(user_id, item, existing, kind, f"From your {sub.service} email", now)
+    _transact(table, item, existing, deletes, puts)
+    return item
+
+
+def _reminder(
+    user_id: str,
+    item: dict[str, Any],
+    existing: dict[str, Any] | None,
+    kind: str,
+    evidence: str,
+    now: datetime,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Keep the renewal reminder if nothing changed; otherwise replace it (or remove it).
+    Sets the item's obligationKey/renewalKind; returns the OBL# keys to delete and items to put."""
     old_key = (existing or {}).get("obligationKey")
-    unchanged = (
+    if (
         old_key
         and existing.get("nextRenewal") == item["nextRenewal"]
         and existing.get("renewalKind") == kind
-    )
-    deletes, puts = [], []
-    if unchanged:
+    ):
         item["obligationKey"], item["renewalKind"] = old_key, kind
-    else:
-        if old_key:
-            deletes.append(old_key)
-        item["obligationKey"], item["renewalKind"] = None, None
-        if sub.next_renewal:
-            reminder = obligation_item(
-                user_id,
-                None,
-                sub.service,
-                Obligation(kind, sub.next_renewal, f"From your {sub.service} email", amount),
-                now,
-            ) | {"subKey": sub.service_key}
-            puts.append(reminder)
-            item["obligationKey"], item["renewalKind"] = reminder["SK"], kind
+        return [], []
+    deletes = [old_key] if old_key else []
+    item["obligationKey"], item["renewalKind"] = None, None
+    due = parse_iso_date(item["nextRenewal"]) if item.get("nextRenewal") else None
+    if due is None:
+        return deletes, []
+    reminder = obligation_item(
+        user_id,
+        None,
+        item["service"],
+        Obligation(kind, due, evidence, item.get("amountCents")),
+        now,
+    ) | {"subKey": item["serviceKey"]}
+    item["obligationKey"], item["renewalKind"] = reminder["SK"], kind
+    return deletes, [reminder]
 
-    _transact(table, item, existing, deletes, puts)
-    return item
+
+# --- the app: list, edit, cancel ---------------------------------------------------------------
+
+_KEY = re.compile(r"^[a-z0-9]+( [a-z0-9]+)*$")
+_PRIVATE = frozenset({"PK", "SK", "type", "obligationKey", "version"})
+MAX_EDIT_CENTS = 10**9
+
+
+def list_subscriptions(table: Any, user_id: str) -> list[dict[str, Any]]:
+    """Active ones first, soonest renewal first; cancelled ones last."""
+    response = table.query(
+        KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+        ExpressionAttributeValues={":pk": f"USER#{user_id}", ":prefix": "SUB#"},
+    )
+    subs = [_public(item) for item in response.get("Items", [])]
+    return sorted(
+        subs,
+        key=lambda s: (
+            s.get("status") == "cancelled",
+            s.get("nextRenewal") or "9999",
+            s["service"],
+        ),
+    )
+
+
+def edit_subscription(
+    table: Any, user_id: str, key: str, body: dict[str, Any], now: datetime
+) -> dict[str, Any]:
+    """Cancel (stops reminders), or correct the amount, next renewal, cycle, or plan."""
+    if not isinstance(key, str) or len(key) > MAX_TEXT or not _KEY.fullmatch(key):
+        raise SubscriptionNotFound(key)
+    changes = _validated_edit(body)
+    for attempt in range(2):
+        existing = table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"SUB#{key}"}).get("Item")
+        if not existing:
+            raise SubscriptionNotFound(key)
+        item = (
+            dict(existing) | changes | {"updatedAt": now.isoformat(), "editedAt": now.isoformat()}
+        )
+        if "nextRenewal" in changes:
+            item["renewalComputed"] = False
+            if existing.get("status") == "cancelled":
+                item["status"] = "upcoming"  # a new renewal date means it's active again
+        kind = "trial_ends" if item.get("status") == "trial_ending" else "renewal"
+        deletes, puts = _reminder(user_id, item, existing, kind, "Edited in the app", now)
+        try:
+            _transact(table, item, existing, deletes, puts)
+            return _public(item)
+        except SubscriptionConflict:
+            if attempt == 1:
+                raise
+    raise AssertionError("unreachable")
+
+
+def _validated_edit(body: Any) -> dict[str, Any]:
+    action = body.get("action") if isinstance(body, dict) else None
+    if action == "cancel":
+        return {"status": "cancelled", "nextRenewal": None}
+    if action != "edit":
+        raise InvalidEdit('action must be "cancel" or "edit".')
+    fields = body.get("fields")
+    allowed = {"amountCents", "nextRenewal", "cycle", "plan"}
+    if not isinstance(fields, dict) or not fields or set(fields) - allowed:
+        raise InvalidEdit(f"fields must change some of: {', '.join(sorted(allowed))}.")
+    out: dict[str, Any] = {}
+    if "amountCents" in fields:
+        cents = fields["amountCents"]
+        if (
+            not isinstance(cents, int)
+            or isinstance(cents, bool)
+            or not 0 <= cents <= MAX_EDIT_CENTS
+        ):
+            raise InvalidEdit("amountCents must be a whole number of cents.")
+        out["amountCents"] = cents
+    if "nextRenewal" in fields:
+        if parse_iso_date(fields["nextRenewal"]) is None:
+            raise InvalidEdit("nextRenewal must be YYYY-MM-DD.")
+        out["nextRenewal"] = fields["nextRenewal"]
+    if "cycle" in fields:
+        if fields["cycle"] not in CYCLES:
+            raise InvalidEdit(f"cycle must be one of: {', '.join(CYCLES)}.")
+        out["cycle"] = fields["cycle"]
+    if "plan" in fields:
+        plan = fields["plan"]
+        if plan is not None and (not isinstance(plan, str) or len(plan.strip()) > MAX_TEXT):
+            raise InvalidEdit(f"plan must be at most {MAX_TEXT} characters.")
+        out["plan"] = plan.strip() if isinstance(plan, str) and plan.strip() else None
+    return out
+
+
+def _public(item: dict[str, Any]) -> dict[str, Any]:
+    return _plain({k: v for k, v in item.items() if k not in _PRIVATE})
+
+
+def _plain(value: Any) -> Any:
+    """DynamoDB numbers come back as Decimal; money is integer cents."""
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else str(value)
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_plain(v) for v in value]
+    return value
 
 
 def _with_charge(
@@ -176,7 +302,8 @@ def _email_key(user_id: str, message_id: str) -> dict[str, str]:
 
 
 def claim_email(table: Any, user_id: str, message_id: str, now: datetime) -> bool:
-    """True if this email should be processed: never seen before, or an earlier try failed."""
+    """True if this email should be processed: never seen before, an earlier try failed, or an
+    earlier try was cut off (still 'processing' long after any request could still be running)."""
     try:
         table.put_item(
             Item=_email_key(user_id, message_id)
@@ -186,9 +313,16 @@ def claim_email(table: Any, user_id: str, message_id: str, now: datetime) -> boo
                 "createdAt": now.isoformat(),
                 "expiresAt": int((now + timedelta(days=EMAIL_MARKER_DAYS)).timestamp()),
             },
-            ConditionExpression="attribute_not_exists(SK) OR #s = :failed",
+            ConditionExpression=(
+                "attribute_not_exists(SK) OR #s = :failed"
+                " OR (#s = :processing AND createdAt < :stale)"
+            ),
             ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":failed": "failed"},
+            ExpressionAttributeValues={
+                ":failed": "failed",
+                ":processing": "processing",
+                ":stale": (now - STALE_PROCESSING).isoformat(),
+            },
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":

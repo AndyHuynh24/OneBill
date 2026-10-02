@@ -231,3 +231,99 @@ def test_email_markers_hold_no_content_and_expire(table):
         "expiresAt",
     }
     assert int(marker["expiresAt"]) > NOW.timestamp() + 80 * 86400
+
+
+def test_an_email_stuck_processing_can_be_retried_after_a_few_minutes(table):
+    """A request cut off mid-way (API Gateway's 30 s limit) leaves the marker 'processing'."""
+    from datetime import timedelta
+
+    assert claim_email(table, USER, "abc", NOW)
+
+    assert not claim_email(table, USER, "abc", NOW + timedelta(minutes=1))  # still in flight
+    assert claim_email(table, USER, "abc", NOW + timedelta(minutes=6))  # abandoned: retry
+
+
+# --- the app: list, edit, cancel ---------------------------------------------------------------
+
+import pytest  # noqa: E402
+
+from subscriptions.store import (  # noqa: E402
+    InvalidEdit,
+    SubscriptionNotFound,
+    edit_subscription,
+    list_subscriptions,
+)
+
+
+def test_list_puts_active_subscriptions_first_by_next_renewal(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+    spotify = netflix(
+        service="Spotify", service_key="spotify", amount_cents=1199, next_renewal=date(2026, 10, 20)
+    )
+    save_subscription(table, USER, spotify, date(2026, 10, 1), NOW)
+    gym = netflix(service="Gym", service_key="gym", status="cancelled", next_renewal=None)
+    save_subscription(table, USER, gym, date(2026, 10, 1), NOW)
+
+    subs = list_subscriptions(table, USER)
+
+    assert [s["serviceKey"] for s in subs] == ["spotify", "netflix", "gym"]
+    assert subs[0]["amountCents"] == 1199  # plain ints, not Decimals
+    assert "PK" not in subs[0]
+    assert list_subscriptions(table, "someone-else") == []
+
+
+def test_cancel_from_the_app_stops_reminders(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+
+    sub = edit_subscription(table, USER, "netflix", {"action": "cancel"}, NOW)
+
+    assert (sub["status"], sub["nextRenewal"]) == ("cancelled", None)
+    assert obligations(table) == []
+
+
+def test_editing_the_renewal_date_moves_the_reminder(table):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+
+    sub = edit_subscription(
+        table,
+        USER,
+        "netflix",
+        {"action": "edit", "fields": {"nextRenewal": "2026-11-05", "amountCents": 1699}},
+        NOW,
+    )
+
+    assert (sub["nextRenewal"], sub["amountCents"]) == ("2026-11-05", 1699)
+    assert sub["renewalComputed"] is False
+    (reminder,) = obligations(table)
+    assert reminder["dueDate"] == "2026-11-05"
+
+
+def test_unknown_or_someone_elses_subscription_is_not_found(table):
+    save_subscription(table, "user-b", netflix(), date(2026, 10, 1), NOW)
+
+    with pytest.raises(SubscriptionNotFound):
+        edit_subscription(table, USER, "netflix", {"action": "cancel"}, NOW)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"action": "delete"},
+        {"action": "edit", "fields": {}},
+        {"action": "edit", "fields": {"amountCents": -5}},
+        {"action": "edit", "fields": {"amountCents": 1.5}},
+        {"action": "edit", "fields": {"nextRenewal": "soon"}},
+        {"action": "edit", "fields": {"cycle": "fortnightly"}},
+        {"action": "edit", "fields": {"status": "charged"}},
+    ],
+)
+def test_invalid_edits_are_rejected(table, body):
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+
+    with pytest.raises(InvalidEdit):
+        edit_subscription(table, USER, "netflix", body, NOW)
+
+
+def test_malformed_keys_are_not_found(table):
+    with pytest.raises(SubscriptionNotFound):
+        edit_subscription(table, USER, "../PROFILE", {"action": "cancel"}, NOW)

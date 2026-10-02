@@ -39,6 +39,7 @@ beforeAll(() => {
     userPool: auth.userPool,
     userPoolClient: auth.client,
     frontendUrl: "http://localhost:5173",
+    bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   });
   template = Template.fromStack(api);
 });
@@ -49,7 +50,7 @@ describe("ApiStack — HTTP API", () => {
       ProtocolType: "HTTP",
       CorsConfiguration: Match.objectLike({
         AllowOrigins: ["http://localhost:5173"],
-        AllowMethods: ["GET", "POST", "PATCH", "PUT"],
+        AllowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
         AllowHeaders: ["authorization", "content-type"],
       }),
     });
@@ -70,11 +71,13 @@ describe("ApiStack — HTTP API", () => {
     expect(routes.some((r) => String(r.Properties.RouteKey).includes("friends"))).toBe(false);
   });
 
-  it("has no unauthenticated routes", () => {
-    const routes = template.findResources("AWS::ApiGatewayV2::Route");
-    for (const route of Object.values(routes)) {
-      expect(route.Properties.AuthorizationType).toBe("JWT");
-    }
+  it("requires a Cognito sign-in on every route except the Gmail script's ingest route", () => {
+    const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
+    const open = routes
+      .filter((r) => r.Properties.AuthorizationType !== "JWT")
+      .map((r) => r.Properties.RouteKey);
+    // POST /ingest/email checks the hashed ingest key in code (Apps Script can't sign in).
+    expect(open).toEqual(["POST /ingest/email"]);
   });
 
   it("configures the authorizer with the Cognito issuer and app client audience", () => {
@@ -174,6 +177,10 @@ describe("ApiStack — documents API", () => {
     "PATCH /documents/{docId}",
     "GET /obligations",
     "PUT /documents/{docId}/split",
+    "GET /subscriptions",
+    "PATCH /subscriptions/{key}",
+    "POST /ingest/keys",
+    "DELETE /ingest/keys",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {
@@ -241,6 +248,7 @@ describe("ApiStack — tracing switch", () => {
       userPool: auth.userPool,
       userPoolClient: auth.client,
       frontendUrl: "http://localhost:5173",
+      bedrockModelId: "us.m",
       enableTracing: true,
     });
     const t = Template.fromStack(api);

@@ -207,3 +207,91 @@ def test_put_split_saves_and_a_stale_resave_is_409(handler, table):
     status, body = put()  # same expectedVersion again: someone else already saved
     assert status == 409
     assert "Reload" in body["message"]
+
+
+# --- subscriptions and the Gmail connection (signed in) -------------------------------------
+
+
+def _save_netflix(table, user="user-a"):
+    from datetime import UTC, date, datetime
+
+    from subscriptions.parse import ParsedSubscription
+    from subscriptions.store import save_subscription
+
+    sub = ParsedSubscription(
+        service="Apple Music",
+        service_key="apple music",
+        plan=None,
+        amount_cents=1099,
+        currency="USD",
+        cycle="monthly",
+        status="charged",
+        charge_date=date(2026, 10, 1),
+        period_end=None,
+        next_renewal=date(2026, 11, 1),
+    )
+    save_subscription(table, user, sub, date(2026, 10, 1), datetime(2026, 10, 1, tzinfo=UTC))
+
+
+def test_get_subscriptions_lists_mine_with_the_gmail_connection(handler, table):
+    _save_netflix(table)
+    _save_netflix(table, user="user-b")
+
+    status, body = call(handler, http_event("GET", "/subscriptions", {"sub": "user-a"}))
+
+    assert status == 200
+    assert [s["service"] for s in body["subscriptions"]] == ["Apple Music"]
+    assert body["connection"] == {"connected": False, "createdAt": None, "lastUsedAt": None}
+
+
+def test_patch_subscription_cancels_it(handler, table):
+    _save_netflix(table)
+    event = http_event(
+        "PATCH",
+        "/subscriptions/apple%20music",  # the key has a space; the app URL-encodes it
+        {"sub": "user-a"},
+        body={"action": "cancel"},
+        path_params={"key": "apple music"},
+    )
+
+    status, body = call(handler, event)
+
+    assert status == 200
+    assert body["status"] == "cancelled"
+
+
+def test_patch_someone_elses_subscription_is_404(handler, table):
+    _save_netflix(table, user="user-b")
+    event = http_event(
+        "PATCH", "/subscriptions/apple%20music", {"sub": "user-a"}, body={"action": "cancel"}
+    )
+
+    assert call(handler, event)[0] == 404
+
+
+def test_patch_with_an_invalid_edit_is_400(handler, table):
+    _save_netflix(table)
+    event = http_event(
+        "PATCH", "/subscriptions/apple%20music", {"sub": "user-a"}, body={"action": "nope"}
+    )
+
+    assert call(handler, event)[0] == 400
+
+
+def test_create_and_revoke_the_ingest_key(handler, table):
+    status, body = call(handler, http_event("POST", "/ingest/keys", UPLOADER))
+    assert status == 201
+    assert body["key"].startswith("otk_")
+
+    _, listed = call(handler, http_event("GET", "/subscriptions", UPLOADER))
+    assert listed["connection"]["connected"] is True
+    assert "key" not in json.dumps(listed["connection"])  # never shown again
+
+    response = handler.handler(http_event("DELETE", "/ingest/keys", UPLOADER), FakeLambdaContext())
+    assert response["statusCode"] == 204
+
+
+def test_only_uploaders_can_connect_gmail(handler):
+    status, _ = call(handler, http_event("POST", "/ingest/keys", {"sub": "user-b"}))
+
+    assert status == 403

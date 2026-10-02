@@ -1,6 +1,7 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from "aws-cdk-lib";
 import * as apigw from "aws-cdk-lib/aws-apigateway";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
+import { HttpNoneAuthorizer } from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpUserPoolAuthorizer } from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cognito from "aws-cdk-lib/aws-cognito";
@@ -10,6 +11,7 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
+import { grantInvokeModel } from "./bedrock";
 import { newServiceFunction } from "./python-code";
 
 export interface ApiStackProps extends StackProps {
@@ -34,6 +36,8 @@ export interface ApiStackProps extends StackProps {
    * @default true
    */
   readonly dailyLimits?: boolean;
+  /** Bedrock inference profile ID for reading subscription emails (the ingest Lambda). */
+  readonly bedrockModelId: string;
 }
 
 /**
@@ -135,6 +139,7 @@ export class ApiStack extends Stack {
           apigwv2.CorsHttpMethod.POST,
           apigwv2.CorsHttpMethod.PATCH,
           apigwv2.CorsHttpMethod.PUT,
+          apigwv2.CorsHttpMethod.DELETE,
         ],
         allowHeaders: ["authorization", "content-type"],
         maxAge: Duration.hours(1),
@@ -195,6 +200,50 @@ export class ApiStack extends Stack {
       integration: documents,
     });
 
+
+    // Subscriptions and the Gmail connection (signed in): same Lambda, no new permissions.
+    this.api.addRoutes({ path: "/subscriptions", methods: [apigwv2.HttpMethod.GET], integration: documents });
+    this.api.addRoutes({ path: "/subscriptions/{key}", methods: [apigwv2.HttpMethod.PATCH], integration: documents });
+    this.api.addRoutes({
+      path: "/ingest/keys",
+      methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.DELETE],
+      integration: documents,
+    });
+
+    // Gmail script → POST /ingest/email. Apps Script can't sign in with Cognito, so this is the
+    // one route without the JWT authorizer: the Lambda looks up the hashed ingest key and takes
+    // the user only from that record. The stage throttle and a daily email cap still apply.
+    const ingestFn = newServiceFunction(this, "IngestFunction", {
+      handler: "api.ingest.handler.handler",
+      description: "Gmail ingest: verify key, read subscription email with Bedrock, save SUB#/OBL#",
+      serviceName: "onetally-ingest",
+      logKey: props.dataKey,
+      environment: { TABLE_NAME: props.table.tableName, BEDROCK_MODEL_ID: props.bedrockModelId },
+      timeout: Duration.seconds(29), // API Gateway ends the request at 30 s
+      enableTracing: props.enableTracing,
+    });
+    ingestFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // Get: key lookup, SUB#. Put: EMAIL# marker, SUB#/OBL# (in a transaction).
+        // Update: daily cap, marker outcome, last-used. Delete: a replaced renewal reminder.
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
+        resources: [props.table.tableArn],
+      }),
+    );
+    ingestFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+        resources: [props.dataKey.keyArn],
+        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
+      }),
+    );
+    grantInvokeModel(ingestFn, props.bedrockModelId);
+    this.api.addRoutes({
+      path: "/ingest/email",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration("IngestIntegration", ingestFn),
+      authorizer: new HttpNoneAuthorizer(),
+    });
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
   }

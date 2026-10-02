@@ -14,6 +14,7 @@ import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
+import { grantInvokeModel } from "./bedrock";
 import { newServiceFunction } from "./python-code";
 
 export interface PipelineStackProps extends StackProps {
@@ -175,20 +176,7 @@ export class PipelineStack extends Stack {
         conditions: { StringEquals: { "iam:PassedToService": "textract.amazonaws.com" } },
       }),
     );
-    // A cross-region inference profile routes to the model in several US regions: allow the
-    // profile itself, and the model only when invoked through that profile.
-    const profileArn = `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/${props.bedrockModelId}`;
-    const foundationModelId = props.bedrockModelId.replace(/^[a-z]{2,4}\./, "");
-    extractFn.addToRolePolicy(
-      new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: [profileArn] }),
-    );
-    extractFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["bedrock:InvokeModel"],
-        resources: [`arn:${this.partition}:bedrock:*::foundation-model/${foundationModelId}`],
-        conditions: { StringEquals: { "bedrock:InferenceProfileArn": profileArn } },
-      }),
-    );
+    grantInvokeModel(extractFn, props.bedrockModelId);
 
     // --- reminders ---------------------------------------------------------------------------
     const senderEmail = ssm.StringParameter.valueForStringParameter(

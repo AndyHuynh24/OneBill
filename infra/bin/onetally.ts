@@ -34,6 +34,7 @@ new ApiStack(app, "OneTally-Api", {
   // Debug switch: npx cdk deploy OneTally-Api -c tracing=true
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
+  bedrockModelId: app.node.getContext("bedrockModelId"),
 });
 
 new PipelineStack(app, "OneTally-Pipeline", {

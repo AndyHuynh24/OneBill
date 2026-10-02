@@ -19,6 +19,7 @@ function build(dailyLimits?: boolean) {
     userPool: auth.userPool,
     userPoolClient: auth.client,
     frontendUrl: "http://localhost:5173",
+    bedrockModelId: "us.m",
     dailyLimits,
   });
   const pipeline = new PipelineStack(app, "P", {
