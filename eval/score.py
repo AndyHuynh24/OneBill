@@ -5,6 +5,7 @@ Only labelled fields are scored, so a quick label (just the total) still counts.
 """
 
 import re
+import statistics
 from typing import Any
 
 SCALAR_FIELDS = (
@@ -147,3 +148,15 @@ def render_markdown(summary: dict[str, dict[str, Any]], meta: dict[str, Any]) ->
         + " |"
     )
     return "\n".join(lines) + "\n"
+
+
+def render_latency(ms_per_receipt: list[int]) -> str:
+    """Wall time spent in Bedrock per receipt (both attempts when a repair ran)."""
+    if not ms_per_receipt:
+        return ""
+    median = statistics.median(ms_per_receipt) / 1000
+    worst = max(ms_per_receipt) / 1000
+    return (
+        f"Model time per receipt (all Bedrock calls): median {median:.1f} s, "
+        f"max {worst:.1f} s (n={len(ms_per_receipt)})"
+    )

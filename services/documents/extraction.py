@@ -8,6 +8,7 @@ If the math or the output shape fails, the model gets one targeted repair turn.
 """
 
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -19,7 +20,7 @@ from shared.money import format_cents, to_cents
 from shared.pii import redact
 
 # Stored on every DOC item, so eval results and production behaviour map to a prompt version.
-PROMPT_VERSION = "2026-10-01.1"
+PROMPT_VERSION = "2026-10-01.2"
 TOOL_NAME = "record_document"
 MAX_OUTPUT_TOKENS = 4096
 
@@ -136,7 +137,8 @@ an item. A positive amount is a discount only when the document presents it as s
 breakdown, a charge printed a second time, a "pay with cash" price offer) are info.
 - Never invent a line or an amount. If the printed amounts don't add up, still record them \
 exactly as printed.
-- deadlines: return windows, payment due dates, warranty expiry, renewal dates. Quote the exact \
+- deadlines: return windows, payment due dates, warranty expiry, renewal dates. On a receipt, \
+record only a return window, and only when a return policy is printed. Quote the exact \
 evidence text. If the document gives a window ("returns within 30 days") rather than a date, \
 set days_after_purchase and leave date null. Do not invent deadlines.
 - Dates as YYYY-MM-DD (assume month/day order for US documents). Use null when not printed.
@@ -179,6 +181,7 @@ class ExtractionOutcome:
     redactions: dict[str, int] = field(default_factory=dict)
     # Why the repair pass ran (contains document text: for local evals only, never logged).
     repair_feedback: str | None = field(default=None, repr=False)
+    model_ms: list[int] = field(default_factory=list)  # wall time of each Bedrock call
 
 
 def build_request(
@@ -281,7 +284,8 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
     redaction = redact(expense.render_for_model())
     usage = {"inputTokens": 0, "outputTokens": 0}
 
-    response = client.converse(**build_request(model_id, redaction.text))
+    model_ms: list[int] = []
+    response = _converse(client, build_request(model_id, redaction.text), model_ms)
     tool_use = _tool_use(response, usage)
     try:
         document = parse_output(tool_use["input"])
@@ -289,7 +293,7 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
         invented = ungrounded(document.lines, expense.lines)
         if result.ok and not invented:
             return ExtractionOutcome(
-                document, result, 1, usage, model_id, redactions=redaction.counts
+                document, result, 1, usage, model_id, redactions=redaction.counts, model_ms=model_ms
             )
         feedback = _math_feedback(result, invented)
     except ExtractionError as err:
@@ -299,13 +303,28 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
         )
 
     repair = (response["output"]["message"], tool_use["toolUseId"], feedback)
-    response = client.converse(**build_request(model_id, redaction.text, repair))
+    response = _converse(client, build_request(model_id, redaction.text, repair), model_ms)
     tool_use = _tool_use(response, usage)
     document = parse_output(tool_use["input"])  # a second invalid output is a hard failure
     result = reconcile(document.lines, expense.summary_money, _total_required(document))
     return ExtractionOutcome(
-        document, result, 2, usage, model_id, redactions=redaction.counts, repair_feedback=feedback
+        document,
+        result,
+        2,
+        usage,
+        model_id,
+        redactions=redaction.counts,
+        repair_feedback=feedback,
+        model_ms=model_ms,
     )
+
+
+def _converse(client: Any, request: dict[str, Any], model_ms: list[int]) -> dict[str, Any]:
+    started = time.monotonic()
+    try:
+        return client.converse(**request)
+    finally:
+        model_ms.append(round((time.monotonic() - started) * 1000))
 
 
 def _total_required(document: ExtractedDocument) -> bool:

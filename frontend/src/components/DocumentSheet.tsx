@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { CorrectionFields, DocumentDetail, DocumentLine, OneTallyApi, ReviewRequest } from "../api";
-import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars } from "../format";
+import type {
+  CorrectionFields,
+  DocumentDetail,
+  DocumentLine,
+  LineKind,
+  OneTallyApi,
+  ReviewRequest,
+} from "../api";
+import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars, parseSignedDollars } from "../format";
+import { addsUp } from "../split";
+import { SplitFlow } from "./SplitFlow";
 
 const ITEM_KINDS = new Set(["item", "discount", "fee"]);
 const SUMMARY_KINDS = new Set(["subtotal", "tax", "tip", "total", "payment", "change", "balance_due"]);
@@ -19,15 +28,19 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     queryKey: ["document", docId],
     queryFn: () => api.getDocument(docId),
   });
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"view" | "edit" | "ask" | "split">("view");
+  const editing = mode === "edit";
+  const setEditing = (on: boolean) => setMode(on ? "edit" : "view");
 
   const review = useMutation({
     mutationFn: (request: ReviewRequest) => api.reviewDocument(docId, request),
-    onSuccess: () => {
+    onSuccess: (updated, request) => {
       for (const key of [["documents"], ["obligations"], ["document", docId]]) {
         queryClient.invalidateQueries({ queryKey: key });
       }
-      onClose();
+      // A bill that adds up can be split: ask right away instead of closing.
+      if (request.action === "accept" && addsUp(updated.lines, updated.totalCents)) setMode("ask");
+      else onClose();
     },
   });
 
@@ -39,6 +52,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
 
   const currency = doc?.currency ?? "USD";
   const reviewable = doc?.status === "ready" || doc?.status === "needs_review";
+  const splittable = !!doc && addsUp(doc.lines, doc.totalCents);
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -87,7 +101,21 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
               </div>
             )}
 
-            {editing ? (
+            {mode === "split" ? (
+              <SplitFlow api={api} doc={doc} onCancel={() => setMode("view")} onClose={onClose} />
+            ) : mode === "ask" ? (
+              <div className="split-prompt">
+                <h3>Split this bill?</h3>
+                <div className="sheet-actions">
+                  <button type="button" className="primary" onClick={() => setMode("split")}>
+                    Split with friends
+                  </button>
+                  <button type="button" onClick={onClose}>
+                    Just me
+                  </button>
+                </div>
+              </div>
+            ) : editing ? (
               <ReviewForm
                 doc={doc}
                 saving={review.isPending}
@@ -131,6 +159,13 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                     </button>
                     <button type="button" onClick={() => setEditing(true)}>
                       Fix
+                    </button>
+                  </div>
+                )}
+                {doc.status === "ready" && (
+                  <div className="sheet-actions">
+                    <button type="button" disabled={!splittable} onClick={() => setMode("split")}>
+                      {!splittable ? "Fix items to split" : doc.split ? "View split" : "Split bill"}
                     </button>
                   </div>
                 )}
@@ -195,6 +230,30 @@ interface DeadlineDraft {
   dueDate: string;
 }
 
+interface LineDraft {
+  description: string;
+  kind: LineKind;
+  amount: string;
+}
+
+/** Every kind a line can be, in the words people use. */
+const LINE_KIND_LABELS: Record<LineKind, string> = {
+  item: "Item",
+  discount: "Discount",
+  fee: "Fee",
+  tax: "Tax",
+  tip: "Tip",
+  subtotal: "Subtotal",
+  total: "Total",
+  payment: "Paid",
+  change: "Change",
+  balance_due: "Amount due",
+  info: "Note (not money)",
+};
+
+const lineDrafts = (lines: DocumentLine[] = []): LineDraft[] =>
+  lines.map((l) => ({ description: l.description, kind: l.kind, amount: centsToInput(l.amountCents) }));
+
 function ReviewForm({
   doc,
   saving,
@@ -211,14 +270,32 @@ function ReviewForm({
   const [date, setDate] = useState(doc.documentDate ?? "");
   const [total, setTotal] = useState(doc.totalCents != null ? centsToInput(doc.totalCents) : "");
   const [deadlines, setDeadlines] = useState<DeadlineDraft[]>(originalDeadlines);
+  const [lines, setLines] = useState<LineDraft[]>(() => lineDrafts(doc.lines));
   const [problem, setProblem] = useState<string | null>(null);
+  const editsLines = !!doc.lines?.length;
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const fields: CorrectionFields = {};
     if (vendor.trim() !== (doc.vendor ?? "")) fields.vendor = vendor.trim() || null;
     if (date !== (doc.documentDate ?? "")) fields.documentDate = date || null;
-    if (total !== (doc.totalCents != null ? centsToInput(doc.totalCents) : "")) {
+    if (editsLines) {
+      const parsed = [];
+      for (const [i, line] of lines.entries()) {
+        const amountCents = parseSignedDollars(line.amount);
+        if (!line.description.trim()) {
+          setProblem(`Line ${i + 1} needs a description.`);
+          return;
+        }
+        if (amountCents === null) {
+          setProblem(`Line ${i + 1}: enter an amount like 4.19.`);
+          return;
+        }
+        parsed.push({ description: line.description.trim(), kind: line.kind, amountCents });
+      }
+      const original = (doc.lines ?? []).map(({ description, kind, amountCents }) => ({ description, kind, amountCents }));
+      if (JSON.stringify(parsed) !== JSON.stringify(original)) fields.lines = parsed;
+    } else if (total !== (doc.totalCents != null ? centsToInput(doc.totalCents) : "")) {
       const cents = parseDollars(total);
       if (cents === null) {
         setProblem("Enter the total as an amount like 26.81.");
@@ -239,6 +316,8 @@ function ReviewForm({
     onSave(fields);
   }
 
+  const updateLine = (index: number, patch: Partial<LineDraft>) =>
+    setLines((current) => current.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   const updateDeadline = (index: number, patch: Partial<DeadlineDraft>) =>
     setDeadlines((current) => current.map((d, i) => (i === index ? { ...d, ...patch } : d)));
 
@@ -252,10 +331,60 @@ function ReviewForm({
         Date
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
-      <label>
-        Total
-        <input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} />
-      </label>
+      {editsLines ? (
+        <fieldset>
+          <legend>Lines</legend>
+          {lines.map((line, i) => (
+            <div key={i} className="line-row">
+              <input
+                aria-label={`Line ${i + 1} description`}
+                value={line.description}
+                maxLength={120}
+                onChange={(e) => updateLine(i, { description: e.target.value })}
+              />
+              <input
+                aria-label={`Line ${i + 1} amount`}
+                inputMode="decimal"
+                className="line-amount"
+                value={line.amount}
+                onChange={(e) => updateLine(i, { amount: e.target.value })}
+              />
+              <select
+                aria-label={`Line ${i + 1} kind`}
+                value={line.kind}
+                onChange={(e) => updateLine(i, { kind: e.target.value as LineKind })}
+              >
+                {Object.entries(LINE_KIND_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Remove line ${i + 1}`}
+                onClick={() => setLines((current) => current.filter((_, j) => j !== i))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {lines.length < 200 && (
+            <button
+              type="button"
+              onClick={() => setLines((current) => [...current, { description: "", kind: "item", amount: "" }])}
+            >
+              Add line
+            </button>
+          )}
+        </fieldset>
+      ) : (
+        <label>
+          Total
+          <input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} />
+        </label>
+      )}
 
       <fieldset>
         <legend>Deadlines</legend>

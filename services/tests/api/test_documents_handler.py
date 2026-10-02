@@ -165,3 +165,45 @@ def test_invalid_window_is_400_not_500(handler, days):
     )
 
     assert status == 400
+
+
+def test_put_split_saves_and_a_stale_resave_is_409(handler, table):
+    lines = [
+        {"row": 1, "description": "A", "kind": "item", "amountCents": 1000},
+        {"row": 2, "description": "B", "kind": "item", "amountCents": 500},
+        {"row": 3, "description": "TOTAL", "kind": "total", "amountCents": 1500},
+    ]
+    doc_id = "1790000000000aaaaaaaa"
+    table.put_item(
+        Item={
+            "PK": "USER#user-a",
+            "SK": f"DOC#{doc_id}",
+            "docId": doc_id,
+            "status": "ready",
+            "totalCents": 1500,
+            "lines": lines,
+            "updatedAt": "2026-10-01T18:00:00+00:00",
+        }
+    )
+    split = {
+        "members": [{"name": "Me", "self": True}, {"name": "Bao"}],
+        "assignments": {"1": [0], "2": [1]},
+        "charges": {},
+        "expectedVersion": 0,
+        "expectedUpdatedAt": "2026-10-01T18:00:00+00:00",
+    }
+    path = f"/documents/{doc_id}/split"
+
+    def put():
+        event = http_event(
+            "PUT", path, {"sub": "user-a"}, body=split, path_params={"docId": doc_id}
+        )
+        return call(handler, event)
+
+    status, body = put()
+    assert status == 200
+    assert [s["totalCents"] for s in body["shares"]] == [1000, 500]
+
+    status, body = put()  # same expectedVersion again: someone else already saved
+    assert status == 409
+    assert "Reload" in body["message"]

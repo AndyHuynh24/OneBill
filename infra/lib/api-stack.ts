@@ -28,6 +28,12 @@ export interface ApiStackProps extends StackProps {
    * @default false
    */
   readonly enableTracing?: boolean;
+  /**
+   * Daily upload limits (decision R2). `false` only for a testing deploy
+   * (`cdk deploy -c dailyLimits=off`); any normal deploy turns them back on.
+   * @default true
+   */
+  readonly dailyLimits?: boolean;
 }
 
 /**
@@ -74,7 +80,11 @@ export class ApiStack extends Stack {
       description: "Documents API: create uploads, list/read documents, list obligations",
       serviceName: "onetally-api",
       logKey: props.dataKey,
-      environment: { TABLE_NAME: props.table.tableName, BUCKET_NAME: props.docsBucket.bucketName },
+      environment: {
+        TABLE_NAME: props.table.tableName,
+        BUCKET_NAME: props.docsBucket.bucketName,
+        ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),
+      },
       enableTracing: props.enableTracing,
     });
     documentsFn.addToRolePolicy(
@@ -120,7 +130,12 @@ export class ApiStack extends Stack {
       defaultAuthorizationScopes: ["openid"],
       corsPreflight: {
         allowOrigins: [props.frontendUrl],
-        allowMethods: [apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.PATCH],
+        allowMethods: [
+          apigwv2.CorsHttpMethod.GET,
+          apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PATCH,
+          apigwv2.CorsHttpMethod.PUT,
+        ],
         allowHeaders: ["authorization", "content-type"],
         maxAge: Duration.hours(1),
       },
@@ -173,6 +188,13 @@ export class ApiStack extends Stack {
       integration: documents,
     });
     this.api.addRoutes({ path: "/obligations", methods: [apigwv2.HttpMethod.GET], integration: documents });
+    // Split bill (Phase 2): served by the same Lambda; no new function or permissions needed.
+    this.api.addRoutes({
+      path: "/documents/{docId}/split",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: documents,
+    });
+
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
   }

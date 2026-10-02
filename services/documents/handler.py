@@ -8,6 +8,7 @@ document is marked failed with a friendly reason instead, so the user sees what 
 
 import json
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -73,7 +74,7 @@ class Refused(Exception):
 @tracer.capture_lambda_handler
 def handler(event: dict, context: object) -> None:
     if event.get("source") == "aws.s3":
-        _on_upload(event["detail"])
+        _on_upload(event["detail"], event.get("time"))
     elif event.get("Records") and event["Records"][0].get("EventSource") == "aws:sns":
         for record in event["Records"]:
             _on_textract_done(json.loads(record["Sns"]["Message"]))
@@ -81,7 +82,8 @@ def handler(event: dict, context: object) -> None:
         logger.warning("unrecognized_event", extra={"keys": sorted(event)})
 
 
-def _on_upload(detail: dict[str, Any]) -> None:
+def _on_upload(detail: dict[str, Any], event_time: str | None = None) -> None:
+    started = time.monotonic()
     obj = detail["object"]
     parsed = store.parse_upload_key(obj["key"])
     if parsed is None:
@@ -93,6 +95,7 @@ def _on_upload(detail: dict[str, Any]) -> None:
     if item is None:
         logger.info("already_claimed", extra={"docId": doc_id})
         return
+    timings = _since("queue", event_time) | _since("sinceRequest", item.get("createdAt"))
     with _fail_on_error(user_id, doc_id):
         if int(obj.get("size", 0)) > MAX_BYTES:
             raise Refused("Files can be at most 10 MB.")
@@ -107,15 +110,18 @@ def _on_upload(detail: dict[str, Any]) -> None:
                 raise Refused(UNKNOWN_PAGES)
             if pages > MAX_PDF_PAGES:
                 raise Refused(TOO_MANY_PAGES)
-            if not store.consume_page_budget(table, pages, _now()):
+            if _limits_on() and not store.consume_page_budget(table, pages, _now()):
                 raise Refused(DAILY_LIMIT)
             job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
             store.record_textract_job(table, user_id, doc_id, job_id, _now())
             logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
             return
-        if not store.consume_page_budget(table, 1, _now()):
+        if _limits_on() and not store.consume_page_budget(table, 1, _now()):
             raise Refused(DAILY_LIMIT)
-        _process(user_id, doc_id, parse_expense(analyze_sync(textract, BUCKET, key, version)))
+        ocr_started = time.monotonic()
+        expense = parse_expense(analyze_sync(textract, BUCKET, key, version))
+        timings["textract"] = _ms(ocr_started)
+        _process(user_id, doc_id, expense, timings, started)
 
 
 def _on_textract_done(message: dict[str, Any]) -> None:
@@ -136,17 +142,21 @@ def _on_textract_done(message: dict[str, Any]) -> None:
     if not expected:
         logger.warning("unexpected_textract_message", extra={"docId": doc_id})
         return
+    started = time.monotonic()
+    timings = _since("textract", item.get("updatedAt"))  # async job: started → completion
     with _fail_on_error(user_id, doc_id):
         if message.get("Status") != "SUCCEEDED":
             raise Refused(UNREADABLE)
         expense = parse_expense(fetch_async(textract, message["JobId"]))
         if expense.pages > MAX_PDF_PAGES:
             raise Refused(TOO_MANY_PAGES)  # Textract is already paid; don't also pay for Bedrock
-        _process(user_id, doc_id, expense)
+        _process(user_id, doc_id, expense, timings, started)
 
 
 @tracer.capture_method
-def _process(user_id: str, doc_id: str, expense: ExpenseResult) -> None:
+def _process(
+    user_id: str, doc_id: str, expense: ExpenseResult, timings: dict[str, Any], started: float
+) -> None:
     outcome = extract(bedrock, MODEL_ID, expense)
     result = validate(outcome, expense)
     meta = {
@@ -156,7 +166,9 @@ def _process(user_id: str, doc_id: str, expense: ExpenseResult) -> None:
         "inputTokens": outcome.usage["inputTokens"],
         "outputTokens": outcome.usage["outputTokens"],
     }
+    save_started = time.monotonic()
     store.save_result(table, user_id, doc_id, result, expense.pages, meta, _now())
+    timings |= {"model": outcome.model_ms, "save": _ms(save_started), "handler": _ms(started)}
     # Log outcomes and counts only: never document text or extracted fields.
     logger.info(
         "document_processed",
@@ -168,6 +180,7 @@ def _process(user_id: str, doc_id: str, expense: ExpenseResult) -> None:
             "obligations": len(result.obligations),
             "pages": expense.pages,
             "redactions": outcome.redactions,
+            "timingsMs": timings,
             **meta,
         },
     )
@@ -199,6 +212,28 @@ def _fail_on_error(user_id: str, doc_id: str) -> Iterator[None]:
     else:
         return
     store.mark_failed(table, user_id, doc_id, reason, _now())
+
+
+def _limits_on() -> bool:
+    """The daily OCR page budget, unless switched off for testing (-c dailyLimits=off)."""
+    return os.environ.get("DAILY_LIMITS", "on") != "off"
+
+
+def _ms(since: float) -> int:
+    return round((time.monotonic() - since) * 1000)
+
+
+def _since(name: str, timestamp: str | None) -> dict[str, int]:
+    """Milliseconds from an ISO timestamp (an event time, an item's createdAt) until now."""
+    if not timestamp:
+        return {}
+    try:
+        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return {}
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=UTC)
+    return {name: max(0, round((_now() - then).total_seconds() * 1000))}
 
 
 def _now() -> datetime:

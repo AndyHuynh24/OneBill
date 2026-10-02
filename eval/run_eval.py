@@ -24,7 +24,7 @@ from documents.extraction import PROMPT_VERSION, ExtractionError, extract  # noq
 from documents.textract import parse_expense  # noqa: E402
 from documents.validate import validate  # noqa: E402
 
-from score import aggregate, render_markdown, score_receipt  # noqa: E402
+from score import aggregate, render_latency, render_markdown, score_receipt  # noqa: E402
 
 RECEIPTS = EVAL_DIR / "receipts"
 LABELS = RECEIPTS / "labels.json"
@@ -86,7 +86,12 @@ def to_predicted(result: Any, outcome: Any) -> dict[str, Any]:
         "total_cents": result.total_cents,
         "item_count": sum(1 for line in result.lines if line["kind"] == "item"),
         "lines": [
-            {"description": line["description"], "kind": line["kind"]} for line in result.lines
+            {
+                "description": line["description"],
+                "kind": line["kind"],
+                "amount_cents": line.get("amountCents"),
+            }
+            for line in result.lines
         ],
         "deadlines": [
             {"type": o.type, "due_date": o.due_date.isoformat()} for o in result.obligations
@@ -95,6 +100,7 @@ def to_predicted(result: Any, outcome: Any) -> dict[str, Any]:
         "attempts": outcome.attempts,
         "issues": result.issues,
         "repair_feedback": outcome.repair_feedback,
+        "model_ms": outcome.model_ms,
     }
 
 
@@ -159,7 +165,7 @@ def main() -> int:
     session = boto3.Session(profile_name=args.profile, region_name=args.region)
     textract, bedrock = session.client("textract"), session.client("bedrock-runtime")
 
-    rows, details = [], []
+    rows, details, model_ms = [], [], []
     textract_pages = 0
     tokens = {"inputTokens": 0, "outputTokens": 0}
     for entry in entries:
@@ -177,6 +183,7 @@ def main() -> int:
             predicted = to_predicted(result, outcome)
             for k in tokens:
                 tokens[k] += outcome.usage[k]
+            model_ms.append(sum(outcome.model_ms))
         except ExtractionError as err:
             predicted = {"status": "failed", "attempts": 2, "error": str(err)}
         expected = labelled_expectations(entry["expected"])
@@ -201,6 +208,8 @@ def main() -> int:
     report = render_markdown(
         summary, {"prompt_version": PROMPT_VERSION, "model": model, "date": now.date().isoformat()}
     )
+    if latency := render_latency(model_ms):
+        report += f"\n{latency}\n"
     RESULTS.mkdir(exist_ok=True)
     OUT.mkdir(exist_ok=True)
     (RESULTS / f"{now.date().isoformat()}-{PROMPT_VERSION}.md").write_text(report)

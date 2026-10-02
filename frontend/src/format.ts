@@ -11,6 +11,14 @@ export function parseDollars(input: string): number | null {
   return whole * 100 + fraction;
 }
 
+/** Like parseDollars, but a leading "-" is allowed (discounts): "-2.00" → -200. */
+export function parseSignedDollars(input: string): number | null {
+  const match = /^\s*-\s*(.*)$/.exec(input);
+  const cents = parseDollars(match ? match[1] : input);
+  if (cents === null) return null;
+  return match ? -cents : cents;
+}
+
 export function formatCents(cents: number, currency = "USD"): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(cents / 100);
 }

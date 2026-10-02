@@ -33,6 +33,12 @@ export interface PipelineStackProps extends StackProps {
    */
   readonly senderEmailParameter?: string;
   readonly enableTracing?: boolean;
+  /**
+   * Daily upload limits (decision R2). `false` only for a testing deploy
+   * (`cdk deploy -c dailyLimits=off`); any normal deploy turns them back on.
+   * @default true
+   */
+  readonly dailyLimits?: boolean;
 }
 
 /**
@@ -100,6 +106,7 @@ export class PipelineStack extends Stack {
         BEDROCK_MODEL_ID: props.bedrockModelId,
         TEXTRACT_TOPIC_ARN: textractDone.topicArn,
         TEXTRACT_ROLE_ARN: textractPublishRole.roleArn,
+        ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),
       },
     });
 

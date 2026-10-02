@@ -18,6 +18,10 @@ from shared.dates import parse_iso_date
 from shared.money import format_cents
 from shared.pii import redact
 
+# Receipts are for splitting; the only reminder a receipt earns is a printed return policy.
+# Other kinds (warranty, renewal, payment due) belong to bills and subscriptions.
+RECEIPT_DEADLINE_TYPES = frozenset({"return_by"})
+
 MIN_TOTAL_CONFIDENCE = 80.0
 MAX_YEARS_AHEAD = 10
 
@@ -73,6 +77,8 @@ def validate(
     purchase_date = parse_iso_date(doc.document_date)
     obligations: list[Obligation] = []
     for deadline in doc.deadlines:
+        if doc.doc_type == "receipt" and deadline.type not in RECEIPT_DEADLINE_TYPES:
+            continue  # out of scope for receipts: dropped quietly, not an error
         if not _is_printed(deadline.evidence, printed_text):
             issues.append(
                 f'A deadline ("{deadline.evidence}") isn\'t printed on the document, '

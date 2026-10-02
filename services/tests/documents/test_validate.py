@@ -88,7 +88,7 @@ def test_printed_due_date_is_used_as_is():
         "evidence": "DUE 10/15/2026",
     }
 
-    result = validate(outcome([due]), expense(OCR_LINES + ["DUE 10/15/2026"]))
+    result = validate(outcome([due], doc_type="bill"), expense(OCR_LINES + ["DUE 10/15/2026"]))
 
     assert result.obligations[0].due_date == date(2026, 10, 15)
 
@@ -110,7 +110,7 @@ def test_invented_deadline_is_dropped_and_flagged():
         "evidence": "ONE YEAR WARRANTY",
     }
 
-    result = validate(outcome([invented]), expense())
+    result = validate(outcome([invented], doc_type="bill"), expense())
 
     assert result.obligations == []
     assert result.status == "needs_review"
@@ -133,7 +133,7 @@ def test_implausible_due_date_is_rejected():
         "evidence": "TOTAL 1.29",
     }
 
-    result = validate(outcome([far]), expense())
+    result = validate(outcome([far], doc_type="bill"), expense())
 
     assert result.obligations == []
     assert result.status == "needs_review"
@@ -199,3 +199,38 @@ def test_amount_not_printed_on_the_document_needs_review():
 
     assert result.status == "needs_review"
     assert any("$1.50" in issue and "isn't printed" in issue for issue in result.issues)
+
+
+WARRANTY_1Y = {
+    "type": "warranty_expires",
+    "date": None,
+    "days_after_purchase": 365,
+    "evidence": "RETURNS ACCEPTED WITHIN 30 DAYS",  # printed, so only the scope rule applies
+}
+
+
+def test_receipt_keeps_a_printed_return_window():
+    result = validate(outcome([RETURN_30]), expense())
+
+    assert [o.type for o in result.obligations] == ["return_by"]
+    assert result.obligations[0].due_date == date(2026, 10, 28)
+
+
+def test_receipt_ignores_other_deadline_kinds_without_flagging_it():
+    """Receipts are for splitting; only a printed return policy becomes a reminder.
+
+    A warranty or "renewal" line on a grocery receipt is dropped quietly: it isn't an error.
+    """
+    result = validate(outcome([WARRANTY_1Y, RETURN_30]), expense())
+
+    assert [o.type for o in result.obligations] == ["return_by"]
+    assert result.status == "ready"
+    assert result.issues == []
+
+
+def test_bills_keep_their_deadline_kinds():
+    due = {**WARRANTY_1Y, "type": "payment_due", "days_after_purchase": 14}
+
+    result = validate(outcome([due], doc_type="bill"), expense())
+
+    assert [o.type for o in result.obligations] == ["payment_due"]

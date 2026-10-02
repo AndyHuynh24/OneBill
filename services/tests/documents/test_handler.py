@@ -35,11 +35,12 @@ def fixture(*parts):
     return json.loads(FIXTURES.joinpath(*parts).read_text())
 
 
-def s3_event(key=KEY, size=1000, version=None):
+def s3_event(key=KEY, size=1000, version=None, time=None):
     obj = {"key": key, "size": size} | ({"version-id": version} if version else {})
     return {
         "version": "0",
         "source": "aws.s3",
+        **({"time": time} if time else {}),
         "detail-type": "Object Created",
         "detail": {"bucket": {"name": BUCKET}, "object": obj},
     }
@@ -325,3 +326,43 @@ def test_sns_failure_marks_document_failed(env):
     run(env, sns_event(status="FAILED"))
 
     assert doc(env)["status"] == "failed"
+
+
+def logged(caplog, message):
+    """The structured fields of a Powertools log entry (its `extra` keys)."""
+    for record in caplog.records:
+        if record.getMessage() == message:
+            return {k: v for k, v in vars(record).items() if not k.startswith("_")}
+    raise AssertionError(f"{message!r} was not logged")
+
+
+def test_stage_timings_are_logged_without_document_content(env, caplog):
+    """Durations only, to find where scan latency goes (design: target p50 ≤ 8 s)."""
+    version = upload(env)
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version, time="2026-10-01T12:00:00Z"))
+
+    entry = logged(caplog, "document_processed")
+    timings = entry["timingsMs"]
+    assert set(timings) >= {"queue", "textract", "model", "save", "handler"}
+    assert all(isinstance(v, int) and v >= 0 for k, v in timings.items() if k != "model")
+    assert isinstance(timings["model"], list)
+    assert len(timings["model"]) == 1  # one Bedrock call, no repair
+    assert "TARGET" not in json.dumps(entry, default=str)  # never document content
+
+
+def test_page_budget_is_skipped_when_daily_limits_are_off(env, monkeypatch):
+    from documents import store
+
+    monkeypatch.setenv("DAILY_LIMITS", "off")  # read per event, so no reload is needed
+    for _ in range(store.DAILY_PAGE_BUDGET):
+        store.consume_page_budget(env["table"], 1, store_now())
+    version = upload(env)
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version))
+
+    assert doc(env)["status"] == "ready"
