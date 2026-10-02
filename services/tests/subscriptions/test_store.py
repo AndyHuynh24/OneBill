@@ -491,3 +491,20 @@ def test_nothing_rolls_if_it_isnt_past_cancelled_or_has_no_cycle(table):
     assert not advance_past_renewal(table, USER, "rent", today=date(2026, 10, 2), now=NOW)
     assert not advance_past_renewal(table, USER, "gym", today=date(2026, 10, 2), now=NOW)
     assert not advance_past_renewal(table, USER, "missing", today=date(2026, 10, 2), now=NOW)
+
+
+def test_deleting_uses_only_calls_the_api_role_allows(table, monkeypatch):
+    """The documents Lambda may DeleteItem but not BatchWriteItem (a real 500 in production;
+    moto doesn't enforce IAM, so guard against the call itself)."""
+    claim_email(table, USER, "netflix-oct", NOW)
+    save_subscription(table, USER, netflix(), date(2026, 10, 1), NOW)
+    finish_email(table, USER, "netflix-oct", "processed", 1, ["netflix"])
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("BatchWriteItem isn't allowed for the API role")
+
+    monkeypatch.setattr(table, "batch_writer", forbidden)
+
+    delete_subscription(table, USER, "netflix")
+
+    assert sub_item(table) is None

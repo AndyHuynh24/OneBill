@@ -388,14 +388,15 @@ def delete_subscription(table: Any, user_id: str, key: str) -> None:
         "ExpressionAttributeValues": {":pk": pk, ":prefix": "EMAIL#", ":key": key},
         "ProjectionExpression": "PK, SK",
     }
-    with table.batch_writer() as batch:
-        while True:
-            page = table.query(**query)
-            for marker in page.get("Items", []):
-                batch.delete_item(Key={"PK": marker["PK"], "SK": marker["SK"]})
-            if "LastEvaluatedKey" not in page:
-                break
-            query["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+    # One DeleteItem per marker (a handful per subscription): the API's role allows DeleteItem
+    # but deliberately not BatchWriteItem.
+    while True:
+        page = table.query(**query)
+        for marker in page.get("Items", []):
+            table.delete_item(Key={"PK": marker["PK"], "SK": marker["SK"]})
+        if "LastEvaluatedKey" not in page:
+            break
+        query["ExclusiveStartKey"] = page["LastEvaluatedKey"]
 
 
 def _check_key(key: Any) -> None:
