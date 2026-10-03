@@ -9,11 +9,14 @@ import type {
   ReviewRequest,
 } from "../api";
 import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars, parseSignedDollars } from "../format";
-import { addsUp } from "../split";
+import { canSplit } from "../split";
+import { ScanProgress } from "./ScanProgress";
 import { SplitFlow } from "./SplitFlow";
 
 const ITEM_KINDS = new Set(["item", "discount", "fee"]);
 const SUMMARY_KINDS = new Set(["subtotal", "tax", "tip", "total", "payment", "change", "balance_due"]);
+
+const isReading = (status?: string) => status === "pending_upload" || status === "processing";
 
 interface DocumentSheetProps {
   api: OneTallyApi;
@@ -27,6 +30,8 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   const { data: doc, error, isPending } = useQuery({
     queryKey: ["document", docId],
     queryFn: () => api.getDocument(docId),
+    // Still being read: keep checking so the sheet turns into the bill the moment it's done.
+    refetchInterval: (query) => (isReading(query.state.data?.status) ? 1500 : false),
   });
   const [mode, setMode] = useState<"view" | "edit" | "ask" | "split" | "confirm-delete">("view");
   const editing = mode === "edit";
@@ -39,7 +44,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
         queryClient.invalidateQueries({ queryKey: key });
       }
       // A bill that adds up can be split: ask right away instead of closing.
-      if (request.action === "accept" && addsUp(updated.lines, updated.totalCents)) setMode("ask");
+      if (request.action === "accept" && canSplit(updated.lines)) setMode("ask");
       else onClose();
     },
   });
@@ -60,7 +65,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
 
   const currency = doc?.currency ?? "USD";
   const reviewable = doc?.status === "ready" || doc?.status === "needs_review";
-  const splittable = !!doc && addsUp(doc.lines, doc.totalCents);
+  const splittable = !!doc && canSplit(doc.lines);
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -72,7 +77,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <header className="sheet-header">
-          <h2 id="sheet-title">{doc?.vendor || doc?.filename || "Document"}</h2>
+          <h2 id="sheet-title">{isReading(doc?.status) ? "Reading your bill" : doc?.vendor || doc?.filename || "Document"}</h2>
           <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
             ×
           </button>
@@ -85,7 +90,8 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
           </p>
         )}
 
-        {doc && (
+        {doc && isReading(doc.status) && <ScanProgress stage="reading" />}
+        {doc && !isReading(doc.status) && (
           <>
             {/* Missing fields are simply left out: a receipt without a printed date isn't an error. */}
             {(doc.documentDate || doc.totalCents != null) && (
@@ -143,11 +149,17 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   currency={currency}
                   showKind
                 />
-                {!!doc.obligations?.length && (
+                {doc.taxIncluded && (
+                  <p className="muted tax-note">
+                    Prices include tax
+                    {doc.taxCents ? ` (${formatCents(doc.taxCents, currency)} of the total)` : ""}.
+                  </p>
+                )}
+                {!!doc.obligations?.some((o) => o.kind in DEADLINE_LABELS) && (
                   <div className="sheet-section">
                     <h3>Deadlines</h3>
                     <ul className="plain-list">
-                      {doc.obligations.map((o) => (
+                      {doc.obligations.filter((o) => o.kind in DEADLINE_LABELS).map((o) => (
                         <li key={`${o.kind}-${o.dueDate}`}>
                           {DEADLINE_LABELS[o.kind] ?? o.kind}: {formatDate(o.dueDate)}
                         </li>
@@ -156,10 +168,10 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   </div>
                 )}
                 {reviewable && (
-                  <div className="sheet-actions">
+                  <div className="sheet-actions pair">
                     <button
                       type="button"
-                      className="primary"
+                      className="soft"
                       disabled={review.isPending}
                       onClick={() => review.mutate({ action: "accept" })}
                     >
@@ -171,25 +183,26 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   </div>
                 )}
                 {doc.status === "ready" && (
-                  <div className="sheet-actions">
-                    <button type="button" disabled={!splittable} onClick={() => setMode("split")}>
-                      {!splittable ? "Fix items to split" : doc.split ? "View split" : "Split bill"}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn-block btn-split"
+                    disabled={!splittable}
+                    onClick={() => setMode("split")}
+                  >
+                    {!splittable ? "No items to split" : doc.split ? "View split" : "Split bill"}
+                  </button>
                 )}
               </>
             )}
-            {doc.status !== "processing" && doc.status !== "pending_upload" && mode === "view" && (
-              <div className="sheet-actions">
-                <button type="button" className="danger" onClick={() => setMode("confirm-delete")}>
-                  Delete
-                </button>
-              </div>
+            {mode === "view" && (
+              <button type="button" className="btn-block btn-delete" onClick={() => setMode("confirm-delete")}>
+                Delete
+              </button>
             )}
             {mode === "confirm-delete" && (
               <div className="sheet-actions">
-                <span>Delete this document, its deadlines, and its photo?</span>
-                <button type="button" className="primary" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                <span>Delete this bill, its deadlines, and its photo?</span>
+                <button type="button" className="btn-delete" disabled={remove.isPending} onClick={() => remove.mutate()}>
                   Yes, delete
                 </button>
                 <button type="button" onClick={() => setMode("view")}>
@@ -296,7 +309,10 @@ function ReviewForm({
   onSave: (fields: CorrectionFields) => void;
   onCancel: () => void;
 }) {
-  const originalDeadlines: DeadlineDraft[] = (doc.obligations ?? []).map((o) => ({ kind: o.kind, dueDate: o.dueDate }));
+  // Kinds no longer tracked (old "return by" reminders) are left out, so saving drops them.
+  const originalDeadlines: DeadlineDraft[] = (doc.obligations ?? [])
+    .filter((o) => o.kind in DEADLINE_LABELS)
+    .map((o) => ({ kind: o.kind, dueDate: o.dueDate }));
   const [vendor, setVendor] = useState(doc.vendor ?? "");
   const [date, setDate] = useState(doc.documentDate ?? "");
   const [total, setTotal] = useState(doc.totalCents != null ? centsToInput(doc.totalCents) : "");
@@ -448,7 +464,7 @@ function ReviewForm({
           </div>
         ))}
         {deadlines.length < 10 && (
-          <button type="button" onClick={() => setDeadlines((current) => [...current, { kind: "return_by", dueDate: "" }])}>
+          <button type="button" onClick={() => setDeadlines((current) => [...current, { kind: "payment_due", dueDate: "" }])}>
             Add deadline
           </button>
         )}

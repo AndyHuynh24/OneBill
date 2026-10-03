@@ -143,8 +143,10 @@ function toPayload_(message, labelId) {
   (message.payload.headers || []).forEach(function (h) {
     headers[h.name.toLowerCase()] = h.value;
   });
+  // Send both: many emails have a stub plain part ("view in browser") with the prices only in
+  // the HTML. OneTally reads whichever version shows more.
   var text = findPart_(message.payload, 'text/plain');
-  var html = text ? null : findPart_(message.payload, 'text/html');
+  var html = findPart_(message.payload, 'text/html');
   return {
     messageId: message.id,
     subject: headers['subject'] || '',

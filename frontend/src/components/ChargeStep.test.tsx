@@ -29,7 +29,8 @@ describe("ChargeStep", () => {
     const onDone = setup();
 
     await userEvent.click(screen.getByRole("button", { name: /by what each ordered/i }));
-    await userEvent.click(screen.getByRole("button", { name: /^bao/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^bao/i })); // select…
+    await userEvent.click(screen.getByRole("button", { name: "Bao pays it all" })); // …and confirm
     await userEvent.click(screen.getByRole("button", { name: /evenly/i }));
 
     expect(onDone).toHaveBeenCalledWith({

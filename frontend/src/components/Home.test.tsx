@@ -63,20 +63,20 @@ describe("Home — signed in", () => {
   it("lists upcoming deadlines", async () => {
     const api = fakeApi({
       listObligations: vi.fn().mockResolvedValue({
-        obligations: [{ oblId: "o1", docId: "d1", kind: "return_by", dueDate: "2026-10-28", vendor: "Target" }],
+        obligations: [{ oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E" }],
       }),
     });
     renderHome("signedIn", api);
 
-    expect(await screen.findByText(/Return by: Target/)).toBeInTheDocument();
+    expect(await screen.findByText(/Payment due: PG&E/)).toBeInTheDocument();
     expect(api.listObligations).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
   });
 
   it("shows friendly empty states", async () => {
     renderHome("signedIn");
 
-    expect(await screen.findByText(/tap scan to add your first/i)).toBeInTheDocument();
-    expect(screen.getByText(/no deadlines/i)).toBeInTheDocument();
+    expect(await screen.findByText(/tap scan receipt to add your first/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing due in the next 30 days/i)).toBeInTheDocument();
   });
 
   it("uploads the scanned file", async () => {
@@ -187,6 +187,45 @@ describe("Home — signed in", () => {
     await userEvent.click(await screen.findByRole("button", { name: /connect gmail/i }));
 
     expect(await screen.findByRole("dialog", { name: /connect gmail/i })).toBeInTheDocument();
+  });
+
+  it("Recent shows the 5 newest; View all opens every document, and Back returns", async () => {
+    const many = {
+      ...DOCS,
+      documents: Array.from({ length: 8 }, (_, i) => ({
+        docId: `d${i}`,
+        status: "ready",
+        vendor: `Shop ${i}`,
+        totalCents: 100 * (i + 1),
+        createdAt: "x",
+      })),
+    };
+    renderHome("signedIn", fakeApi({ listDocuments: vi.fn().mockResolvedValue(many) }));
+
+    expect(await screen.findByText("Shop 4")).toBeInTheDocument();
+    expect(screen.queryByText("Shop 5")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /view all receipts/i }));
+    expect(screen.getByRole("heading", { name: /all receipts/i })).toBeInTheDocument();
+    expect(screen.getByText("Shop 7")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /back/i }));
+    expect(screen.getByRole("heading", { name: /coming up/i })).toBeInTheDocument();
+  });
+
+  it("the subscriptions page shows them all", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /^view all$/i }));
+
+    expect(screen.getByRole("heading", { name: /subscriptions & bills/i, level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: /subscriptions/i })).toHaveTextContent("Netflix");
   });
 
   it("signs out", async () => {

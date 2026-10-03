@@ -14,7 +14,7 @@ TODAY = date(2026, 9, 30)
 
 
 def put_obligation(
-    table, user, due, obl_id, kind="return_by", vendor="Target", amount=2618, sent=()
+    table, user, due, obl_id, kind="payment_due", vendor="Target", amount=2618, sent=()
 ):
     item = {
         "PK": f"USER#{user}",
@@ -121,7 +121,7 @@ def test_digest_subject_singular():
             (
                 3,
                 {
-                    "kind": "return_by",
+                    "kind": "payment_due",
                     "vendor": "Target",
                     "dueDate": "2026-10-03",
                     "amountCents": 2618,
@@ -137,7 +137,7 @@ def test_digest_subject_singular():
 
 def test_digest_escapes_untrusted_vendor_names_in_html():
     _, _, html = render_digest(
-        [(3, {"kind": "return_by", "vendor": "<script>x</script>", "dueDate": "2026-10-03"})],
+        [(3, {"kind": "payment_due", "vendor": "<script>x</script>", "dueDate": "2026-10-03"})],
         TODAY,
         app_url="http://localhost:5173",
     )

@@ -8,10 +8,10 @@ Emails the user labelled by hand skip this check.
 
 import re
 
-_PRICE = re.compile(
+PRICE = re.compile(
     r"[$€£¥]\s?\d[\d,]*(?:\.\d{2})?"  # $15.49, € 10,99
     r"|\b(?:USD|EUR|GBP|CAD|AUD|JPY)\s?\d[\d,]*(?:\.\d{2})?"  # USD 20.00
-    r"|\d[\d,]*\.\d{2}\s?(?:USD|EUR|GBP|CAD|AUD)\b",  # 20.00 USD
+    r"|\d[\d.,]*\s?(?:USD|EUR|GBP|CAD|AUD|VND|₫|€)",  # 20.00 USD, 10,99 €, 99.000 ₫
     re.IGNORECASE,
 )
 _RECURRING = re.compile(
@@ -25,4 +25,4 @@ _RECURRING = re.compile(
 
 def looks_like_subscription(subject: str, text: str) -> bool:
     combined = f"{subject}\n{text}"
-    return bool(_PRICE.search(combined) and _RECURRING.search(combined))
+    return bool(PRICE.search(combined) and _RECURRING.search(combined))

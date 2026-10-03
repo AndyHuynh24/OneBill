@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Subscription } from "./api";
-import { cycleSuffix, nextMonthTotal } from "./subscriptions";
+import { activeCount, cycleLabel, cycleSuffix, nextMonthTotal, renewingWithin } from "./subscriptions";
 
 const sub = (over: Partial<Subscription>): Subscription => ({
   serviceKey: "x",
@@ -76,5 +76,35 @@ describe("cycleSuffix", () => {
     [null, ""],
   ])("%s → %j", (cycle, suffix) => {
     expect(cycleSuffix(cycle as Subscription["cycle"])).toBe(suffix);
+  });
+});
+
+describe("renewingWithin (next 30 days)", () => {
+  it("adds every renewal from today through the next 30 days", () => {
+    const subs = [
+      sub({ amountCents: 1549, nextRenewal: "2026-10-01" }), // today counts
+      sub({ amountCents: 1199, nextRenewal: "2026-10-31" }), // day 30 counts
+      sub({ amountCents: 999, nextRenewal: "2026-11-01" }), // day 31 doesn't
+      sub({ amountCents: 500, cycle: "weekly", nextRenewal: "2026-10-02" }), // Oct 2, 9, 16, 23, 30
+      sub({ amountCents: 100, status: "cancelled" }),
+    ];
+
+    expect(renewingWithin(subs, TODAY, 30)).toEqual({ totalCents: 1549 + 1199 + 5 * 500, count: 3 });
+  });
+});
+
+describe("activeCount and cycleLabel", () => {
+  it("counts what you're still paying for", () => {
+    expect(activeCount([sub({}), sub({ status: "cancelled" }), sub({ status: "trial_ending" })])).toBe(2);
+  });
+
+  it.each([
+    ["monthly", "Monthly"],
+    ["yearly", "Yearly"],
+    ["weekly", "Weekly"],
+    ["quarterly", "Every 3 months"],
+    [null, "—"],
+  ])("%s → %s", (cycle, label) => {
+    expect(cycleLabel(cycle as Subscription["cycle"])).toBe(label);
   });
 });

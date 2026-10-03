@@ -110,7 +110,7 @@ def test_a_valid_key_processes_the_email_for_its_owner(table, ingest):
 
     status, body = call(handler, event(EMAIL | {"userId": "user-b"}, f"Bearer {key}"))
 
-    assert (status, body) == (200, {"status": "processed", "subscriptions": 1})
+    assert (status, body) == (200, {"status": "processed", "subscriptions": 1, "documents": 0})
     assert table.get_item(Key={"PK": "USER#user-a", "SK": "SUB#netflix"}).get("Item")
     assert not table.get_item(Key={"PK": "USER#user-b", "SK": "SUB#netflix"}).get("Item")
 

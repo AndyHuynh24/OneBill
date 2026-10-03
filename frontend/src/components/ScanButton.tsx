@@ -36,13 +36,21 @@ export function ScanButton({ onFile, busy = false }: ScanButtonProps) {
         disabled={busy}
         onClick={() => input.current?.click()}
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22">
-          <path
-            fill="currentColor"
-            d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9Zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"
-          />
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          width="24"
+          height="24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
+          <circle cx="12" cy="12.5" r="3.5" />
         </svg>
-        {busy ? "Uploading…" : "Scan"}
+        <span>{busy ? "Uploading…" : "Scan receipt"}</span>
       </button>
     </div>
   );

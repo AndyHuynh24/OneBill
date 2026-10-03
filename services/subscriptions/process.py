@@ -8,11 +8,12 @@ import logging
 from datetime import date, datetime
 from typing import Any
 
+from documents.email_bill import create_email_document, email_doc_id, read_email_bill
 from shared.dates import APP_TIMEZONE, app_today
 from subscriptions.html_text import html_to_text, tidy_text
 from subscriptions.ingest import consume_email_quota, record_use
 from subscriptions.parse import read_subscription_email
-from subscriptions.signals import looks_like_subscription
+from subscriptions.signals import PRICE, looks_like_subscription
 from subscriptions.store import claim_email, finish_email, save_subscription
 
 MAX_BODY_CHARS = 300_000
@@ -30,36 +31,58 @@ def process_email(
     if not claim_email(table, user_id, email["messageId"], now):
         return {"status": "duplicate", "subscriptions": 0}
     record_use(table, user_id, now)
-    text = tidy_text(email["text"]) if email["text"] else html_to_text(email["html"] or "")
-    # Free checks first: an empty email, or one with no price and no word about recurring
-    # billing, is skipped without a model call and without using the daily cap. Emails the
-    # user labelled by hand are always read.
-    if not text or not (email["labelled"] or looks_like_subscription(email["subject"], text)):
+    text = _richest_body(email["text"], email["html"])
+    labelled = email["labelled"]
+    subscription_like = bool(text) and looks_like_subscription(email["subject"], text)
+    # Free checks first: an empty email, or an unlabelled one with no price and no word about
+    # recurring billing, is skipped without a model call and without using the daily cap.
+    if not text or not (labelled or subscription_like):
         finish_email(table, user_id, email["messageId"], "ignored", 0)
-        return {"status": "ignored", "subscriptions": 0}
+        return {"status": "ignored", "subscriptions": 0, "documents": 0}
     if not consume_email_quota(table, user_id, now):
         finish_email(table, user_id, email["messageId"], "failed", 0)  # retried after the reset
-        return {"status": "limit", "subscriptions": 0}
+        return {"status": "limit", "subscriptions": 0, "documents": 0}
+
+    documents, subs = 0, []
     try:
-        result = read_subscription_email(
-            bedrock,
-            model_id,
-            subject=email["subject"],
-            sender=email["from"],
-            received=email["received"],
-            text=text,
-        )
-        if not result.is_subscription:
-            finish_email(table, user_id, email["messageId"], "ignored", 0)
-            return {"status": "ignored", "subscriptions": 0}
-        for sub in result.subscriptions:
-            save_subscription(table, user_id, sub, email["received"], now)
+        # Decision A: a labelled email is always read like a scanned receipt or bill…
+        if labelled:
+            doc_id = email_doc_id(email["messageId"], email["receivedMs"])
+            if create_email_document(table, user_id, doc_id, email["subject"], now):
+                read_email_bill(table, bedrock, model_id, user_id, doc_id, text, now)
+            documents = 1
+        # …and, labelled or not, as a subscription when it looks like one.
+        if subscription_like:
+            result = read_subscription_email(
+                bedrock,
+                model_id,
+                subject=email["subject"],
+                sender=email["from"],
+                received=email["received"],
+                text=text,
+            )
+            if result.is_subscription:
+                for sub in result.subscriptions:
+                    save_subscription(table, user_id, sub, email["received"], now)
+                subs = result.subscriptions
     except Exception:
         finish_email(table, user_id, email["messageId"], "failed", 0)  # may be retried
         raise
-    keys = sorted({s.service_key for s in result.subscriptions})
-    finish_email(table, user_id, email["messageId"], "processed", len(result.subscriptions), keys)
-    return {"status": "processed", "subscriptions": len(result.subscriptions)}
+    if not documents and not subs:
+        finish_email(table, user_id, email["messageId"], "ignored", 0)
+        return {"status": "ignored", "subscriptions": 0, "documents": 0}
+    keys = sorted({s.service_key for s in subs})
+    finish_email(table, user_id, email["messageId"], "processed", len(subs), keys)
+    return {"status": "processed", "subscriptions": len(subs), "documents": documents}
+
+
+def _richest_body(text: str | None, html: str | None) -> str:
+    """Many emails ship a stub plain part ("view in browser") and put the details in HTML: read
+    whichever version shows more prices (then the longer one)."""
+    candidates = [c for c in (tidy_text(text or ""), html_to_text(html or "")) if c]
+    if not candidates:
+        return ""
+    return max(candidates, key=lambda c: (len(PRICE.findall(c)), len(c)))
 
 
 def _validated(payload: Any, now: datetime) -> dict[str, Any]:
@@ -83,8 +106,16 @@ def _validated(payload: Any, now: datetime) -> dict[str, Any]:
         "text": text if isinstance(text, str) else None,
         "html": html if isinstance(html, str) else None,
         "received": _received(payload.get("date"), now),
+        "receivedMs": _received_ms(payload.get("date"), now),
         "labelled": payload.get("labelled") is True,
     }
+
+
+def _received_ms(value: Any, now: datetime) -> int:
+    try:
+        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp() * 1000)
+    except (TypeError, ValueError):
+        return int(now.timestamp() * 1000)
 
 
 def _received(value: Any, now: datetime) -> date:

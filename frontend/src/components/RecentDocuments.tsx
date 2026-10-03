@@ -13,11 +13,13 @@ interface RecentDocumentsProps {
   documents: DocumentSummary[];
   uploading: string[];
   onOpen: (docId: string) => void;
+  /** Home shows the newest few; the full page shows all. */
+  limit?: number;
 }
 
-export function RecentDocuments({ documents, uploading, onOpen }: RecentDocumentsProps) {
+export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentDocumentsProps) {
   if (!documents.length && !uploading.length) {
-    return <p className="muted">Nothing yet. Tap Scan to add your first receipt or bill.</p>;
+    return <p className="muted">Nothing yet. Tap Scan receipt to add your first one.</p>;
   }
   return (
     <ul className="doc-list">
@@ -27,13 +29,16 @@ export function RecentDocuments({ documents, uploading, onOpen }: RecentDocument
           <span className="chip chip-busy">Uploading…</span>
         </li>
       ))}
-      {documents.map((doc) => {
+      {(limit ? documents.slice(0, limit) : documents).map((doc) => {
         const status = STATUS[doc.status] ?? STATUS.processing;
         const busy = status.tone === "busy";
         return (
           <li key={doc.docId}>
             <button type="button" className="doc-card" disabled={busy} onClick={() => onOpen(doc.docId)}>
-              <span className="doc-title">{doc.vendor || doc.filename || "Document"}</span>
+              <span className="doc-title">
+                {doc.vendor || doc.filename || "Document"}
+                {doc.source === "email" && <span className="tag-email">Email</span>}
+              </span>
               <span className="doc-meta">
                 {doc.documentDate ? formatDate(doc.documentDate) : ""}
                 {doc.totalCents != null ? ` · ${formatCents(doc.totalCents, doc.currency ?? "USD")}` : ""}

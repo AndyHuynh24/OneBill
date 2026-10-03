@@ -389,3 +389,93 @@ def test_documents_without_totals_can_opt_out_of_the_total_check():
 
     assert r.ok
     assert r.total_cents is None
+
+
+def test_tax_inclusive_prices_add_up_to_the_total():
+    """KFC Hanoi: item prices include VAT. Items = total; subtotal (pre-tax) + tax = total."""
+    r = reconcile(
+        lines(
+            ("C1 CBO GA RAN", "item", 8700000),
+            ("PEACH TEA", "item", 2400000),
+            ("CONE VANI", "item", 1800000),
+            ("OFFLINE_DIS30K", "discount", -3000000),
+            ("SUBTOTAL", "subtotal", 9166667),
+            ("TOTAL TAX", "tax", 733333),
+            ("EAT IN TOTAL", "total", 9900000),
+            ("CASH", "payment", 10000000),
+            ("CHANGE", "change", 100000),
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.tax_included
+    assert r.total_cents == 9900000
+
+
+def test_tax_inclusive_without_a_printed_subtotal():
+    r = reconcile(
+        lines(
+            ("PHO BO", "item", 6000000),
+            ("TRA DA", "item", 500000),
+            ("VAT 8% (INCLUDED)", "tax", 481481),
+            ("TOTAL", "total", 6500000),
+        )
+    )
+
+    assert r.ok, r.issues
+    assert r.tax_included
+
+
+def test_a_us_receipt_is_still_tax_added():
+    r = reconcile(
+        lines(
+            ("BANANAS", "item", 1000),
+            ("SUBTOTAL", "subtotal", 1000),
+            ("TAX", "tax", 80),
+            ("TOTAL", "total", 1080),
+        )
+    )
+
+    assert r.ok
+    assert not r.tax_included
+
+
+def test_items_matching_the_total_without_any_tax_is_not_mistaken_for_tax_inclusive():
+    r = reconcile(
+        lines(
+            ("A", "item", 1000),
+            ("SUBTOTAL", "subtotal", 900),  # genuinely inconsistent
+            ("TOTAL", "total", 1000),
+        )
+    )
+
+    assert not r.ok
+    assert not r.tax_included
+
+
+def test_a_crossed_out_original_listed_as_a_second_item_is_dropped():
+    """Walmart: Reese's Puffs $4.87 (sale) and $6.47 (crossed out), "$1.60 from savings"."""
+    r = reconcile(
+        lines(
+            ("REESES PUFFS", "item", 487),
+            ("Reeses Puffs", "item", 647),
+            ("EGGS", "item", 393),
+            ("SUBTOTAL", "subtotal", 880),
+            ("TOTAL", "total", 880),
+        ),
+        savings={160},
+    )
+
+    assert r.ok, r.issues
+    assert r.items_cents == 880
+    assert [(c.row, c.to_kind) for c in r.corrections] == [(2, "info")]
+
+
+def test_without_a_printed_saving_identical_items_are_both_kept():
+    r = reconcile(
+        lines(("AXE", "item", 396), ("AXE", "item", 498), ("TOTAL", "total", 894)),
+        savings=set(),
+    )
+
+    assert r.ok
+    assert r.items_cents == 894

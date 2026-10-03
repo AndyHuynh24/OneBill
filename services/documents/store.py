@@ -144,6 +144,7 @@ def save_result(
         "corrections": result.corrections,
         "issues": result.issues,
         "notes": result.notes,
+        "taxIncluded": result.tax_included,
         "obligations": [
             {"kind": o["kind"], "dueDate": o["dueDate"], "evidence": o["evidence"]}
             for o in obligation_items

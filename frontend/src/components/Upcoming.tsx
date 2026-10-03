@@ -10,7 +10,7 @@ interface UpcomingProps {
 export function Upcoming({ obligations, onRemove }: UpcomingProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
   if (!obligations.length) {
-    return <p className="muted">No deadlines in the next 30 days.</p>;
+    return <p className="muted">Nothing due in the next 30 days.</p>;
   }
   return (
     <ul className="upcoming-list">

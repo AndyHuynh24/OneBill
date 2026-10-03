@@ -77,7 +77,7 @@ def test_a_subscription_email_is_read_and_saved(table, bedrock):
 
     result = process_email(table, client, MODEL, "user-a", EMAIL, NOW)
 
-    assert result == {"status": "processed", "subscriptions": 1}
+    assert result == {"status": "processed", "subscriptions": 1, "documents": 0}
     (sub,) = list_subscriptions(table, "user-a")
     assert (sub["service"], sub["amountCents"], sub["nextRenewal"]) == (
         "Netflix",
@@ -102,7 +102,7 @@ def test_a_promo_is_ignored(table, bedrock):
 
     result = process_email(table, client, MODEL, "user-a", EMAIL | {"messageId": "promo1"}, NOW)
 
-    assert result == {"status": "ignored", "subscriptions": 0}
+    assert result == {"status": "ignored", "subscriptions": 0, "documents": 0}
     assert list_subscriptions(table, "user-a") == []
 
 
@@ -181,19 +181,141 @@ def test_an_obvious_non_subscription_is_skipped_without_the_model_or_the_cap(tab
 
     result = process_email(table, client, MODEL, "user-a", order, NOW)
 
-    assert result == {"status": "ignored", "subscriptions": 0}
+    assert result == {"status": "ignored", "subscriptions": 0, "documents": 0}
     usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-10-01"}).get("Item")
     assert usage is None  # the daily cap wasn't touched
 
 
-def test_an_email_labelled_by_hand_is_always_read(table, bedrock):
+def test_a_stub_plain_text_part_doesnt_hide_the_prices_in_the_html(table, bedrock):
+    """Emails often ship a one-line plain part ("view in browser"): read the richer version."""
     client, stub = bedrock
+    sent = []
+    client.meta.events.register(
+        "before-parameter-build.bedrock-runtime.Converse", lambda params, **_: sent.append(params)
+    )
     expect(stub, {"is_subscription_email": True, "subscriptions": [NETFLIX]})
-    labelled = EMAIL | {
-        "messageId": "lbl1",
-        "subject": "Hi",
-        "html": "<p>Netflix $15.49</p>",
+    email = EMAIL | {
+        "messageId": "stub1",
+        "text": "View this email in your browser.",
+        "html": EMAIL["html"],
+    }
+
+    process_email(table, client, MODEL, "user-a", email, NOW)
+
+    assert "$15.49" in sent[0]["messages"][0]["content"][0]["text"]
+
+
+# --- labelled emails are read like a scanned receipt or bill (decision A) ----------------------
+
+from boto3.dynamodb.conditions import Key  # noqa: E402
+
+from documents.extraction import TOOL_NAME as RECEIPT_TOOL  # noqa: E402
+
+BILL_EMAIL = EMAIL | {
+    "messageId": "pge-oct",
+    "subject": "Your PG&E bill is ready",
+    "from": "PG&E <billing@pge.com>",
+    "html": "<p>Electric charges 72.10</p><p>Gas charges 12.00</p><p>Amount due $84.10</p>"
+    "<p>Due by 10/20/2026</p>",
+    "labelled": True,
+}
+BILL = {
+    "doc_type": "bill",
+    "vendor": "PG&E",
+    "document_date": "2026-10-01",
+    "currency": "USD",
+    "lines": [
+        {"description": "Electric charges", "amount": "72.10", "kind": "item"},
+        {"description": "Gas charges", "amount": "12.00", "kind": "item"},
+        {"description": "Amount due", "amount": "84.10", "kind": "balance_due"},
+    ],
+    "deadlines": [
+        {
+            "type": "payment_due",
+            "date": "2026-10-20",
+            "days_after_purchase": None,
+            "evidence": "Due by 10/20/2026",
+        }
+    ],
+}
+
+
+def expect_receipt(stub, payload):
+    response = answer(payload)
+    response["output"]["message"]["content"][0]["toolUse"]["name"] = RECEIPT_TOOL
+    stub.add_response(
+        "converse",
+        response,
+        {
+            "modelId": MODEL,
+            "system": ANY,
+            "messages": ANY,
+            "toolConfig": ANY,
+            "inferenceConfig": ANY,
+        },
+    )
+
+
+def documents(table):
+    return table.query(
+        KeyConditionExpression=Key("PK").eq("USER#user-a") & Key("SK").begins_with("DOC#")
+    )["Items"]
+
+
+def test_a_labelled_email_becomes_a_bill_like_a_scan(table, bedrock):
+    client, stub = bedrock
+    expect_receipt(stub, BILL)
+
+    result = process_email(table, client, MODEL, "user-a", BILL_EMAIL, NOW)
+
+    assert result["documents"] == 1
+    (doc,) = documents(table)
+    assert (doc["status"], doc["source"], doc["vendor"]) == ("ready", "email", "PG&E")
+    assert int(doc["totalCents"]) == 8410
+    assert [o["kind"] for o in doc["obligations"]] == ["payment_due"]  # due date → reminder
+    assert list_subscriptions(table, "user-a") == []  # not a subscription: no second read
+
+
+def test_a_labelled_subscription_email_is_a_bill_and_a_subscription(table, bedrock):
+    """Andy: 'the label can be subscription too'."""
+    client, stub = bedrock
+    netflix_bill = {
+        "doc_type": "receipt",
+        "vendor": "Netflix",
+        "document_date": "2026-10-01",
+        "currency": "USD",
+        "lines": [
+            {"description": "Standard plan", "amount": "15.49", "kind": "item"},
+            {"description": "Total", "amount": "15.49", "kind": "total"},
+        ],
+        "deadlines": [],
+    }
+    expect_receipt(stub, netflix_bill)
+    expect(stub, {"is_subscription_email": True, "subscriptions": [NETFLIX]})
+    email = EMAIL | {
+        "messageId": "nflx-label",
+        "html": "<p>Standard plan $15.49</p><p>Total $15.49</p>"
+        "<p>Next billing date | November 1, 2026</p>",
         "labelled": True,
     }
 
-    assert process_email(table, client, MODEL, "user-a", labelled, NOW)["status"] == "processed"
+    result = process_email(table, client, MODEL, "user-a", email, NOW)
+
+    assert (result["documents"], result["subscriptions"]) == (1, 1)
+    assert documents(table)[0]["vendor"] == "Netflix"
+    assert list_subscriptions(table, "user-a")[0]["service"] == "Netflix"
+
+
+def test_a_retried_labelled_email_doesnt_make_a_second_bill(table, bedrock):
+    client, stub = bedrock
+    stub.add_client_error(
+        "converse", service_error_code="ThrottlingException", http_status_code=429
+    )
+    with pytest.raises(ClientError):
+        process_email(table, client, MODEL, "user-a", BILL_EMAIL, NOW)
+
+    expect_receipt(stub, BILL)
+    process_email(table, client, MODEL, "user-a", BILL_EMAIL, NOW)
+
+    (doc,) = documents(table)
+    assert doc["status"] == "ready"

@@ -193,7 +193,7 @@ def put_obligation(table, user, due, obl_id, **extra):
             "type": "OBLIGATION",
             "oblId": obl_id,
             "dueDate": due,
-            "kind": "return_by",
+            "kind": "payment_due",
             "vendor": "Target",
             "docId": "1790000000000aaaaaaaa",
         }
@@ -253,7 +253,7 @@ def processed_doc(table, user="user-a", status="needs_review", obligations=("202
                 "type": "OBLIGATION",
                 "oblId": sk.rsplit("#", 1)[1],
                 "docId": doc_id,
-                "kind": "return_by",
+                "kind": "payment_due",
                 "dueDate": due,
                 "remindersSent": [7],
                 "GSI1PK": f"DUE#{due}",
@@ -324,7 +324,7 @@ def test_correcting_deadlines_replaces_obligations_and_their_index_entries(table
         doc_id,
         {
             "action": "correct",
-            "fields": {"deadlines": [{"kind": "return_by", "dueDate": "2026-11-15"}]},
+            "fields": {"deadlines": [{"kind": "payment_due", "dueDate": "2026-11-15"}]},
         },
         now=NOW,
     )
@@ -365,7 +365,10 @@ def test_removing_all_deadlines(table):
             "action": "correct",
             "fields": {"deadlines": [{"kind": "someday", "dueDate": "2026-11-15"}]},
         },
-        {"action": "correct", "fields": {"deadlines": [{"kind": "return_by", "dueDate": "soon"}]}},
+        {
+            "action": "correct",
+            "fields": {"deadlines": [{"kind": "payment_due", "dueDate": "soon"}]},
+        },
     ],
 )
 def test_review_rejects_invalid_requests(table, body):
@@ -464,7 +467,7 @@ def test_concurrent_corrections_cannot_orphan_obligations(table):
     ]
     body = {
         "action": "correct",
-        "fields": {"deadlines": [{"kind": "return_by", "dueDate": "2026-11-15"}]},
+        "fields": {"deadlines": [{"kind": "payment_due", "dueDate": "2026-11-15"}]},
     }
     review_document(table, "user-a", doc_id, body, now=NOW)
 
@@ -623,8 +626,8 @@ def test_removing_a_deadline_takes_it_off_the_document_too(table):
         UpdateExpression="SET obligations = :o",
         ExpressionAttributeValues={
             ":o": [
-                {"kind": "return_by", "dueDate": "2026-10-28", "evidence": "a"},
-                {"kind": "return_by", "dueDate": "2027-09-28", "evidence": "b"},
+                {"kind": "payment_due", "dueDate": "2026-10-28", "evidence": "a"},
+                {"kind": "payment_due", "dueDate": "2027-09-28", "evidence": "b"},
             ]
         },
     )
@@ -633,7 +636,7 @@ def test_removing_a_deadline_takes_it_off_the_document_too(table):
 
     assert [o["SK"] for o in obligations_for(table)] == [keep]
     doc = get_document(table, "user-a", doc_id)
-    assert doc["obligations"] == [{"kind": "return_by", "dueDate": "2026-10-28", "evidence": "a"}]
+    assert doc["obligations"] == [{"kind": "payment_due", "dueDate": "2026-10-28", "evidence": "a"}]
 
 
 def test_removing_a_subscription_reminder_turns_its_reminders_off(table):

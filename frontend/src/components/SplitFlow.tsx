@@ -27,9 +27,13 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const [assignments, setAssignments] = useState<Assignments>(restored.assignments);
   const [charges, setCharges] = useState<Charges>(restored.charges);
   const [saved, setSaved] = useState<Split | undefined>(doc.split);
+  // The bill's version as loaded (not the split's save time): edits to the bill after a split
+  // was saved (e.g. Looks right) must not make every later save look like a conflict.
+  const [docVersion, setDocVersion] = useState(doc.updatedAt ?? "");
 
   const lines = doc.lines ?? [];
-  const chargeLines = lines.filter((l) => CHARGE_KINDS.has(l.kind));
+  // Tax-inclusive prices: the tax is already inside each item, so there's nothing to assign.
+  const chargeLines = lines.filter((l) => CHARGE_KINDS.has(l.kind) && !(doc.taxIncluded && l.kind === "tax"));
   // Recent friends live only in this browser, per account.
   const profile = useQuery({ queryKey: ["me"], queryFn: api.getProfile });
   const userId = profile.data?.userId;
@@ -42,10 +46,11 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
         assignments: request.assignments,
         charges: request.charges,
         expectedVersion: saved?.version ?? 0,
-        expectedUpdatedAt: saved?.updatedAt ?? doc.updatedAt ?? "",
+        expectedUpdatedAt: docVersion,
       }),
     onSuccess: (split) => {
       setSaved(split);
+      if (split.updatedAt) setDocVersion(split.updatedAt);
       setStep("summary");
       queryClient.invalidateQueries({ queryKey: ["document", doc.docId] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -65,14 +70,20 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
 
   function itemsDone(done: Assignments) {
     setAssignments(done);
-    if (chargeLines.length) setStep("charges");
-    else save.mutate({ assignments: done, charges: {} });
+    // Tax/tip already chosen (editing a split): go straight to who owes what.
+    const chargesChosen = chargeLines.every((l) => charges[String(l.row)]);
+    if (!chargesChosen) setStep("charges");
+    else save.mutate({ assignments: done, charges });
   }
 
   return (
     <div className="split-flow">
+      {step !== "summary" && <StepHeader step={step} hasCharges={chargeLines.length > 0} />}
       {step === "people" && (
         <PeoplePicker
+          totalCents={doc.totalCents}
+          currency={doc.currency ?? "USD"}
+          vendor={doc.vendor}
           friends={friends}
           people={people}
           onChange={setPeople}
@@ -90,6 +101,14 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
           currency={doc.currency ?? "USD"}
           initial={assignments}
           onDone={itemsDone}
+          onCharges={
+            chargeLines.length
+              ? (current) => {
+                  setAssignments(current);
+                  setStep("charges");
+                }
+              : undefined
+          }
         />
       )}
       {step === "charges" && (
@@ -145,4 +164,30 @@ function restore(split: Split | undefined): { people: Person[]; assignments: Ass
     ]),
   );
   return { people, assignments, charges };
+}
+
+const STEP_TITLES: Record<Exclude<Step, "summary">, { title: string; hint: string }> = {
+  people: { title: "Who's here?", hint: "" },
+  assign: {
+    title: "Who had what?",
+    hint: "Drag each item onto whoever had it, or tap one or more people and confirm.",
+  },
+  charges: {
+    title: "Tax, tip & fees",
+    hint: "Split each one by what people ordered or evenly, or give it to one person.",
+  },
+};
+
+function StepHeader({ step, hasCharges }: { step: Exclude<Step, "summary">; hasCharges: boolean }) {
+  const order: Exclude<Step, "summary">[] = hasCharges ? ["people", "assign", "charges"] : ["people", "assign"];
+  const { title, hint } = STEP_TITLES[step];
+  return (
+    <div className="step-header">
+      <p className="step-count">
+        Step {order.indexOf(step) + 1} of {order.length}
+      </p>
+      {step !== "people" && <h2 className="step-title">{title}</h2>}
+      {hint && <p className="instruction">{hint}</p>}
+    </div>
+  );
 }

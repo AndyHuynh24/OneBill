@@ -41,3 +41,21 @@ def test_amount_must_not_match_inside_a_longer_number():
 def test_zero_amounts_are_not_checked():
     """ "TOTAL TAX .00" style lines: zero is too ambiguous to ground and harmless."""
     assert ungrounded([line("TOTAL TAX", 0, "tax")], ["TOTAL TAX .00"]) == []
+
+
+def test_whole_and_european_amounts_are_found_as_printed():
+    from documents.grounding import is_printed
+
+    assert is_printed(1500, "Your plan: $15/month")
+    assert is_printed(129900, "Annual plan $1,299")
+    assert is_printed(1099, "Spotify Premium 10,99 € / Monat")
+    assert is_printed(9900000, "Tổng cộng 99.000 ₫")
+    assert not is_printed(1500, "Order #150099")  # never inside a longer number
+
+
+def test_printed_savings_are_collected_from_the_text():
+    from documents.grounding import printed_savings
+
+    text = ["Qty 1", "$1.02 from savings", "You save $1.50", "Savings: $0.99", "Total $150.24"]
+
+    assert printed_savings(text) == {102, 150, 99}

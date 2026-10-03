@@ -31,7 +31,7 @@ describe("PeoplePicker", () => {
     render(<Harness />);
 
     expect(seats().map((s) => s.textContent)).toEqual([expect.stringContaining("Me")]);
-    expect(screen.getByRole("button", { name: /next/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled();
   });
 
   it("adds and removes recent friends with one tap", async () => {
@@ -48,7 +48,7 @@ describe("PeoplePicker", () => {
   it("adds several new names from one phrase, in seat order", async () => {
     render(<Harness />);
 
-    await userEvent.type(screen.getByLabelText(/add names/i), "Tam and Vy, bao{Enter}");
+    await userEvent.type(screen.getByLabelText(/add names/i), "Tam Vy bao{Enter}");
 
     expect(seats().map((s) => s.textContent)).toEqual([
       expect.stringContaining("Me"),
@@ -75,11 +75,21 @@ describe("PeoplePicker", () => {
 
     await userEvent.type(
       screen.getByLabelText(/add names/i),
-      "A, B, C, D, E, F, G, H, I, J, K, L, M, N{Enter}",
+      "A B C D E F G H I J K L M N{Enter}",
     );
 
     expect(seats()).toHaveLength(12);
     expect(screen.getByRole("status")).toHaveTextContent(/12 people/i);
+  });
+
+  it("Continue adds names that were typed but not added yet", async () => {
+    const onNext = vi.fn();
+    render(<Harness onNext={onNext} />);
+
+    await userEvent.type(screen.getByLabelText(/add names/i), "Tam Vy");
+    await userEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    expect(onNext).toHaveBeenCalledWith([{ name: "Me", self: true }, { name: "Tam" }, { name: "Vy" }]);
   });
 
   it("passes the people to Next", async () => {
@@ -87,7 +97,7 @@ describe("PeoplePicker", () => {
     render(<Harness onNext={onNext} />);
     await userEvent.click(screen.getByRole("button", { name: "Linh" }));
 
-    await userEvent.click(screen.getByRole("button", { name: /next/i }));
+    await userEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     expect(onNext).toHaveBeenCalledWith([{ name: "Me", self: true }, { name: "Linh" }]);
   });

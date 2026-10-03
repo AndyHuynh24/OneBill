@@ -32,7 +32,30 @@ function addDays([y, m, d]: Ymd, days: number): Ymd {
 export function nextMonthTotal(subs: Subscription[], todayIso: string): { totalCents: number; count: number } {
   const [ty, tm] = parse(todayIso);
   const first = addMonths([ty, tm, 1], 1);
-  const last: Ymd = [first[0], first[1], daysIn(first[0], first[1])];
+  return totalBetween(subs, first, [first[0], first[1], daysIn(first[0], first[1])]);
+}
+
+/** What renews from today through `days` days from now (both ends included). */
+export function renewingWithin(subs: Subscription[], todayIso: string, days: number) {
+  const today = parse(todayIso);
+  return totalBetween(subs, today, addDays(today, days));
+}
+
+export function activeCount(subs: Subscription[]): number {
+  return subs.filter((s) => s.status !== "cancelled").length;
+}
+
+const LABELS: Record<string, string> = {
+  weekly: "Weekly",
+  monthly: "Monthly",
+  quarterly: "Every 3 months",
+  yearly: "Yearly",
+  other: "Other",
+};
+
+export const cycleLabel = (cycle: BillingCycle | null) => (cycle ? (LABELS[cycle] ?? "—") : "—");
+
+function totalBetween(subs: Subscription[], first: Ymd, last: Ymd): { totalCents: number; count: number } {
   let totalCents = 0;
   let count = 0;
   for (const s of subs) {

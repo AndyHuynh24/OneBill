@@ -33,6 +33,8 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt?: string;
   reviewOutcome?: "accepted" | "corrected";
+  /** "email": a labelled email read like a scan. */
+  source?: "email";
 }
 
 export interface DocumentLine {
@@ -60,6 +62,8 @@ export interface DocumentDetail extends DocumentSummary {
   discountsCents?: number;
   obligations?: DocumentDeadline[];
   split?: Split;
+  /** Item prices already include the tax (common outside the US). */
+  taxIncluded?: boolean;
 }
 
 export type ChargeChoice =
@@ -98,7 +102,11 @@ export interface Split {
   assignments: Record<string, string[]>;
   charges: Record<string, { mode: string; member?: string }>;
   shares: SplitShare[];
+  /** What the shares add up to: the printed total, or the recorded items if they differ. */
   totalCents: number;
+  receiptTotalCents?: number;
+  matchesReceipt?: boolean;
+  taxIncluded?: boolean;
   updatedAt?: string;
 }
 

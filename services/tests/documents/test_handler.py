@@ -134,7 +134,7 @@ def expect_bedrock(env, name):
 # --- photos (sync Textract) ---------------------------------------------------------------------
 
 
-def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
+def test_photo_upload_becomes_a_ready_document_without_reminders(env):
     version = upload(env)
     expect_analyze_sync(env, version)  # OCR reads exactly the claimed upload
     expect_bedrock(env, "grocery_correct.json")
@@ -153,7 +153,7 @@ def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
         KeyConditionExpression="GSI1PK = :d",
         ExpressionAttributeValues={":d": "DUE#2026-10-28"},
     )["Items"]
-    assert [o["kind"] for o in obligations] == ["return_by"]
+    assert obligations == []  # receipts make no reminders (return windows aren't tracked)
 
 
 def test_duplicate_event_makes_no_paid_calls(env):

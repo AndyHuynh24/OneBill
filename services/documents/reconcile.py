@@ -85,6 +85,9 @@ class Reconciliation:
     notes: list[str] = field(default_factory=list)
     suspect_rows: list[int] = field(default_factory=list)
     total_ok: bool | None = None  # None when there is no total to check
+    # Prices already include tax (common outside the US): items add up to the total, and the
+    # printed tax is the part of it that's tax. Splitting must not add the tax again.
+    tax_included: bool = False
     overage_cents: int = 0  # computed − printed total, when the total check fails
 
     @property
@@ -96,6 +99,7 @@ def reconcile(
     lines: list[Line],
     textract_summary: dict[str, int] | None = None,
     total_required: bool = True,
+    savings: set[int] | None = None,
 ) -> Reconciliation:
     """Check a labelled receipt, correcting mislabelled summary lines when the math proves it.
 
@@ -107,7 +111,44 @@ def reconcile(
     """
     textract_values = set((textract_summary or {}).values())
     normalized = [_normalize_discount(line) for line in lines]
+    normalized, originals = _crossed_out_originals(normalized, savings or set())
+    result = _reconcile(normalized, textract_values, total_required)
+    result.corrections = originals + result.corrections
+    return result
 
+
+def _crossed_out_originals(
+    lines: list[Line], savings: set[int]
+) -> tuple[list[Line], list[Correction]]:
+    """Online orders print a sale price, the crossed-out original, and "$1.60 from savings". If
+    the same product appears twice and the two prices differ by exactly a printed saving, the
+    higher one is the crossed-out original: relabel it info. (The only rule that touches items,
+    and only with that printed evidence.)"""
+    if not savings:
+        return lines, []
+    groups: dict[str, list[Line]] = {}
+    for line in lines:
+        if line.kind == "item":
+            groups.setdefault(_normalize(line.description), []).append(line)
+    relabel: dict[int, LineKind] = {}
+    for group in groups.values():
+        used: set[int] = set()
+        for high in sorted(group, key=lambda line: line.amount_cents, reverse=True):
+            for low in group:
+                if {high.row, low.row} & used or low.amount_cents >= high.amount_cents:
+                    continue
+                if any(_close(high.amount_cents - low.amount_cents, s) for s in savings):
+                    relabel[high.row] = "info"
+                    used |= {high.row, low.row}
+                    break
+    if not relabel:
+        return lines, []
+    return _apply(lines, relabel, "crossed-out original price (its saving is printed)")
+
+
+def _reconcile(
+    normalized: list[Line], textract_values: set[int], total_required: bool
+) -> Reconciliation:
     as_given = _check(normalized, total_required)
     if as_given.ok:
         return as_given
@@ -285,9 +326,20 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         change_cents=_sum(lines, "change"),
     )
     goods = r.items_cents + r.discounts_cents
+    totals = [line.amount_cents for line in lines if line.kind == "total"]
+    if not totals:
+        totals = [line.amount_cents for line in lines if line.kind == "balance_due"]
+    subtotals = _distinct([line.amount_cents for line in lines if line.kind == "subtotal"])
+
+    # Tax-inclusive pricing: the items already add up to the total, and (when a pre-tax
+    # subtotal is printed) subtotal + tax gives the same total.
+    if r.tax_cents and totals:
+        extras = r.tip_cents + r.fees_cents
+        r.tax_included = _close(goods + extras, totals[-1]) and (
+            not subtotals or _close(subtotals[-1] + r.tax_cents + extras, totals[-1])
+        )
 
     # 1. items (+ discounts, maybe + fees) ≈ printed subtotal
-    subtotals = _distinct([line.amount_cents for line in lines if line.kind == "subtotal"])
     fees_in_subtotal = False
     if len(subtotals) > 1:
         shown = ", ".join(format_cents(v) for v in subtotals)
@@ -295,7 +347,7 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
     if subtotals:
         printed = subtotals[-1]
         r.printed_subtotal_cents = printed
-        if _close(goods, printed):
+        if _close(goods, printed) or r.tax_included:  # tax-inclusive: subtotal is pre-tax
             pass
         elif r.fees_cents and _close(goods + r.fees_cents, printed):
             fees_in_subtotal = True
@@ -309,10 +361,11 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         basis = goods
 
     # 2. subtotal + tax + tip + fees ≈ printed total (or amount due on bills)
-    totals = [line.amount_cents for line in lines if line.kind == "total"]
-    if not totals:
-        totals = [line.amount_cents for line in lines if line.kind == "balance_due"]
-    expected = basis + r.tax_cents + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
+    if r.tax_included:  # the tax is already inside the item prices
+        basis, tax_added = goods, 0
+    else:
+        tax_added = r.tax_cents
+    expected = basis + tax_added + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
     if not totals:
         if total_required:
             r.issues.append("No total or amount due was found on the document.")

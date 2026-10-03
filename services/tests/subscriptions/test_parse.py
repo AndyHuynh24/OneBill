@@ -265,3 +265,21 @@ def test_currency_falls_back_to_the_printed_symbol(bedrock):
     (s,) = read(bedrock, payload, text=text).subscriptions
 
     assert (s.amount_cents, s.currency) == (1099, "EUR")
+
+
+def test_whole_dollar_and_european_prices_are_kept(bedrock):
+    text = "Your plan: $15/month. Renews Nov 1, 2026"
+    s = sub(
+        amount="$15",
+        charge_date=None,
+        period_start=None,
+        period_end=None,
+        evidence={"amount": "$15", "next_renewal": "Nov 1, 2026"},
+    )
+
+    (out,) = read(
+        bedrock, {"is_subscription_email": True, "subscriptions": [s]}, text=text
+    ).subscriptions
+
+    assert out.amount_cents == 1500
+    assert out.issues == []

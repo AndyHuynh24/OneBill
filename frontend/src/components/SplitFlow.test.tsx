@@ -32,11 +32,16 @@ function renderFlow(api: OneTallyApi, doc: DocumentDetail = DINNER, onClose = vi
   return onClose;
 }
 
+async function giveTo(name: RegExp) {
+  await userEvent.click(screen.getByRole("button", { name }));
+  await userEvent.click(screen.getByRole("button", { name: /^give to/i }));
+}
+
 async function splitWithBao() {
-  await userEvent.type(screen.getByLabelText(/add names/i), "Bao{Enter}");
-  await userEvent.click(screen.getByRole("button", { name: /next/i }));
-  await userEvent.click(screen.getByRole("button", { name: /^bao/i })); // PAD THAI
-  await userEvent.click(screen.getByRole("button", { name: /^me/i })); // CURRY
+  await userEvent.type(screen.getByLabelText(/add names/i), "Bao");
+  await userEvent.click(screen.getByRole("button", { name: /continue/i })); // adds Bao too
+  await giveTo(/^bao/i); // PAD THAI
+  await giveTo(/^me/i); // CURRY
   await userEvent.click(screen.getByRole("button", { name: /by what each ordered/i })); // TAX
 }
 
@@ -68,16 +73,15 @@ describe("SplitFlow", () => {
     expect(screen.getByText(/adds up to \$28\.86/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /edit/i }));
     await userEvent.click(screen.getByRole("button", { name: /PAD THAI.*Bao/ }));
-    await userEvent.click(screen.getByRole("button", { name: /^me/i })); // give PAD THAI to me
-    await userEvent.click(screen.getByRole("button", { name: /^next$/i })); // items done
-    await userEvent.click(screen.getByRole("button", { name: /^next$/i })); // tax kept as it was
+    await giveTo(/^me/i); // give PAD THAI to me
+    await userEvent.click(screen.getByRole("button", { name: /finish split/i })); // tax already chosen
 
     expect(api.saveSplit).toHaveBeenCalledWith(
       DINNER.docId,
       expect.objectContaining({
         assignments: { "1": [0], "2": [0] },
         expectedVersion: 1,
-        expectedUpdatedAt: SAVED.updatedAt,
+        expectedUpdatedAt: DINNER.updatedAt, // the bill as loaded, not the split's save time
       }),
     );
   });

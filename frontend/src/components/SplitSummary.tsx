@@ -56,6 +56,13 @@ export function SplitSummary({ split, doc, onEdit, onDone }: SplitSummaryProps) 
           ? `Adds up to ${formatCents(split.totalCents, currency)} ✓`
           : `Shares total ${formatCents(sum, currency)}, receipt says ${formatCents(split.totalCents, currency)}`}
       </p>
+      {split.matchesReceipt === false && split.receiptTotalCents != null && (
+        <p className="notice notice-warn">
+          Split on the recorded items ({formatCents(split.totalCents, currency)}). The receipt says{" "}
+          {formatCents(split.receiptTotalCents, currency)}; fix the bill and split again if a number was misread.
+        </p>
+      )}
+      {split.taxIncluded && <p className="muted tax-note">Prices include tax, so it's already in each share.</p>}
       <div className="sheet-actions">
         <button type="button" className="primary" onClick={share}>
           Share

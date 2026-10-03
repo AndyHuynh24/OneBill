@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { BillingCycle, OneTallyApi, Subscription, SubscriptionEdit } from "../api";
 import { centsToInput, formatCents, formatDate, parseDollars } from "../format";
-import { cycleSuffix } from "../subscriptions";
+import { cycleLabel } from "../subscriptions";
 
 const CYCLE_LABELS: Record<BillingCycle, string> = {
   weekly: "Weekly",
@@ -66,7 +66,10 @@ export function SubscriptionSheet({ api, subscription: s, onClose }: Subscriptio
                 </>
               )}
               <dt>Price</dt>
-              <dd>{s.amountCents != null ? `${formatCents(s.amountCents, s.currency)}${cycleSuffix(s.cycle)}` : "Unknown"}</dd>
+<dd>
+                {s.amountCents != null ? formatCents(s.amountCents, s.currency) : "Unknown"}
+                {s.cycle ? ` · ${cycleLabel(s.cycle)}` : ""}
+              </dd>
               <dt>{s.status === "trial_ending" ? "Trial ends" : s.category === "bill" ? "Next due date" : "Next renewal"}</dt>
               <dd>
                 {s.status === "cancelled"

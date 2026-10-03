@@ -74,7 +74,6 @@ export function timeAgo(iso: string, now: Date = new Date()): string {
 
 export const DEADLINE_LABELS: Record<string, string> = {
   payment_due: "Payment due",
-  return_by: "Return by",
   warranty_expires: "Warranty ends",
   renewal: "Renews",
   trial_ends: "Trial ends",

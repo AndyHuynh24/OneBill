@@ -9,20 +9,20 @@ export interface Person {
   self?: boolean;
 }
 
-/** Seat colors: distinct, dark enough for white initials. */
+/** Seat colors: warm and distinct, dark enough for white initials. */
 export const SEAT_COLORS = [
-  "#2563eb",
-  "#16a34a",
-  "#ea580c",
-  "#9333ea",
-  "#db2777",
-  "#0891b2",
-  "#ca8a04",
-  "#4f46e5",
-  "#dc2626",
-  "#059669",
-  "#7c3aed",
-  "#64748b",
+  "#d9774f", // terracotta
+  "#5f8f6b", // sage
+  "#4a7ba6", // lake
+  "#9b6aa8", // plum
+  "#c08a2b", // ochre
+  "#3f8f8a", // teal
+  "#c25b7a", // rose
+  "#6b7fae", // periwinkle
+  "#a8643c", // cinnamon
+  "#5b8f3f", // moss
+  "#7a5fa8", // violet
+  "#7d7268", // stone
 ];
 
 export const seatColor = (seat: number) => SEAT_COLORS[seat % SEAT_COLORS.length];
@@ -36,14 +36,15 @@ export function initials(name: string): string {
 }
 
 const MAX_NAME = 40;
-const SEPARATORS = /[,;\n&+]|\band\b/i;
+// Spaces separate people ("Bao Linh Minh"); commas, "&", "+", and the word "and" do too.
+const SEPARATORS = /[\s,;&+]+|\band\b/gi;
 
-/** "Linh, Minh and Bao" → ["Linh", "Minh", "Bao"]. Mirrors services/split/names.py. */
+/** "Bao Linh Minh" → ["Bao", "Linh", "Minh"]. Use first names: "Linh Nguyen" is two people. */
 export function parseNames(text: string, existing: string[] = []): string[] {
   const seen = new Set(existing.map((n) => n.toLocaleLowerCase()));
   const names: string[] = [];
-  for (const part of (text ?? "").split(new RegExp(SEPARATORS, "gi"))) {
-    const name = part.split(/\s+/).filter(Boolean).join(" ").slice(0, MAX_NAME).trim();
+  for (const part of (text ?? "").split(SEPARATORS)) {
+    const name = part.slice(0, MAX_NAME).trim();
     if (name && !seen.has(name.toLocaleLowerCase())) {
       seen.add(name.toLocaleLowerCase());
       names.push(name);
@@ -52,14 +53,12 @@ export function parseNames(text: string, existing: string[] = []): string[] {
   return names;
 }
 
-const SPLIT_KINDS = new Set(["item", "discount", "fee", "tax", "tip"]);
-const TOLERANCE_CENTS = 2; // matches the server
-
-/** Can this bill be split? Items/discounts/fees/tax/tip must make the total (±2¢). */
-export function addsUp(lines: DocumentLine[] | undefined, totalCents: number | null | undefined): boolean {
-  if (totalCents == null || !lines?.some((l) => l.kind === "item")) return false;
-  const sum = lines.filter((l) => SPLIT_KINDS.has(l.kind)).reduce((acc, l) => acc + l.amountCents, 0);
-  return Math.abs(sum - totalCents) <= TOLERANCE_CENTS;
+/**
+ * Can this bill be split? Whenever it has items. A bill that doesn't add up (a misread
+ * number) is still split, on the recorded items; the summary says it differs from the receipt.
+ */
+export function canSplit(lines: DocumentLine[] | undefined): boolean {
+  return !!lines?.some((l) => l.kind === "item");
 }
 
 /** The message for the share sheet: "Bao $15.79 (PAD THAI + tax/tip/fees)". */
@@ -81,4 +80,11 @@ export function shareText(
     return `${member?.name ?? "?"} ${formatCents(share.totalCents, currency)}${detail}`;
   });
   return [header, ...rows].join("\n");
+}
+
+/** "Give to Bao" · "Split among Bao & Linh" · "Split among Bao, Linh +2" */
+export function assignLabel(names: string[]): string {
+  if (names.length === 1) return `Give to ${names[0]}`;
+  if (names.length === 2) return `Split among ${names[0]} & ${names[1]}`;
+  return `Split among ${names[0]}, ${names[1]} +${names.length - 2}`;
 }

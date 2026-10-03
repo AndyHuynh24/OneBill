@@ -14,6 +14,7 @@ from split.allocate import (
     allocate,
     exact_shares,
     one_person,
+    split_target,
 )
 
 ME, BAO, LINH, MINH = "me", "bao", "linh", "minh"
@@ -141,7 +142,6 @@ def test_total_within_two_cents_of_the_lines_is_split_exactly():
         ({}, {}, 1000, "line 1"),  # an item nobody took
         ({1: ["stranger"]}, {}, 1000, "isn't in the split"),
         ({1: []}, {}, 1000, "line 1"),
-        ({1: [ME]}, {}, 1500, "add up"),  # the bill doesn't add up
         ({1: [ME]}, {9: EVEN}, 1000, "line 9"),  # mode for a line that isn't a charge
     ],
 )
@@ -252,3 +252,52 @@ def test_one_person_with_everything_pays_the_total(bill):
     result = allocate(members, lines, assignments, charges, total)
 
     assert {s.member: s.total_cents for s in result}[payer] == total
+
+
+# --- tax-inclusive receipts, and bills that don't add up ---------------------------------------
+
+
+def test_tax_included_in_prices_is_not_split_again():
+    """KFC Hanoi: the VAT line is part of the item prices, so only the items are split."""
+    lines = [
+        item(1, 8700000),
+        item(2, 2400000),
+        item(3, 1800000),
+        item(4, -3000000, "discount"),
+        item(5, 733333, "tax"),
+    ]
+
+    result = allocate(
+        [ME, BAO],
+        lines,
+        {1: [ME], 2: [BAO], 3: [ME, BAO], 4: [ME, BAO]},
+        {},
+        9900000,
+        tax_included=True,
+    )
+
+    assert sum(s.total_cents for s in result) == 9900000
+    assert {s.member: s.total_cents for s in result} == {
+        ME: 8700000 + 900000 - 1500000,
+        BAO: 2400000 + 900000 - 1500000,
+    }
+
+
+def test_a_bill_that_doesnt_add_up_is_split_on_the_recorded_items():
+    """Never block splitting: a misread total shouldn't stop friends settling up."""
+    lines = [item(1, 1000), item(2, 500)]
+
+    result = allocate([ME, BAO], lines, {1: [ME], 2: [BAO]}, {}, total_cents=2000)
+
+    assert [s.total_cents for s in result] == [1000, 500]
+    assert split_target(lines, 2000) == (1500, False)
+
+
+def test_split_target_uses_the_printed_total_when_it_matches():
+    lines = [item(1, 1000), item(2, 1001)]
+
+    assert split_target(lines, 2002) == (2002, True)  # within 2¢: the printed total wins
+    assert split_target([item(1, 9900000), item(2, 733333, "tax")], 9900000, tax_included=True) == (
+        9900000,
+        True,
+    )

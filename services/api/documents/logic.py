@@ -277,6 +277,7 @@ _SUMMARY_ATTRS = (
     "currency",
     "reviewOutcome",
     "failureReason",
+    "source",  # "email" for labelled emails read like a scan
 )
 
 
@@ -458,6 +459,7 @@ def _rechecked(lines: list[Line], doc_type: str | None) -> dict[str, Any]:
         "corrections": [],  # the person's labels replace any automatic relabelling
         "issues": rec.issues,
         "notes": rec.notes,
+        "taxIncluded": rec.tax_included,
         # Ready only when the corrected bill adds up; otherwise the issues say what's off.
         "status": "ready" if rec.ok else "needs_review",
     }

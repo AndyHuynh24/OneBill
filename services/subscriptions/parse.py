@@ -18,7 +18,7 @@ from typing import Any
 
 from documents.grounding import is_printed
 from shared.dates import parse_iso_date
-from shared.money import format_cents, to_cents
+from shared.money import format_cents, to_cents_loose
 from shared.pii import redact
 
 PROMPT_VERSION = "2026-10-01.1"
@@ -193,7 +193,7 @@ def _subscription(raw: Any, text: str, received: date) -> ParsedSubscription | N
     issues: list[str] = []
 
     amount_text = raw.get("amount") if isinstance(raw.get("amount"), str) else None
-    cents = to_cents(re.sub(r"[^\d.,()$-]", "", amount_text)) if amount_text else None
+    cents = to_cents_loose(amount_text) if amount_text else None
     if cents is not None and not is_printed(abs(cents), text):
         issues.append(f"The amount {format_cents(cents)} isn't printed in the email.")
         cents = None

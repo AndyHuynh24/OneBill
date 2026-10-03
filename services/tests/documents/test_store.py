@@ -50,7 +50,7 @@ def result(status="ready", obligations=()):
     )
 
 
-RETURN = Obligation("return_by", date(2026, 10, 28), "RETURNS ACCEPTED WITHIN 30 DAYS", 2618)
+RETURN = Obligation("payment_due", date(2026, 10, 28), "RETURNS ACCEPTED WITHIN 30 DAYS", 2618)
 
 
 # --- keys ---------------------------------------------------------------------------------------
@@ -135,7 +135,7 @@ def test_save_result_writes_document_and_obligations_atomically(table):
     assert obl["PK"] == f"USER#{USER}"
     assert obl["SK"].startswith("OBL#2026-10-28#")
     assert obl["GSI1SK"].startswith(f"USER#{USER}#OBL#")
-    assert obl["kind"] == "return_by"
+    assert obl["kind"] == "payment_due"
     assert obl["docId"] == DOC
     assert obl["vendor"] == "TARGET"
     assert obl["remindersSent"] == []

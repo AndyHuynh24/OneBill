@@ -27,6 +27,7 @@ from split.allocate import (
     SplitLine,
     allocate,
     one_person,
+    split_target,
 )
 from split.names import MAX_NAME
 
@@ -63,10 +64,12 @@ def save_split(
     ]
     if doc.get("totalCents") is None:
         raise BadRequest("This document has no total to split.")
+    tax_included = bool(doc.get("taxIncluded"))
     try:
-        shares = allocate(ids, lines, assignments, charges, int(doc["totalCents"]))
+        shares = allocate(ids, lines, assignments, charges, int(doc["totalCents"]), tax_included)
     except SplitError as err:
         raise BadRequest(str(err)) from err
+    target, matches = split_target(lines, int(doc["totalCents"]), tax_included)
 
     split = {
         "version": current + 1,
@@ -86,7 +89,11 @@ def save_split(
             }
             for s in shares
         ],
-        "totalCents": int(doc["totalCents"]),
+        "totalCents": target,
+        # When a misread total doesn't match the lines, the split uses the recorded lines.
+        "receiptTotalCents": int(doc["totalCents"]),
+        "matchesReceipt": matches,
+        "taxIncluded": tax_included,
         "updatedAt": now.isoformat(),
     }
     _store(table, user_id, doc_id, split, expected, seen)

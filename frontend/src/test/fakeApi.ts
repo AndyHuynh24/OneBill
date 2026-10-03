@@ -20,7 +20,7 @@ export const RECEIPT: DocumentDetail = {
     { row: 6, description: "CASH", kind: "payment", amountCents: 3000 },
     { row: 7, description: "CHANGE", kind: "change", amountCents: 382 },
   ],
-  obligations: [{ kind: "return_by", dueDate: "2026-10-28", evidence: "RETURNS WITHIN 30 DAYS" }],
+  obligations: [{ kind: "payment_due", dueDate: "2026-10-28", evidence: "PAY BY 10/28/2026" }],
 };
 
 /** A dinner whose lines add up (can be split). */

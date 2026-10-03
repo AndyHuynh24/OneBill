@@ -22,6 +22,7 @@ describe("SubscriptionSheet", () => {
 
     expect(screen.getByRole("heading", { name: "Netflix" })).toBeInTheDocument();
     expect(screen.getByText(/standard/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$15\.49 · Monthly/)).toBeInTheDocument();
     expect(screen.getByText(/nov 1, 2026/i)).toHaveTextContent(/estimated/i);
     expect(screen.getByRole("table", { name: /charges/i })).toHaveTextContent("$15.49");
   });

@@ -119,7 +119,7 @@ def test_parse_output_converts_amounts_to_cents_in_code():
     assert doc.document_date == "2026-09-28"
     assert doc.lines[5].amount_cents == -200  # "2.00-" parsed by code, not the model
     assert [line.row for line in doc.lines] == list(range(1, 12))
-    assert doc.deadlines[0].days_after_purchase == 30
+    assert doc.deadlines == []  # the fixture's return window isn't tracked: dropped quietly
 
 
 @pytest.mark.parametrize(
@@ -414,13 +414,53 @@ def test_repair_feedback_forbids_forcing_the_math():
 
 
 def test_prompt_version_is_current():
-    assert extraction.PROMPT_VERSION == "2026-10-01.2"
+    assert extraction.PROMPT_VERSION == "2026-10-02.3"
 
 
-def test_prompt_limits_receipt_deadlines_to_printed_return_policies():
-    assert "receipt" in extraction.SYSTEM_PROMPT
-    assert "only a return window" in extraction.SYSTEM_PROMPT
-    assert extraction.PROMPT_VERSION == "2026-10-01.2"
+def test_receipts_have_no_deadlines_and_return_windows_arent_tracked():
+    assert "A receipt has no deadlines" in extraction.SYSTEM_PROMPT
+    assert "return_by" not in extraction.DEADLINE_TYPES
+    assert extraction.PROMPT_VERSION == "2026-10-02.3"
+
+
+def test_prompt_says_a_sale_item_is_recorded_at_the_price_paid():
+    """Online orders (e.g. Walmart) print a sale price, the crossed-out original price, and
+    "$1.02 from savings" for one item. Only the sale price is part of the bill's arithmetic."""
+    prompt = extraction.SYSTEM_PROMPT
+    assert "price actually paid" in prompt
+    assert "crossed-out" in prompt
+    assert "from savings" in prompt
+    assert "already included" in prompt
+    # the model only sees OCR text, so the rule can't rely on size or color
+    assert "lower of the two" in prompt
+    assert "larger" not in prompt
+    assert "highlighted" not in prompt
+    # the same product bought in separate listings stays separate items
+    assert "can appear more than once" in prompt
+
+
+def test_sale_items_labelled_at_the_price_paid_reconcile():
+    """The labelling the prompt asks for (sale price = item, original price and per-item savings
+    = info) adds up to the printed subtotal; counting the original price or the savings would
+    not."""
+    from documents.reconcile import Line, reconcile
+
+    lines = [
+        Line(1, "AXE Aluminum-Free Deodorant Body Spray", "item", 396),
+        Line(2, "AXE Aluminum-Free Deodorant Body Spray (was)", "info", 498),
+        Line(3, "from savings", "info", 102),
+        Line(4, "Quaker Quick Oats", "item", 697),
+        Line(5, "Ziploc Sandwich Bags", "item", 448),
+        Line(6, "Ziploc Sandwich Bags (was)", "info", 598),
+        Line(7, "from savings", "info", 150),
+        Line(8, "Subtotal", "subtotal", 1541),
+        Line(9, "Free Delivery From Store", "fee", 0),
+        Line(10, "Free Delivery From Store (was)", "info", 897),
+        Line(11, "Taxes", "tax", 120),
+        Line(12, "Total", "total", 1661),
+    ]
+
+    assert reconcile(lines).ok
 
 
 def test_each_model_call_is_timed(bedrock, expense):

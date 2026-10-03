@@ -36,17 +36,19 @@ describe("DocumentSheet", () => {
     renderSheet(fakeApi());
 
     expect(await screen.findByText(/hard to read/i)).toBeInTheDocument();
-    expect(screen.getByText(/Return by/)).toBeInTheDocument();
+    expect(screen.getByText(/Payment due/)).toBeInTheDocument();
     expect(screen.getByText(/Oct 28, 2026/)).toBeInTheDocument();
   });
 
-  it("'Looks right' accepts the extraction and closes", async () => {
+  it("'Looks right' accepts the extraction, then offers to split (any bill with items)", async () => {
     const api = fakeApi();
     const { onClose } = renderSheet(api);
 
     await userEvent.click(await screen.findByRole("button", { name: /looks right/i }));
 
     expect(api.reviewDocument).toHaveBeenCalledWith(RECEIPT.docId, { action: "accept" });
+    expect(await screen.findByText(/split this bill\?/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /just me/i }));
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -81,7 +83,7 @@ describe("DocumentSheet", () => {
 
     expect(api.reviewDocument).toHaveBeenCalledWith(RECEIPT.docId, {
       action: "correct",
-      fields: { deadlines: [{ kind: "return_by", dueDate: "2026-11-15" }] },
+      fields: { deadlines: [{ kind: "payment_due", dueDate: "2026-11-15" }] },
     });
   });
 
@@ -214,10 +216,10 @@ describe("DocumentSheet", () => {
     expect(await screen.findByRole("heading", { name: /who's here/i })).toBeInTheDocument();
   });
 
-  it("a bill that doesn't add up can't be split until it's fixed", async () => {
+  it("a bill that doesn't add up can still be split (on its recorded items)", async () => {
     renderSheet(fakeApi({ getDocument: vi.fn().mockResolvedValue({ ...RECEIPT, status: "ready" }) }));
 
-    expect(await screen.findByRole("button", { name: /fix items to split/i })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /split bill/i })).toBeEnabled();
   });
 
   it("Delete removes the document after a confirm", async () => {

@@ -19,7 +19,6 @@ from subscriptions.store import advance_past_renewal
 OFFSETS = (7, 3, 1)
 KIND_LABELS = {
     "payment_due": "Payment due",
-    "return_by": "Return window closes",
     "warranty_expires": "Warranty expires",
     "renewal": "Renews",
     "trial_ends": "Trial ends",
