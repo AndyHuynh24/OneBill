@@ -24,7 +24,8 @@ describe("Looks right → Split this bill? (inside Home)", () => {
     const api = fakeApi({
       listDocuments: vi.fn().mockResolvedValueOnce({ ...list("x"), documents: [] }).mockResolvedValue(list("ready")),
       uploadDocument: vi.fn().mockResolvedValue(DINNER.docId),
-      getDocument: vi.fn().mockResolvedValue(DINNER),
+      // "Everything looks right" shows when something needs a look; a clean bill shows Split bill.
+      getDocument: vi.fn().mockResolvedValue({ ...DINNER, status: "needs_review" }),
       reviewDocument: vi.fn().mockResolvedValue({ ...DINNER, reviewOutcome: "accepted" }),
     });
     renderHome(api);
@@ -39,7 +40,8 @@ describe("Looks right → Split this bill? (inside Home)", () => {
   it("after opening a receipt from Recent", async () => {
     const api = fakeApi({
       listDocuments: vi.fn().mockResolvedValue(list("ready")),
-      getDocument: vi.fn().mockResolvedValue(DINNER),
+      // "Everything looks right" shows when something needs a look; a clean bill shows Split bill.
+      getDocument: vi.fn().mockResolvedValue({ ...DINNER, status: "needs_review" }),
       reviewDocument: vi.fn().mockResolvedValue({ ...DINNER, reviewOutcome: "accepted" }),
     });
     renderHome(api);

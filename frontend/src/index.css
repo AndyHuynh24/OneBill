@@ -1562,3 +1562,100 @@ button.check-ok:hover:not(:disabled) {
   color: var(--warn-text);
   vertical-align: middle;
 }
+
+/* --- Fix in place (phase 2d): tap a line, edit it right there --- */
+button.line-tap {
+  all: unset;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0.05rem 0.2rem;
+  margin: -0.05rem -0.2rem;
+  border-bottom: 1px dashed transparent;
+}
+button.line-tap:hover,
+button.line-tap:focus-visible {
+  background: var(--surface-2);
+  border-bottom-color: var(--muted);
+}
+button.amount-tap {
+  font-variant-numeric: tabular-nums;
+}
+.inline-tap {
+  font: inherit;
+}
+.inline-form {
+  display: inline-block;
+}
+.inline-form input {
+  font: inherit;
+  padding: 0.15rem 0.4rem;
+  max-width: 14rem;
+}
+.edit-hint {
+  margin: 0.4rem 0 -0.2rem;
+  font-size: 0.8rem;
+}
+.lines tr.line-editing td {
+  background: var(--surface-2);
+}
+.line-editor {
+  display: grid;
+  grid-template-columns: 1fr 6.5rem;
+  gap: 0.45rem;
+  padding: 0.25rem 0;
+}
+.line-editor select,
+.line-editor .line-editor-actions,
+.line-editor .error {
+  grid-column: 1 / -1;
+}
+.line-editor .line-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.line-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.line-editor-actions .danger {
+  margin-left: auto;
+}
+.line-editing-new {
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.add-line {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+}
+button.check-use {
+  padding: 0.2rem 0.6rem;
+  min-height: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: none;
+}
+.saved-note {
+  margin: 0.3rem 0;
+  font-size: 0.85rem;
+  color: var(--warn-text);
+}
+.saved-note.ok {
+  color: var(--success);
+}
+.not-counted {
+  margin-top: 0.6rem;
+}
+.not-counted summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}

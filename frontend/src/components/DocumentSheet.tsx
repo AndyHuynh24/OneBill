@@ -1,15 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type {
-  Confidence,
-  CorrectionFields,
-  DocumentDetail,
-  DocumentLine,
-  LineKind,
-  OneTallyApi,
-  ReviewRequest,
-} from "../api";
-import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars, parseSignedDollars } from "../format";
+import type { Confidence, CorrectionFields, OneTallyApi, ReviewRequest } from "../api";
+import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars } from "../format";
+import { BillLines, type LineCheck, type LineInput } from "./BillLines";
 import { canSplit } from "../split";
 import { ScanProgress } from "./ScanProgress";
 import { SplitFlow } from "./SplitFlow";
@@ -25,7 +18,7 @@ interface DocumentSheetProps {
   onClose: () => void;
 }
 
-/** Detail view as a bottom sheet: what was read, why it may need a look, and Looks right / Fix. */
+/** Detail view as a bottom sheet: what was read, how sure we are, and fixing any of it in place. */
 export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   const queryClient = useQueryClient();
   const { data: doc, error, isPending } = useQuery({
@@ -34,9 +27,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     // Still being read: keep checking so the sheet turns into the bill the moment it's done.
     refetchInterval: (query) => (isReading(query.state.data?.status) ? 1500 : false),
   });
-  const [mode, setMode] = useState<"view" | "edit" | "ask" | "split" | "confirm-delete">("view");
-  const editing = mode === "edit";
-  const setEditing = (on: boolean) => setMode(on ? "edit" : "view");
+  const [mode, setMode] = useState<"view" | "ask" | "split" | "confirm-delete">("view");
 
   const review = useMutation({
     mutationFn: (request: ReviewRequest) => api.reviewDocument(docId, request),
@@ -64,11 +55,32 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
   });
-  const checks = new Map((doc?.confidence?.checks ?? []).map((c) => [c.row, c.reason]));
-  const lineTableProps = {
+  // A fix made in place: the server re-adds everything (code, no AI) and says if it adds up now.
+  const [saved, setSaved] = useState<string | null>(null);
+  const edit = useMutation({
+    mutationFn: (fields: CorrectionFields) => api.reviewDocument(docId, { action: "correct", fields }),
+    onSuccess: (updated, fields) => {
+      queryClient.setQueryData(["document", docId], updated);
+      for (const key of [["documents"], ["obligations"]]) queryClient.invalidateQueries({ queryKey: key });
+      if (!fields.lines && fields.totalCents === undefined) setSaved("Saved.");
+      else if (updated.status === "ready") setSaved("Saved. ✓ It adds up now.");
+      else setSaved("Saved. It still doesn't add up: see what's off above.");
+    },
+    onMutate: () => setSaved(null),
+  });
+  const checks = new Map<number, LineCheck>(
+    (doc?.confidence?.checks ?? []).map((c) => [c.row, { reason: c.reason, suggestedCents: c.suggestedCents }]),
+  );
+  const editable = doc?.status === "ready" || doc?.status === "needs_review";
+  const lineProps = {
+    allLines: doc?.lines ?? [],
+    currency: doc?.currency ?? "USD",
     checks,
     confirming: confirm.isPending ? confirm.variables : undefined,
     onConfirm: (row: number) => confirm.mutate(row),
+    saving: edit.isPending,
+    onSave: (lines: LineInput[]) => edit.mutate({ lines }),
+    editable,
   };
 
   const remove = useMutation({
@@ -80,7 +92,11 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   });
 
   const currency = doc?.currency ?? "USD";
-  const reviewable = doc?.status === "ready" || doc?.status === "needs_review";
+  const flagged = !!doc?.confidence?.checks.length;
+  const deadlines = (doc?.obligations ?? [])
+    .filter((o) => o.kind in DEADLINE_LABELS)
+    .map((o) => ({ kind: o.kind, dueDate: o.dueDate }));
+  const notCounted = (doc?.lines ?? []).filter((l) => l.kind === "info");
   const splittable = !!doc && canSplit(doc.lines);
 
   return (
@@ -93,7 +109,21 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
         onClick={(event) => event.stopPropagation()}
       >
         <header className="sheet-header">
-          <h2 id="sheet-title">{isReading(doc?.status) ? "Reading your bill" : doc?.vendor || doc?.filename || "Document"}</h2>
+          <h2 id="sheet-title">
+            {isReading(doc?.status) || !doc ? (
+              "Reading your bill"
+            ) : editable ? (
+              <InlineText
+                label="Vendor"
+                value={doc.vendor ?? ""}
+                display={doc.vendor || doc.filename || "Document"}
+                saving={edit.isPending}
+                onSave={(vendor) => edit.mutate({ vendor: vendor || null })}
+              />
+            ) : (
+              doc.vendor || doc.filename || "Document"
+            )}
+          </h2>
           <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
             ×
           </button>
@@ -110,17 +140,50 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
         {doc && !isReading(doc.status) && (
           <>
             {/* Missing fields are simply left out: a receipt without a printed date isn't an error. */}
-            {(doc.documentDate || doc.totalCents != null) && (
+            {editable ? (
               <p className="sheet-meta">
-                {doc.documentDate && formatDate(doc.documentDate)}
-                {doc.documentDate && doc.totalCents != null && " · "}
-                {doc.totalCents != null && <strong>{formatCents(doc.totalCents, currency)}</strong>}
+                <InlineText
+                  label="Date"
+                  type="date"
+                  value={doc.documentDate ?? ""}
+                  display={doc.documentDate ? formatDate(doc.documentDate) : "Add date"}
+                  saving={edit.isPending}
+                  onSave={(date) => edit.mutate({ documentDate: date || null })}
+                />
+                {doc.totalCents != null && " · "}
+                {doc.lines?.length ? (
+                  doc.totalCents != null && <strong>{formatCents(doc.totalCents, currency)}</strong>
+                ) : (
+                  // No lines (e.g. a warranty): the total itself is what you fix.
+                  <InlineText
+                    label="Total"
+                    type="money"
+                    value={doc.totalCents != null ? centsToInput(doc.totalCents) : ""}
+                    display={<strong>{doc.totalCents != null ? formatCents(doc.totalCents, currency) : "Add total"}</strong>}
+                    saving={edit.isPending}
+                    validate={(total) => (parseDollars(total) === null ? "Enter the total like 26.81." : null)}
+                    onSave={(total) => edit.mutate({ totalCents: parseDollars(total)! })}
+                  />
+                )}
               </p>
+            ) : (
+              (doc.documentDate || doc.totalCents != null) && (
+                <p className="sheet-meta">
+                  {doc.documentDate && formatDate(doc.documentDate)}
+                  {doc.documentDate && doc.totalCents != null && " · "}
+                  {doc.totalCents != null && <strong>{formatCents(doc.totalCents, currency)}</strong>}
+                </p>
+              )
             )}
 
             {doc.status === "failed" && <p className="notice notice-error">{doc.failureReason}</p>}
 
             {mode === "view" && <ConfidenceBanner confidence={doc.confidence} />}
+            {mode === "view" && saved && (
+              <p className={`saved-note ${doc.status === "ready" ? "ok" : ""}`} role="status">
+                {saved}
+              </p>
+            )}
 
             {!!doc.issues?.length && (
               <div className="notice notice-warn">
@@ -147,60 +210,62 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   </button>
                 </div>
               </div>
-            ) : editing ? (
-              <ReviewForm
-                doc={doc}
-                saving={review.isPending}
-                onCancel={() => setEditing(false)}
-                onSave={(fields) => review.mutate({ action: "correct", fields })}
-              />
             ) : (
               <>
-                <LineTable
+                {editable && !!doc.lines?.length && <p className="muted edit-hint">Tap any line to fix it.</p>}
+                <BillLines
                   label="Items"
                   lines={(doc.lines ?? []).filter((l) => ITEM_KINDS.has(l.kind))}
-                  currency={currency}
-                  {...lineTableProps}
+                  addKind={doc.lines?.length ? "item" : undefined}
+                  {...lineProps}
                 />
-                <LineTable
+                <BillLines
                   label="Summary"
                   lines={(doc.lines ?? []).filter((l) => SUMMARY_KINDS.has(l.kind))}
-                  currency={currency}
                   showKind
-                  {...lineTableProps}
+                  {...lineProps}
                 />
+                {!!notCounted.length && (
+                  <details className="not-counted">
+                    <summary>
+                      {notCounted.length} line{notCounted.length === 1 ? "" : "s"} not counted (notes, crossed-out prices)
+                    </summary>
+                    <BillLines label="Not counted" lines={notCounted} showKind {...lineProps} />
+                  </details>
+                )}
                 {doc.taxIncluded && (
                   <p className="muted tax-note">
                     Prices include tax
                     {doc.taxCents ? ` (${formatCents(doc.taxCents, currency)} of the total)` : ""}.
                   </p>
                 )}
-                {!!doc.obligations?.some((o) => o.kind in DEADLINE_LABELS) && (
-                  <div className="sheet-section">
-                    <h3>Deadlines</h3>
-                    <ul className="plain-list">
-                      {doc.obligations.filter((o) => o.kind in DEADLINE_LABELS).map((o) => (
-                        <li key={`${o.kind}-${o.dueDate}`}>
-                          {DEADLINE_LABELS[o.kind] ?? o.kind}: {formatDate(o.dueDate)}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                {editable ? (
+                  (!!deadlines.length || doc.docType !== "receipt") && (
+                    <Deadlines deadlines={deadlines} saving={edit.isPending} onSave={(d) => edit.mutate({ deadlines: d })} />
+                  )
+                ) : (
+                  !!deadlines.length && (
+                    <div className="sheet-section">
+                      <h3>Deadlines</h3>
+                      <ul className="plain-list">
+                        {deadlines.map((o) => (
+                          <li key={`${o.kind}-${o.dueDate}`}>
+                            {DEADLINE_LABELS[o.kind] ?? o.kind}: {formatDate(o.dueDate)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )
                 )}
-                {reviewable && (
-                  <div className="sheet-actions pair">
-                    <button
-                      type="button"
-                      className="soft"
-                      disabled={review.isPending}
-                      onClick={() => review.mutate({ action: "accept" })}
-                    >
-                      Looks right
-                    </button>
-                    <button type="button" onClick={() => setEditing(true)}>
-                      Fix
-                    </button>
-                  </div>
+                {editable && (doc.status === "needs_review" || flagged) && (
+                  <button
+                    type="button"
+                    className="btn-block soft"
+                    disabled={review.isPending}
+                    onClick={() => review.mutate({ action: "accept" })}
+                  >
+                    ✓ Everything looks right
+                  </button>
                 )}
                 {doc.status === "ready" && (
                   <button
@@ -235,11 +300,11 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                 {remove.error.message}
               </p>
             )}
-            {review.error && (
-              <p role="alert" className="error">
-                {review.error.message}
+            {[review.error, edit.error, confirm.error].filter(Boolean).map((e) => (
+              <p key={e!.message} role="alert" className="error">
+                {e!.message}
               </p>
-            )}
+            ))}
           </>
         )}
       </section>
@@ -247,15 +312,6 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   );
 }
 
-const KIND_NAMES: Record<string, string> = {
-  subtotal: "Subtotal",
-  tax: "Tax",
-  tip: "Tip",
-  total: "Total",
-  payment: "Paid",
-  change: "Change",
-  balance_due: "Amount due",
-};
 
 /** One line on top of the bill: how sure the reading is. */
 function ConfidenceBanner({ confidence }: { confidence?: Confidence }) {
@@ -281,59 +337,80 @@ function ConfidenceBanner({ confidence }: { confidence?: Confidence }) {
   return null; // "check" without a culprit: the "Worth a look" box already explains
 }
 
-function LineTable({
+function InlineText({
   label,
-  lines,
-  currency,
-  showKind = false,
-  checks,
-  confirming,
-  onConfirm,
+  value,
+  display,
+  type = "text",
+  saving,
+  onSave,
+  validate,
 }: {
   label: string;
-  lines: DocumentLine[];
-  currency: string;
-  showKind?: boolean;
-  /** Flagged rows and why ("Hard to read on the photo"). */
-  checks: Map<number, string>;
-  confirming?: number;
-  onConfirm: (row: number) => void;
+  value: string;
+  display: React.ReactNode;
+  type?: "text" | "date" | "money";
+  saving: boolean;
+  onSave: (value: string) => void;
+  /** A message when the value can't be saved (e.g. "Enter the total like 26.81"). */
+  validate?: (value: string) => string | null;
 }) {
-  if (!lines.length) return null;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [problem, setProblem] = useState<string | null>(null);
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="line-tap inline-tap"
+        aria-label={`Edit ${label.toLowerCase()}`}
+        onClick={() => {
+          setDraft(value);
+          setEditing(true);
+        }}
+      >
+        {display}
+      </button>
+    );
+  }
+  const finish = () => {
+    const error = draft.trim() !== value && validate ? validate(draft.trim()) : null;
+    setProblem(error);
+    if (error) return;
+    setEditing(false);
+    if (draft.trim() !== value) onSave(draft.trim());
+  };
   return (
-    <div className="sheet-section">
-      <h3>{label}</h3>
-      <table className="lines" aria-label={label}>
-        <tbody>
-          {lines.map((line) => {
-            const reason = checks.get(line.row);
-            return (
-              <tr key={line.row} className={reason ? "line-check" : undefined}>
-                <td>
-                  {line.description}
-                  {showKind && <span className="kind"> {KIND_NAMES[line.kind]}</span>}
-                  {reason && (
-                    <span className="check-row">
-                      <span className="check-reason">{reason}</span>
-                      <button
-                        type="button"
-                        className="check-ok"
-                        aria-label={`Looks right: ${line.description} ${formatCents(line.amountCents, currency)}`}
-                        disabled={confirming !== undefined}
-                        onClick={() => onConfirm(line.row)}
-                      >
-                        {confirming === line.row ? "Saving…" : "✓ Looks right"}
-                      </button>
-                    </span>
-                  )}
-                </td>
-                <td className="amount">{formatCents(line.amountCents, currency)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <form
+      className="inline-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        finish();
+      }}
+    >
+      <input
+        aria-label={label}
+        type={type === "date" ? "date" : "text"}
+        inputMode={type === "money" ? "decimal" : undefined}
+        value={draft}
+        autoFocus
+        maxLength={200}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={finish}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            setEditing(false);
+          }
+        }}
+        disabled={saving}
+      />
+      {problem && (
+        <span role="alert" className="error inline-error">
+          {problem}
+        </span>
+      )}
+    </form>
   );
 }
 
@@ -342,215 +419,93 @@ interface DeadlineDraft {
   dueDate: string;
 }
 
-interface LineDraft {
-  description: string;
-  kind: LineKind;
-  amount: string;
-}
-
-/** Every kind a line can be, in the words people use. */
-const LINE_KIND_LABELS: Record<LineKind, string> = {
-  item: "Item",
-  discount: "Discount",
-  fee: "Fee",
-  tax: "Tax",
-  tip: "Tip",
-  subtotal: "Subtotal",
-  total: "Total",
-  payment: "Paid",
-  change: "Change",
-  balance_due: "Amount due",
-  info: "Note (not money)",
-};
-
-const lineDrafts = (lines: DocumentLine[] = []): LineDraft[] =>
-  lines.map((l) => ({ description: l.description, kind: l.kind, amount: centsToInput(l.amountCents) }));
-
-function ReviewForm({
-  doc,
+/** Deadlines you fix in place: tap one to change it, or add one. */
+function Deadlines({
+  deadlines,
   saving,
   onSave,
-  onCancel,
 }: {
-  doc: DocumentDetail;
+  deadlines: DeadlineDraft[];
   saving: boolean;
-  onSave: (fields: CorrectionFields) => void;
-  onCancel: () => void;
+  onSave: (deadlines: DeadlineDraft[]) => void;
 }) {
-  // Kinds no longer tracked (old "return by" reminders) are left out, so saving drops them.
-  const originalDeadlines: DeadlineDraft[] = (doc.obligations ?? [])
-    .filter((o) => o.kind in DEADLINE_LABELS)
-    .map((o) => ({ kind: o.kind, dueDate: o.dueDate }));
-  const [vendor, setVendor] = useState(doc.vendor ?? "");
-  const [date, setDate] = useState(doc.documentDate ?? "");
-  const [total, setTotal] = useState(doc.totalCents != null ? centsToInput(doc.totalCents) : "");
-  const [deadlines, setDeadlines] = useState<DeadlineDraft[]>(originalDeadlines);
-  const [lines, setLines] = useState<LineDraft[]>(() => lineDrafts(doc.lines));
-  const [problem, setProblem] = useState<string | null>(null);
-  const editsLines = !!doc.lines?.length;
-
-  function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const fields: CorrectionFields = {};
-    if (vendor.trim() !== (doc.vendor ?? "")) fields.vendor = vendor.trim() || null;
-    if (date !== (doc.documentDate ?? "")) fields.documentDate = date || null;
-    if (editsLines) {
-      const parsed = [];
-      for (const [i, line] of lines.entries()) {
-        const amountCents = parseSignedDollars(line.amount);
-        if (!line.description.trim()) {
-          setProblem(`Line ${i + 1} needs a description.`);
-          return;
-        }
-        if (amountCents === null) {
-          setProblem(`Line ${i + 1}: enter an amount like 4.19.`);
-          return;
-        }
-        parsed.push({ description: line.description.trim(), kind: line.kind, amountCents });
-      }
-      const original = (doc.lines ?? []).map(({ description, kind, amountCents }) => ({ description, kind, amountCents }));
-      if (JSON.stringify(parsed) !== JSON.stringify(original)) fields.lines = parsed;
-    } else if (total !== (doc.totalCents != null ? centsToInput(doc.totalCents) : "")) {
-      const cents = parseDollars(total);
-      if (cents === null) {
-        setProblem("Enter the total as an amount like 26.81.");
-        return;
-      }
-      fields.totalCents = cents;
-    }
-    if (deadlines.some((d) => !d.dueDate)) {
-      setProblem("Each deadline needs a date.");
-      return;
-    }
-    if (JSON.stringify(deadlines) !== JSON.stringify(originalDeadlines)) fields.deadlines = deadlines;
-    if (!Object.keys(fields).length) {
-      setProblem("Nothing changed. Use Looks right if everything is correct.");
-      return;
-    }
-    setProblem(null);
-    onSave(fields);
-  }
-
-  const updateLine = (index: number, patch: Partial<LineDraft>) =>
-    setLines((current) => current.map((l, i) => (i === index ? { ...l, ...patch } : l)));
-  const updateDeadline = (index: number, patch: Partial<DeadlineDraft>) =>
-    setDeadlines((current) => current.map((d, i) => (i === index ? { ...d, ...patch } : d)));
-
-  return (
-    <form className="review-form" onSubmit={submit}>
-      <label>
-        Vendor
-        <input value={vendor} onChange={(e) => setVendor(e.target.value)} maxLength={200} />
-      </label>
-      <label>
-        Date
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      </label>
-      {editsLines ? (
-        <fieldset>
-          <legend>Lines</legend>
-          {lines.map((line, i) => (
-            <div key={i} className="line-row">
-              <input
-                aria-label={`Line ${i + 1} description`}
-                value={line.description}
-                maxLength={120}
-                onChange={(e) => updateLine(i, { description: e.target.value })}
-              />
-              <input
-                aria-label={`Line ${i + 1} amount`}
-                inputMode="decimal"
-                className="line-amount"
-                value={line.amount}
-                onChange={(e) => updateLine(i, { amount: e.target.value })}
-              />
-              <select
-                aria-label={`Line ${i + 1} kind`}
-                value={line.kind}
-                onChange={(e) => updateLine(i, { kind: e.target.value as LineKind })}
-              >
-                {Object.entries(LINE_KIND_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={`Remove line ${i + 1}`}
-                onClick={() => setLines((current) => current.filter((_, j) => j !== i))}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          {lines.length < 200 && (
-            <button
-              type="button"
-              onClick={() => setLines((current) => [...current, { description: "", kind: "item", amount: "" }])}
-            >
-              Add line
-            </button>
-          )}
-        </fieldset>
-      ) : (
-        <label>
-          Total
-          <input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} />
-        </label>
-      )}
-
-      <fieldset>
-        <legend>Deadlines</legend>
-        {deadlines.map((d, i) => (
-          <div key={i} className="deadline-row">
-            <select
-              aria-label={`Deadline ${i + 1} type`}
-              value={d.kind}
-              onChange={(e) => updateDeadline(i, { kind: e.target.value })}
-            >
-              {Object.entries(DEADLINE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <input
-              type="date"
-              aria-label={`Deadline ${i + 1} date`}
-              value={d.dueDate}
-              onChange={(e) => updateDeadline(i, { dueDate: e.target.value })}
-            />
-            <button
-              type="button"
-              aria-label={`Remove deadline ${i + 1}`}
-              onClick={() => setDeadlines((current) => current.filter((_, j) => j !== i))}
-            >
-              Remove
-            </button>
-          </div>
+  const [editing, setEditing] = useState<number | null>(null);
+  const [draft, setDraft] = useState<DeadlineDraft>({ kind: "payment_due", dueDate: "" });
+  const open = (i: number) => {
+    setDraft(i < deadlines.length ? deadlines[i] : { kind: "payment_due", dueDate: "" });
+    setEditing(i);
+  };
+  const save = (next: DeadlineDraft[]) => {
+    onSave(next);
+    setEditing(null);
+  };
+  const editor = (i: number) => (
+    <form
+      className="line-editor"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!draft.dueDate) return;
+        save(i < deadlines.length ? deadlines.map((d, j) => (j === i ? draft : d)) : [...deadlines, draft]);
+      }}
+    >
+      <select aria-label="Deadline type" value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })}>
+        {Object.entries(DEADLINE_LABELS).map(([value, name]) => (
+          <option key={value} value={value}>
+            {name}
+          </option>
         ))}
-        {deadlines.length < 10 && (
-          <button type="button" onClick={() => setDeadlines((current) => [...current, { kind: "payment_due", dueDate: "" }])}>
-            Add deadline
-          </button>
-        )}
-      </fieldset>
-
-      {problem && (
-        <p role="alert" className="error">
-          {problem}
-        </p>
-      )}
-      <div className="sheet-actions">
-        <button type="submit" className="primary" disabled={saving}>
+      </select>
+      <input
+        type="date"
+        aria-label="Deadline date"
+        value={draft.dueDate}
+        onChange={(e) => setDraft({ ...draft, dueDate: e.target.value })}
+      />
+      <div className="line-editor-actions">
+        <button type="submit" className="primary" disabled={saving || !draft.dueDate}>
           Save
         </button>
-        <button type="button" onClick={onCancel}>
+        <button type="button" onClick={() => setEditing(null)}>
           Cancel
         </button>
+        {i < deadlines.length && (
+          <button
+            type="button"
+            className="link-button danger"
+            onClick={() => save(deadlines.filter((_, j) => j !== i))}
+          >
+            Remove
+          </button>
+        )}
       </div>
     </form>
+  );
+
+  return (
+    <div className="sheet-section">
+      <h3>Deadlines</h3>
+      <ul className="plain-list">
+        {deadlines.map((d, i) => (
+          <li key={`${d.kind}-${d.dueDate}-${i}`}>
+            {editing === i ? (
+              editor(i)
+            ) : (
+              <button type="button" className="line-tap" onClick={() => open(i)}>
+                {DEADLINE_LABELS[d.kind] ?? d.kind}: {formatDate(d.dueDate)}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {editing === deadlines.length ? (
+        editor(deadlines.length)
+      ) : (
+        deadlines.length < 10 && (
+          <button type="button" className="link-button add-line" onClick={() => open(deadlines.length)}>
+            + Add deadline
+          </button>
+        )
+      )}
+    </div>
   );
 }

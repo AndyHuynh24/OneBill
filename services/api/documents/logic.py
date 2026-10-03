@@ -11,6 +11,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from documents.confidence import after_edit
 from documents.extraction import DEADLINE_TYPES, LINE_KINDS, NO_TOTAL_TYPES
 from documents.reconcile import Line, check
 from documents.store import obligation_item
@@ -348,10 +349,15 @@ def review_document(
                 {"kind": item["kind"], "dueDate": item["dueDate"], "evidence": item["evidence"]}
                 for item in puts
             ]
-        # The user went through the bill: flags are cleared, unless the fixed lines still
-        # don't add up.
-        checked = updates.get("status") == "ready"
-        updates["confidence"] = {"level": "confirmed" if checked else "check", "checks": []}
+        if lines is not None:
+            # Edited lines are trusted; flags on untouched lines stay; if it still doesn't add
+            # up, fresh one-digit suggestions are offered. Pure math: no OCR, no model.
+            updates["confidence"] = after_edit(
+                _plain(current.get("confidence") or {}),
+                _stored_lines(current),
+                lines,
+                total_required=current.get("docType") not in NO_TOTAL_TYPES,
+            )
 
     _write_review(
         table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys, removes=removes
@@ -471,6 +477,13 @@ def _rechecked(lines: list[Line], doc_type: str | None) -> dict[str, Any]:
         # Ready only when the corrected bill adds up; otherwise the issues say what's off.
         "status": "ready" if rec.ok else "needs_review",
     }
+
+
+def _stored_lines(item: dict[str, Any]) -> list[Line]:
+    return [
+        Line(int(x["row"]), x["description"], x["kind"], int(x["amountCents"]))
+        for x in item.get("lines", [])
+    ]
 
 
 def _validated_lines(raw: Any) -> list[Line]:

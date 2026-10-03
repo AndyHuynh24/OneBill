@@ -52,34 +52,37 @@ describe("DocumentSheet", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("'Fix' sends only the fields that changed", async () => {
-    const api = fakeApi({ getDocument: vi.fn().mockResolvedValue({ ...RECEIPT, lines: undefined }) });
+  it("vendor and total are fixed in place (a bill without lines)", async () => {
+    const noLines = { ...RECEIPT, lines: undefined };
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue(noLines),
+      reviewDocument: vi.fn().mockResolvedValue(noLines),
+    });
     renderSheet(api);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^fix$/i }));
-    const vendor = screen.getByLabelText(/vendor/i);
-    await userEvent.clear(vendor);
-    await userEvent.type(vendor, "Target");
-    const total = screen.getByLabelText(/total/i);
-    await userEvent.clear(total);
-    await userEvent.type(total, "26.81");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /edit vendor/i }));
+    await userEvent.type(screen.getByLabelText("Vendor"), "{Control>}a{/Control}Target{Enter}");
+    expect(api.reviewDocument).toHaveBeenCalledWith(RECEIPT.docId, { action: "correct", fields: { vendor: "Target" } });
 
-    expect(api.reviewDocument).toHaveBeenCalledWith(RECEIPT.docId, {
+    await userEvent.click(await screen.findByRole("button", { name: /edit total/i }));
+    const total = screen.getByLabelText("Total");
+    await userEvent.clear(total);
+    await userEvent.type(total, "26.81{Enter}");
+    expect(api.reviewDocument).toHaveBeenLastCalledWith(RECEIPT.docId, {
       action: "correct",
-      fields: { vendor: "Target", totalCents: 2681 },
+      fields: { totalCents: 2681 },
     });
   });
 
-  it("can change a deadline date", async () => {
+  it("can change a deadline date in place", async () => {
     const api = fakeApi();
     renderSheet(api);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^fix$/i }));
-    const due = screen.getByLabelText(/deadline 1 date/i);
+    await userEvent.click(await screen.findByRole("button", { name: /payment due: oct 28, 2026/i }));
+    const due = screen.getByLabelText(/deadline date/i);
     await userEvent.clear(due);
     await userEvent.type(due, "2026-11-15");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(api.reviewDocument).toHaveBeenCalledWith(RECEIPT.docId, {
       action: "correct",
@@ -87,19 +90,16 @@ describe("DocumentSheet", () => {
     });
   });
 
-  it("Fix edits individual lines and sends them (rows are numbered by the server)", async () => {
+  it("tapping a line edits it in place and sends every line (rows are numbered by the server)", async () => {
     const api = fakeApi();
     renderSheet(api);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^fix$/i }));
-    const bananas = screen.getByLabelText("Line 1 amount");
-    await userEvent.clear(bananas);
-    await userEvent.type(bananas, "1.92");
-    await userEvent.click(screen.getByRole("button", { name: "Remove line 7" })); // CHANGE
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /edit amount of bananas/i }));
+    const amount = screen.getByLabelText("Amount");
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "1.92{Enter}");
 
-    const fields = vi.mocked(api.reviewDocument).mock.calls[0][1];
-    expect(fields).toEqual({
+    expect(vi.mocked(api.reviewDocument).mock.calls[0][1]).toEqual({
       action: "correct",
       fields: {
         lines: [
@@ -109,39 +109,43 @@ describe("DocumentSheet", () => {
           { description: "TAX", kind: "tax", amountCents: 170 },
           { description: "TOTAL", kind: "total", amountCents: 2618 },
           { description: "CASH", kind: "payment", amountCents: 3000 },
+          { description: "CHANGE", kind: "change", amountCents: 382 },
         ],
       },
     });
   });
 
-  it("can add a missing line and change a line's kind", async () => {
+  it("can remove a line, change a line's kind, and add a missing item", async () => {
     const api = fakeApi();
     renderSheet(api);
+    const sent = () => (vi.mocked(api.reviewDocument).mock.lastCall![1] as { fields: { lines: unknown[] } }).fields.lines;
 
-    await userEvent.click(await screen.findByRole("button", { name: /^fix$/i }));
-    await userEvent.click(screen.getByRole("button", { name: /add line/i }));
-    await userEvent.type(screen.getByLabelText("Line 8 description"), "MILK");
-    await userEvent.type(screen.getByLabelText("Line 8 amount"), "4.19");
-    await userEvent.selectOptions(screen.getByLabelText("Line 6 kind"), "info");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^edit change$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /remove line/i }));
+    expect(sent()).toHaveLength(6);
 
-    const { fields } = vi.mocked(api.reviewDocument).mock.calls[0][1] as { fields: { lines: unknown[] } };
-    expect(fields.lines).toHaveLength(8);
-    expect(fields.lines[5]).toMatchObject({ description: "CASH", kind: "info" });
-    expect(fields.lines[7]).toEqual({ description: "MILK", kind: "item", amountCents: 419 });
+    await userEvent.click(await screen.findByRole("button", { name: /^edit cash$/i }));
+    await userEvent.selectOptions(screen.getByLabelText("Kind"), "info");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(sent()[5]).toMatchObject({ description: "CASH", kind: "info" });
+
+    await userEvent.click(screen.getByRole("button", { name: /add item/i }));
+    await userEvent.type(screen.getByLabelText("Name"), "MILK");
+    await userEvent.type(screen.getByLabelText("Amount"), "4.19{Enter}");
+    expect(sent()).toHaveLength(8);
+    expect(sent()[2]).toEqual({ description: "MILK", kind: "item", amountCents: 419 }); // after the items
   });
 
-  it("names the line with an unreadable amount instead of saving", async () => {
+  it("an unreadable amount is explained instead of saved", async () => {
     const api = fakeApi();
     renderSheet(api);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^fix$/i }));
-    const tax = screen.getByLabelText("Line 4 amount");
+    await userEvent.click(await screen.findByRole("button", { name: /edit amount of tax/i }));
+    const tax = screen.getByLabelText("Amount");
     await userEvent.clear(tax);
-    await userEvent.type(tax, "one seventy");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.type(tax, "one seventy{Enter}");
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/line 4/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/amount like/i);
     expect(api.reviewDocument).not.toHaveBeenCalled();
   });
 
@@ -149,14 +153,28 @@ describe("DocumentSheet", () => {
     const api = fakeApi({ getDocument: vi.fn().mockResolvedValue({ ...RECEIPT, lines: undefined }) });
     renderSheet(api);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^fix$/i }));
-    const total = screen.getByLabelText(/total/i);
+    await userEvent.click(await screen.findByRole("button", { name: /edit total/i }));
+    const total = screen.getByLabelText("Total");
     await userEvent.clear(total);
-    await userEvent.type(total, "twenty");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    await userEvent.type(total, "twenty{Enter}");
 
     expect(screen.getByRole("alert")).toHaveTextContent(/total/i);
     expect(api.reviewDocument).not.toHaveBeenCalled();
+  });
+
+  it("a flagged line can be fixed with one tap on the suggested amount", async () => {
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue({
+        ...RECEIPT,
+        confidence: { level: "check", checks: [{ row: 4, reason: "One digit may be misread", suggestedCents: 180 }] },
+      }),
+    });
+    renderSheet(api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /use \$1\.80/i }));
+
+    const { fields } = vi.mocked(api.reviewDocument).mock.calls[0][1] as { fields: { lines: unknown[] } };
+    expect(fields.lines[3]).toEqual({ description: "TAX", kind: "tax", amountCents: 180 });
   });
 
   it("a failed document shows the reason and no review buttons", async () => {

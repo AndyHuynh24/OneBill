@@ -24,7 +24,8 @@ export type LineKind =
 /** How sure the reading is, from evidence (OCR clarity, amounts found, math), phase 2d. */
 export interface Confidence {
   level: "confident" | "mostly" | "check" | "confirmed";
-  checks: { row: number; reason: string }[];
+  /** suggestedCents: one digit off; this amount would make the bill add up. */
+  checks: { row: number; reason: string; suggestedCents?: number }[];
 }
 
 export interface DocumentSummary {

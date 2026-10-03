@@ -783,3 +783,33 @@ def test_the_receipts_list_includes_each_bills_confidence(table):
     (summary,) = list_documents(table, "user-a", now=NOW)
 
     assert summary["confidence"]["level"] == "check"
+
+
+def test_fixing_a_line_on_the_bill_rechecks_the_math_and_keeps_other_flags(table):
+    doc_id = flagged_doc(table)
+    stored = [
+        {"row": 1, "description": "BANANAS", "kind": "item", "amountCents": 129},
+        {"row": 2, "description": "MILK", "kind": "item", "amountCents": 419},
+        {"row": 3, "description": "SUBTOTAL", "kind": "subtotal", "amountCents": 548},
+        {"row": 4, "description": "TAX", "kind": "tax", "amountCents": 54},  # misread 0.44
+        {"row": 5, "description": "TOTAL", "kind": "total", "amountCents": 592},
+    ]
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET #l = :l",
+        ExpressionAttributeNames={"#l": "lines"},
+        ExpressionAttributeValues={":l": stored},
+    )
+    edited = [{k: v for k, v in line.items() if k != "row"} for line in stored]
+    edited[3]["amountCents"] = 44  # the user fixes the tax: it adds up now
+
+    doc = review_document(
+        table, "user-a", doc_id, {"action": "correct", "fields": {"lines": edited}}, now=NOW
+    )
+
+    assert doc["status"] == "ready"
+    # Row 1 wasn't touched, so its "hard to read" flag stays for the user to tick.
+    assert doc["confidence"] == {
+        "level": "check",
+        "checks": [{"row": 1, "reason": "Hard to read on the photo"}],
+    }
