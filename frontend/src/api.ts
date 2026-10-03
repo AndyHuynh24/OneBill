@@ -21,11 +21,31 @@ export type LineKind =
   | "balance_due"
   | "info";
 
+/** The server's two checks, as numbers: items → subtotal, and subtotal + charges → total. */
+export interface BillMath {
+  /** Calculated: items + discounts as read. */
+  itemsCents: number;
+  /** Printed. */
+  subtotalCents: number | null;
+  itemsMatch: boolean | null;
+  feesInSubtotal: boolean;
+  basisCents: number;
+  taxCents: number;
+  tipCents: number;
+  feesCents: number;
+  /** Calculated: basis + charges. */
+  expectedCents: number;
+  /** Printed. */
+  totalCents: number | null;
+  totalMatch: boolean | null;
+  taxIncluded: boolean;
+}
+
 /** How sure the reading is, from evidence (OCR clarity, amounts found, math), phase 2d. */
 export interface Confidence {
   level: "confident" | "mostly" | "check" | "confirmed";
   /** suggestedCents: one digit off; this amount would make the bill add up. */
-  checks: { row: number; reason: string; suggestedCents?: number }[];
+  checks: { row: number; reason: string; suggestedCents?: number; suggestedKind?: LineKind }[];
 }
 
 export interface DocumentSummary {
@@ -60,6 +80,7 @@ export interface DocumentDeadline {
 
 export interface DocumentDetail extends DocumentSummary {
   docType?: string;
+  math?: BillMath;
   issues?: string[];
   failureReason?: string;
   lines?: DocumentLine[];

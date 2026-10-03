@@ -474,6 +474,7 @@ def _rechecked(lines: list[Line], doc_type: str | None) -> dict[str, Any]:
         "issues": rec.issues,
         "notes": rec.notes,
         "taxIncluded": rec.tax_included,
+        "math": rec.math,
         # Ready only when the corrected bill adds up; otherwise the issues say what's off.
         "status": "ready" if rec.ok else "needs_review",
     }

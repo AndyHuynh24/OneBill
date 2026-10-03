@@ -12,6 +12,8 @@ export interface LineInput {
 export interface LineCheck {
   reason: string;
   suggestedCents?: number;
+  /** "item": a line left out of the math that would make it add up if counted. */
+  suggestedKind?: LineKind;
 }
 
 /** Every kind a line can be, in the words people use. */
@@ -48,10 +50,13 @@ interface BillLinesProps {
   confirming?: number;
   onConfirm: (row: number) => void;
   saving: boolean;
-  onSave: (lines: LineInput[]) => void;
+  /** `change` says what was fixed, in words ("Tax: $16.61 → $16.51"). */
+  onSave: (lines: LineInput[], change: string) => void;
   editable: boolean;
   /** "Add item" under the table, adding a line of this kind. */
   addKind?: LineKind;
+  /** Shown right under the table (e.g. the calculated sum of the items). */
+  footer?: React.ReactNode;
 }
 
 /**
@@ -72,27 +77,36 @@ export function BillLines({
   onSave,
   editable,
   addKind,
+  footer,
 }: BillLinesProps) {
   const [editing, setEditing] = useState<number | "new" | null>(null);
   if (!lines.length && !addKind) return null;
 
-  const save = (next: LineInput[]) => {
-    onSave(next);
+  const money = (cents: number) => formatCents(cents, currency);
+  const save = (next: LineInput[], change: string) => {
+    onSave(next, change);
     setEditing(null);
   };
-  const replaceRow = (row: number, line: LineInput | null) =>
+  const describe = (before: DocumentLine, after: LineInput | null): string => {
+    if (!after) return `removed ${before.description}`;
+    const parts = [];
+    if (after.kind !== before.kind) parts.push(`counted as ${LINE_KIND_LABELS[after.kind].toLowerCase()}`);
+    if (after.amountCents !== before.amountCents) parts.push(`${money(before.amountCents)} → ${money(after.amountCents)}`);
+    if (after.description !== before.description) parts.push(`renamed to ${after.description}`);
+    return `${before.description}: ${parts.join(", ")}`;
+  };
+  const replaceRow = (row: number, line: LineInput | null) => {
+    const before = allLines.find((l) => l.row === row)!;
     save(
-      allLines.flatMap((l) =>
-        l.row === row ? (line ? [line] : []) : [asInput(l)],
-      ),
+      allLines.flatMap((l) => (l.row === row ? (line ? [line] : []) : [asInput(l)])),
+      describe(before, line),
     );
+  };
   const addLine = (line: LineInput) => {
     // Right after this table's last line, so new items land above the subtotal.
     const after = lines.length ? lines[lines.length - 1].row : allLines.length;
-    const next = allLines.flatMap((l) =>
-      l.row === after ? [asInput(l), line] : [asInput(l)],
-    );
-    save(lines.length ? next : [...allLines.map(asInput), line]);
+    const next = allLines.flatMap((l) => (l.row === after ? [asInput(l), line] : [asInput(l)]));
+    save(lines.length ? next : [...allLines.map(asInput), line], `added ${line.description} ${money(line.amountCents)}`);
   };
 
   return (
@@ -159,10 +173,13 @@ export function BillLines({
                               replaceRow(line.row, {
                                 ...asInput(line),
                                 amountCents: check.suggestedCents!,
+                                kind: check.suggestedKind ?? line.kind,
                               })
                             }
                           >
-                            Use {formatCents(check.suggestedCents, currency)}
+                            {check.suggestedKind === "item"
+                              ? `Count as item: ${money(check.suggestedCents)}`
+                              : `Use ${money(check.suggestedCents)}`}
                           </button>
                         )}
                         <button
@@ -199,6 +216,7 @@ export function BillLines({
           </tbody>
         </table>
       )}
+      {footer}
       {editable && addKind && editing === "new" && (
         <div className="line-editing-new">
           <LineEditor

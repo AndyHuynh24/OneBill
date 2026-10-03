@@ -88,7 +88,7 @@ def test_payment_change_and_info_lines_are_never_flagged():
 
 # --- one-digit slips: when the totals are off, which single misread digit would fix them? -----
 
-from documents.confidence import SLIP, after_edit, one_digit_slips  # noqa: E402
+from documents.confidence import LEFT_OUT, SLIP, after_edit, one_digit_slips  # noqa: E402
 
 WALMART = [  # receipt 6, freshly scanned: tax printed $16.51, OCR read "$16.61"
     Line(1, "GROCERIES", "item", 16462),
@@ -170,3 +170,40 @@ def test_an_edit_that_still_doesnt_add_up_gets_fresh_suggestions():
 
     assert result["level"] == "check"
     assert {"row": 3, "reason": SLIP, "suggestedCents": 1651} in result["checks"]
+
+
+def test_a_line_left_out_that_would_make_it_add_up_is_suggested_as_an_item():
+    """Receipt 6: OCR read the bag's "$2.97" as "52.97", so the model left it out ("info")."""
+    lines = [
+        Line(1, "GROCERIES", "item", 16165),
+        Line(2, "SHOPPING BAG", "info", 5297),
+        Line(3, "SUBTOTAL", "subtotal", 16462),
+        Line(4, "HST", "tax", 1651),
+        Line(5, "TOTAL", "total", 18113),
+    ]
+
+    slips = one_digit_slips(lines)
+
+    assert {"row": 2, "reason": LEFT_OUT, "suggestedCents": 297, "suggestedKind": "item"} in slips
+
+
+def test_a_note_that_doesnt_help_the_math_isnt_suggested():
+    lines = [*WALMART[:1], Line(9, "THANK YOU 2", "info", 200), *WALMART[1:]]
+
+    assert all(s["row"] != 9 for s in one_digit_slips(lines))
+
+
+def test_both_misreads_on_one_bill_are_found():
+    """The fresh scan: bag left out (items $2.97 short) and tax $16.61 (total $0.10 off)."""
+    lines = [
+        Line(1, "GROCERIES", "item", 16165),
+        Line(2, "SHOPPING BAG", "info", 5297),
+        Line(3, "SUBTOTAL", "subtotal", 16462),
+        Line(4, "HST", "tax", 1661),
+        Line(5, "TOTAL", "total", 18113),
+    ]
+
+    by_row = {s["row"]: s for s in one_digit_slips(lines)}
+
+    assert by_row[2]["suggestedCents"] == 297
+    assert by_row[4]["suggestedCents"] == 1651

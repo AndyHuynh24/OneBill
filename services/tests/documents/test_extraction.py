@@ -123,15 +123,15 @@ def test_parse_output_converts_amounts_to_cents_in_code():
 
 
 @pytest.mark.parametrize(
-    "bad_line",
+    ("bad_line", "kept"),
     [
-        {"description": "X", "amount": "abc", "kind": "item"},
-        {"description": "X", "amount": "1.00", "kind": "produce"},
-        "not an object",
+        ({"description": "X", "amount": "abc", "kind": "item"}, ("X", "info", 0)),
+        ({"description": "X", "amount": "1.00", "kind": "produce"}, ("X", "info", 100)),
+        ({"description": "X", "amount": "3.96 from savings", "kind": "item"}, ("X", "item", 396)),
     ],
 )
-def test_unreadable_line_is_skipped_with_a_warning_not_a_failure(bad_line):
-    """One bad line must not lose the whole scan: keep the rest, flag it for review."""
+def test_a_line_with_an_unclear_amount_or_kind_is_kept_and_flagged_never_dropped(bad_line, kept):
+    """Andy: "only flag, never remove a field from the bill"."""
     good = {"description": "MILK", "amount": "4.19", "kind": "item"}
     tool_input = {
         "doc_type": "receipt",
@@ -144,9 +144,19 @@ def test_unreadable_line_is_skipped_with_a_warning_not_a_failure(bad_line):
 
     doc = parse_output(tool_input)
 
-    assert [line.description for line in doc.lines] == ["MILK"]
-    assert len(doc.warnings) == 1
-    assert "Skipped line 2" in doc.warnings[0]
+    assert [(line.description, line.kind, line.amount_cents) for line in doc.lines] == [
+        ("MILK", "item", 419),
+        kept,
+    ]
+    assert len(doc.warnings) == 1  # flagged: the bill goes to review
+    assert "Line 2" in doc.warnings[0]
+
+
+def test_only_a_line_with_nothing_readable_is_left_out_and_said():
+    doc = parse_output({"lines": ["not an object"], "deadlines": []})
+
+    assert doc.lines == []
+    assert doc.warnings == ["Line 1 couldn't be read at all."]
 
 
 def test_lines_that_are_not_a_list_are_still_invalid():
@@ -491,8 +501,8 @@ def test_without_images_the_request_is_text_only():
     assert request["system"][0]["text"] == extraction.SYSTEM_PROMPT
 
 
-def test_an_info_line_with_words_in_its_amount_is_dropped_quietly():
-    """'1.02 from savings' as an info amount: info never counts, so it's no reason for review."""
+def test_a_note_with_words_in_its_amount_is_kept_quietly():
+    """'1.02 from savings' as an info amount: kept (never removed); info doesn't count."""
     doc = parse_output(
         {
             "lines": [
@@ -504,16 +514,20 @@ def test_an_info_line_with_words_in_its_amount_is_dropped_quietly():
         }
     )
 
-    assert [line.kind for line in doc.lines] == ["item", "total"]
+    assert [(line.kind, line.amount_cents) for line in doc.lines] == [
+        ("item", 396),
+        ("info", 102),
+        ("total", 396),
+    ]
     assert doc.warnings == []
 
 
-def test_an_unreadable_item_amount_is_still_flagged():
+def test_an_unreadable_item_amount_is_kept_and_flagged():
     doc = parse_output(
         {"lines": [{"description": "AXE", "amount": "3.96 from savings", "kind": "item"}]}
     )
 
-    assert doc.lines == []
+    assert [(line.kind, line.amount_cents) for line in doc.lines] == [("item", 396)]
     assert doc.warnings
 
 

@@ -52,6 +52,7 @@ class ValidationResult:
     tax_included: bool = False  # item prices already include the tax
     # {"level": "confident" | "mostly" | "check", "checks": [{"row", "reason"}]} (phase 2d)
     confidence: dict[str, Any] = field(default_factory=dict)
+    math: dict[str, Any] = field(default_factory=dict)  # see Reconciliation.math
 
 
 def validate(
@@ -115,6 +116,7 @@ def validate(
     return ValidationResult(
         status="needs_review" if issues else "ready",
         confidence=assessment,
+        math=rec.math,
         issues=issues,
         doc_type=doc.doc_type,
         vendor=doc.vendor,

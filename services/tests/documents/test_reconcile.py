@@ -479,3 +479,21 @@ def test_without_a_printed_saving_identical_items_are_both_kept():
 
     assert r.ok
     assert r.items_cents == 894
+
+
+def test_the_math_is_returned_as_numbers_for_the_bill_screen():
+    r = reconcile(
+        lines(
+            ("BANANAS", "item", 129),
+            ("MILK", "item", 419),
+            ("SUBTOTAL", "subtotal", 548),
+            ("TAX", "tax", 54),  # misread: printed 0.44
+            ("TOTAL", "total", 592),
+        )
+    )
+
+    assert r.math["itemsCents"] == 548  # calculated from the item lines
+    assert r.math["subtotalCents"] == 548  # printed
+    assert r.math["itemsMatch"] is True
+    assert (r.math["basisCents"], r.math["taxCents"], r.math["expectedCents"]) == (548, 54, 602)
+    assert (r.math["totalCents"], r.math["totalMatch"]) == (592, False)

@@ -1659,3 +1659,77 @@ button.check-use {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+/* --- One status card + calculated items total (phase 2d) --- */
+.bill-status {
+  margin: 0.6rem 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+.bill-status p {
+  margin: 0.2rem 0 0;
+}
+.bill-status.ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.bill-status.warn {
+  background: var(--warn-soft);
+  color: var(--warn-text);
+}
+.bill-headline {
+  display: block;
+  font-size: 1rem;
+}
+.bill-change {
+  margin: 0 0 0.3rem !important;
+  font-weight: 600;
+}
+.bill-others {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+}
+.items-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.6rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+.items-total > strong {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.items-compare {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: var(--success);
+}
+.items-total.off {
+  border-color: #e0a82e;
+  background: var(--warn-soft);
+}
+.items-total.off .items-compare {
+  color: var(--warn-text);
+}
+.calc-tag {
+  margin-left: 0.3rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.not-counted-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+}

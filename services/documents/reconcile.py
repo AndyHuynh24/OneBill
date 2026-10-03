@@ -8,7 +8,7 @@ into the total.
 
 import re
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Any, Literal
 
 from shared.money import format_cents
 
@@ -89,6 +89,9 @@ class Reconciliation:
     # printed tax is the part of it that's tax. Splitting must not add the tax again.
     tax_included: bool = False
     overage_cents: int = 0  # computed − printed total, when the total check fails
+    # The two checks as numbers, for showing the user (phase 2d): items → subtotal, and
+    # subtotal + charges → total. Plain ints/bools/None.
+    math: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -394,6 +397,23 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
                 continue
             shown = f"{format_cents(other)} and {format_cents(final)}"
             r.issues.append(f"The document shows conflicting totals ({shown}).")
+
+    r.math = {
+        "itemsCents": goods,  # calculated: items + discounts as read
+        "subtotalCents": r.printed_subtotal_cents,  # printed
+        "itemsMatch": None
+        if r.printed_subtotal_cents is None
+        else (_close(goods, r.printed_subtotal_cents) or r.tax_included or fees_in_subtotal),
+        "feesInSubtotal": fees_in_subtotal,
+        "basisCents": basis,
+        "taxCents": tax_added,
+        "tipCents": r.tip_cents,
+        "feesCents": 0 if fees_in_subtotal else r.fees_cents,
+        "expectedCents": expected,  # calculated
+        "totalCents": r.total_cents,  # printed
+        "totalMatch": r.total_ok,
+        "taxIncluded": r.tax_included,
+    }
 
     # 3. what was paid − change ≈ total. Receipts print payments in several ways: the amount
     # applied ("CASH 58.40"), the amount handed over ("TENDER 60.00", then "CHANGE 1.60"), or

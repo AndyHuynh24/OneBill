@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { Confidence, CorrectionFields, OneTallyApi, ReviewRequest } from "../api";
+import type { CorrectionFields, OneTallyApi, ReviewRequest } from "../api";
 import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars } from "../format";
 import { BillLines, type LineCheck, type LineInput } from "./BillLines";
+import { BillStatus, ItemsTotal } from "./BillStatus";
 import { canSplit } from "../split";
 import { ScanProgress } from "./ScanProgress";
 import { SplitFlow } from "./SplitFlow";
@@ -56,20 +57,22 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     },
   });
   // A fix made in place: the server re-adds everything (code, no AI) and says if it adds up now.
-  const [saved, setSaved] = useState<string | null>(null);
+  const [lastChange, setLastChange] = useState<string | null>(null);
   const edit = useMutation({
-    mutationFn: (fields: CorrectionFields) => api.reviewDocument(docId, { action: "correct", fields }),
-    onSuccess: (updated, fields) => {
+    mutationFn: ({ fields }: { fields: CorrectionFields; change?: string }) =>
+      api.reviewDocument(docId, { action: "correct", fields }),
+    onMutate: () => setLastChange(null),
+    onSuccess: (updated, { change }) => {
       queryClient.setQueryData(["document", docId], updated);
       for (const key of [["documents"], ["obligations"]]) queryClient.invalidateQueries({ queryKey: key });
-      if (!fields.lines && fields.totalCents === undefined) setSaved("Saved.");
-      else if (updated.status === "ready") setSaved("Saved. ✓ It adds up now.");
-      else setSaved("Saved. It still doesn't add up: see what's off above.");
+      setLastChange(change ?? null);
     },
-    onMutate: () => setSaved(null),
   });
   const checks = new Map<number, LineCheck>(
-    (doc?.confidence?.checks ?? []).map((c) => [c.row, { reason: c.reason, suggestedCents: c.suggestedCents }]),
+    (doc?.confidence?.checks ?? []).map((c) => [
+      c.row,
+      { reason: c.reason, suggestedCents: c.suggestedCents, suggestedKind: c.suggestedKind },
+    ]),
   );
   const editable = doc?.status === "ready" || doc?.status === "needs_review";
   const lineProps = {
@@ -79,7 +82,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     confirming: confirm.isPending ? confirm.variables : undefined,
     onConfirm: (row: number) => confirm.mutate(row),
     saving: edit.isPending,
-    onSave: (lines: LineInput[]) => edit.mutate({ lines }),
+    onSave: (lines: LineInput[], change: string) => edit.mutate({ fields: { lines }, change }),
     editable,
   };
 
@@ -118,7 +121,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                 value={doc.vendor ?? ""}
                 display={doc.vendor || doc.filename || "Document"}
                 saving={edit.isPending}
-                onSave={(vendor) => edit.mutate({ vendor: vendor || null })}
+                onSave={(vendor) => edit.mutate({ fields: { vendor: vendor || null } })}
               />
             ) : (
               doc.vendor || doc.filename || "Document"
@@ -148,7 +151,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   value={doc.documentDate ?? ""}
                   display={doc.documentDate ? formatDate(doc.documentDate) : "Add date"}
                   saving={edit.isPending}
-                  onSave={(date) => edit.mutate({ documentDate: date || null })}
+                  onSave={(date) => edit.mutate({ fields: { documentDate: date || null } })}
                 />
                 {doc.totalCents != null && " · "}
                 {doc.lines?.length ? (
@@ -162,7 +165,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                     display={<strong>{doc.totalCents != null ? formatCents(doc.totalCents, currency) : "Add total"}</strong>}
                     saving={edit.isPending}
                     validate={(total) => (parseDollars(total) === null ? "Enter the total like 26.81." : null)}
-                    onSave={(total) => edit.mutate({ totalCents: parseDollars(total)! })}
+                    onSave={(total) => edit.mutate({ fields: { totalCents: parseDollars(total)! }, change: "the total" })}
                   />
                 )}
               </p>
@@ -178,22 +181,14 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
 
             {doc.status === "failed" && <p className="notice notice-error">{doc.failureReason}</p>}
 
-            {mode === "view" && <ConfidenceBanner confidence={doc.confidence} />}
-            {mode === "view" && saved && (
-              <p className={`saved-note ${doc.status === "ready" ? "ok" : ""}`} role="status">
-                {saved}
-              </p>
-            )}
-
-            {!!doc.issues?.length && (
-              <div className="notice notice-warn">
-                <strong>Worth a look</strong>
-                <ul>
-                  {doc.issues.map((issue) => (
-                    <li key={issue}>{issue}</li>
-                  ))}
-                </ul>
-              </div>
+            {mode === "view" && (
+              <BillStatus
+                math={doc.math}
+                confidence={doc.confidence}
+                issues={doc.issues ?? []}
+                currency={currency}
+                lastChange={lastChange}
+              />
             )}
 
             {mode === "split" ? (
@@ -212,11 +207,11 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
               </div>
             ) : (
               <>
-                {editable && !!doc.lines?.length && <p className="muted edit-hint">Tap any line to fix it.</p>}
                 <BillLines
                   label="Items"
                   lines={(doc.lines ?? []).filter((l) => ITEM_KINDS.has(l.kind))}
                   addKind={doc.lines?.length ? "item" : undefined}
+                  footer={<ItemsTotal math={doc.math} currency={currency} />}
                   {...lineProps}
                 />
                 <BillLines
@@ -226,12 +221,17 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   {...lineProps}
                 />
                 {!!notCounted.length && (
-                  <details className="not-counted">
-                    <summary>
-                      {notCounted.length} line{notCounted.length === 1 ? "" : "s"} not counted (notes, crossed-out prices)
-                    </summary>
-                    <BillLines label="Not counted" lines={notCounted} showKind {...lineProps} />
-                  </details>
+                  <BillLines
+                    label="Not counted in the total"
+                    lines={notCounted}
+                    showKind
+                    {...lineProps}
+                    footer={
+                      <p className="muted not-counted-note">
+                        Notes and crossed-out prices. If one is really part of the bill, tap it and change it to an item.
+                      </p>
+                    }
+                  />
                 )}
                 {doc.taxIncluded && (
                   <p className="muted tax-note">
@@ -241,7 +241,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                 )}
                 {editable ? (
                   (!!deadlines.length || doc.docType !== "receipt") && (
-                    <Deadlines deadlines={deadlines} saving={edit.isPending} onSave={(d) => edit.mutate({ deadlines: d })} />
+                    <Deadlines deadlines={deadlines} saving={edit.isPending} onSave={(d) => edit.mutate({ fields: { deadlines: d } })} />
                   )
                 ) : (
                   !!deadlines.length && (
@@ -312,30 +312,6 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   );
 }
 
-
-/** One line on top of the bill: how sure the reading is. */
-function ConfidenceBanner({ confidence }: { confidence?: Confidence }) {
-  if (!confidence) return null; // bills read before phase 2d
-  const flagged = confidence.checks.length;
-  if (confidence.level === "confident") {
-    return <p className="confidence confidence-ok">✓ Confident: every amount was found on the bill and they add up.</p>;
-  }
-  if (confidence.level === "confirmed") {
-    return <p className="confidence confidence-ok">✓ Checked by you.</p>;
-  }
-  if (flagged) {
-    return (
-      <p className="confidence confidence-check">
-        Please double-check {flagged === 1 ? "the highlighted amount" : `the ${flagged} highlighted amounts`}. Tap{" "}
-        <strong>✓ Looks right</strong> on each one that's correct.
-      </p>
-    );
-  }
-  if (confidence.level === "mostly") {
-    return <p className="confidence confidence-quiet">Read clearly and the totals add up.</p>;
-  }
-  return null; // "check" without a culprit: the "Worth a look" box already explains
-}
 
 function InlineText({
   label,

@@ -29,6 +29,8 @@ HARD_TO_READ = "Hard to read on the photo"
 NOT_FOUND = "Not found on the receipt"
 OFF_TOTALS = "Doesn't fit the totals"
 SLIP = "One digit may be misread"
+LEFT_OUT = "Not counted, but it may be an item"
+MATH_HINTS = frozenset({SLIP, LEFT_OUT})  # recomputed from the math after every edit
 MAX_SLIPS = 3
 
 
@@ -97,15 +99,21 @@ def one_digit_slips(
     # cache it (an 80-item bill goes from ~8,000 checks to a few hundred).
     outcomes: dict[tuple[str, int], bool] = {}
     for i, line in enumerate(lines):
-        if line.kind not in CHECKED_KINDS:
+        if line.kind in CHECKED_KINDS:
+            kind, counted, reason = line.kind, line.amount_cents, SLIP
+            options = _one_digit_away(line.amount_cents)
+        elif line.kind == "info" and line.amount_cents > 0:
+            # Left out of the math (e.g. a bag whose "$2.97" OCR read as "52.97"): would
+            # counting it as an item, as printed or one digit off, make it add up?
+            kind, counted, reason = "item", 0, LEFT_OUT
+            options = {line.amount_cents} | {c for c in _one_digit_away(line.amount_cents) if c > 0}
+        else:
             continue
         fixes = []
-        for cents in sorted(
-            _one_digit_away(line.amount_cents), key=lambda c: abs(c - line.amount_cents)
-        ):
-            key = (line.kind, cents - line.amount_cents)
+        for cents in sorted(options, key=lambda c: abs(c - line.amount_cents)):
+            key = (kind, cents - counted)  # same change to a kind's total → same outcome
             if key not in outcomes:
-                trial = [*lines[:i], replace(line, amount_cents=cents), *lines[i + 1 :]]
+                trial = [*lines[:i], replace(line, kind=kind, amount_cents=cents), *lines[i + 1 :]]
                 result = check(trial, total_required)
                 # Fewer problems, same tax treatment: a change that only "works" by making the
                 # items look tax-inclusive is a coincidence, not a fix.
@@ -117,7 +125,8 @@ def one_digit_slips(
         if fixes:
             # An amount actually printed on the document first, else the closest.
             printed = [c for c in fixes if printed_text and is_printed(c, printed_text)]
-            found.append({"row": line.row, "reason": SLIP, "suggestedCents": (printed or fixes)[0]})
+            check_ = {"row": line.row, "reason": reason, "suggestedCents": (printed or fixes)[0]}
+            found.append(check_ | ({"suggestedKind": kind} if kind != line.kind else {}))
     readings = readings or {}
     found.sort(key=lambda c: 100.0 if readings.get(c["row"]) is None else readings[c["row"]])
     return found[:MAX_SLIPS]
@@ -151,7 +160,7 @@ def after_edit(
     kept = [
         {k: v for k, v in c.items() if k != "suggestedCents"} | {"row": int(c["row"])}
         for c in before.get("checks", [])
-        if c.get("reason") != SLIP and untouched(int(c["row"]))
+        if c.get("reason") not in MATH_HINTS and untouched(int(c["row"]))
     ]
     adds_up = check(new_lines, total_required).ok
     if not adds_up:

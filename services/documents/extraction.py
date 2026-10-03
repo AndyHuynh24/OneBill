@@ -17,7 +17,7 @@ from documents.grounding import printed_savings, ungrounded
 from documents.reconcile import Line, Reconciliation, reconcile
 from documents.textract import ExpenseResult
 from shared.dates import parse_iso_date
-from shared.money import format_cents, to_cents
+from shared.money import format_cents, to_cents, to_cents_loose
 from shared.pii import redact
 
 # Stored on every DOC item, so eval results and production behaviour map to a prompt version.
@@ -47,6 +47,7 @@ _URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 # US receipts print tax flags after amounts ("4.19 F", "2.99 N"); they aren't part of the amount.
 _TAX_FLAG = re.compile(r"\s+[A-Z]{1,2}$")
+_FIRST_AMOUNT = re.compile(r"-?[$€£¥₫]?\s?\d[\d.,]*")
 
 EXTRACTION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -273,29 +274,31 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
     lines: list[Line] = []
     warnings: list[str] = []
     for index, raw in enumerate(raw_lines, start=1):
-        # One unreadable line must not lose the whole scan: skip it, keep the rest, and say so
-        # (the warning sends the document to review, where the user can fix it).
+        # Never drop a line the model read (Andy, 2026-10-03: "only flag, never remove"): a
+        # line with an unclear amount or kind is kept and flagged, so it stays on the bill.
         if not isinstance(raw, dict):
-            warnings.append(f"Skipped line {index}: it couldn't be read.")
+            warnings.append(f"Line {index} couldn't be read at all.")  # nothing to keep
             continue
         kind, amount = raw.get("kind"), raw.get("amount")
-        description = str(raw.get("description", ""))
-        cents = to_cents(_TAX_FLAG.sub("", amount.strip())) if isinstance(amount, str) else None
-        if kind == "info" and cents is None:
-            continue  # info never counts toward the math: an odd amount is no reason for review
+        description = str(raw.get("description", "")) or f"Line {index}"
+        text = amount.strip() if isinstance(amount, str) else ""
+        cents = to_cents(_TAX_FLAG.sub("", text)) if text else None
+        if cents is None:
+            found = _FIRST_AMOUNT.search(text)
+            cents = to_cents_loose(found.group(0)) if found else None
+            if cents is not None and kind != "info":  # "3.96 from savings": keep 3.96, flag it
+                warnings.append(
+                    f'Line {index} ("{description}"): the amount "{text}" was unclear; '
+                    f"it was read as {format_cents(cents)}. Please check it."
+                )
         if kind not in LINE_KINDS or cents is None:
             warnings.append(
-                f'Skipped line {index} ("{description}"): its amount couldn\'t be read.'
+                f'Line {index} ("{description}"): '
+                + ("its kind" if kind not in LINE_KINDS else "its amount")
+                + " couldn't be read, so it's kept as not counted. Please check it."
             )
-            continue
-        lines.append(
-            Line(
-                row=index,
-                description=description,
-                kind=kind,
-                amount_cents=cents,
-            )
-        )
+            kind, cents = "info", cents or 0
+        lines.append(Line(row=index, description=description, kind=kind, amount_cents=cents))
 
     deadlines: list[Deadline] = []
     for raw in tool_input.get("deadlines") or []:
