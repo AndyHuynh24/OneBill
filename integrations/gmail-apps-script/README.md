@@ -39,6 +39,11 @@ emails are always sent and always read.
 - **Remove access completely:** [myaccount.google.com/permissions](https://myaccount.google.com/permissions)
   → OneTally → Remove access.
 
+## Testing again from scratch
+1. In OneTally, open the subscription and tap **Delete subscription**. This also forgets which
+   of its emails were already read.
+2. In the script, choose **`forgetSentEmails`** → **Run**, then **`sendToOneTally`** → **Run**.
+
 ## Troubleshooting
 
 | Log message                                 | Fix                                                                                                 |

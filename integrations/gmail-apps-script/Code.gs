@@ -84,6 +84,16 @@ function labelId_() {
   return null;
 }
 
+/**
+ * For testing: forget which emails were sent, so the next run sends them all again. (After
+ * deleting a subscription in OneTally, its emails are read again when they're re-sent.)
+ */
+function forgetSentEmails() {
+  var props = PropertiesService.getScriptProperties();
+  for (var c = 0; c < SENT_CHUNKS; c++) props.deleteProperty('SENT_' + c);
+  console.log('Forgot sent emails. Run sendToOneTally to send them again.');
+}
+
 /** Sent message IDs, kept in a few Script properties (each property holds at most 9 KB). */
 function loadSent_() {
   var props = PropertiesService.getScriptProperties();
@@ -127,8 +137,10 @@ function toPayload_(message, labelId) {
   (message.payload.headers || []).forEach(function (h) {
     headers[h.name.toLowerCase()] = h.value;
   });
+  // Send both: many emails have a stub plain part ("view in browser") with the prices only in
+  // the HTML. OneTally reads whichever version shows more.
   var text = findPart_(message.payload, 'text/plain');
-  var html = text ? null : findPart_(message.payload, 'text/html');
+  var html = findPart_(message.payload, 'text/html');
   return {
     messageId: message.id,
     subject: headers['subject'] || '',
