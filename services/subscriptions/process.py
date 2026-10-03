@@ -1,4 +1,4 @@
-"""Handle one email from the Gmail script: dedupe → daily cap → clean → read → save → outcome.
+"""Handle one email from the Gmail script: labelled? → dedupe → clean → cap → read → save.
 
 Kept separate from the Lambda handler so it's tested directly (moto + a Bedrock Stubber), and so
 SES forwarding (Phase 3) can call the same function later.
@@ -28,31 +28,25 @@ def process_email(
     table: Any, bedrock: Any, model_id: str, user_id: str, payload: dict[str, Any], now: datetime
 ) -> dict[str, Any]:
     email = _validated(payload, now)
+    # Only emails the user labelled "OneTally" are processed (2026-10-03). Anything else is
+    # ignored before it's remembered, so labelling it later still gets it read.
+    if not email["labelled"]:
+        return {"status": "ignored", "subscriptions": 0, "documents": 0}
     if not claim_email(table, user_id, email["messageId"], now):
-        return {"status": "duplicate", "subscriptions": 0}
+        return {"status": "duplicate", "subscriptions": 0, "documents": 0}
     record_use(table, user_id, now)
     text = _richest_body(email["text"], email["html"])
-    labelled = email["labelled"]
-    subscription_like = bool(text) and looks_like_subscription(email["subject"], text)
-    # Free checks first: an empty email, or an unlabelled one with no price and no word about
-    # recurring billing, is skipped without a model call and without using the daily cap.
-    if not text or not (labelled or subscription_like):
+    if not text:
         finish_email(table, user_id, email["messageId"], "ignored", 0)
         return {"status": "ignored", "subscriptions": 0, "documents": 0}
     if not consume_email_quota(table, user_id, now):
         finish_email(table, user_id, email["messageId"], "failed", 0)  # retried after the reset
         return {"status": "limit", "subscriptions": 0, "documents": 0}
 
-    documents, subs = 0, []
+    subs = []
     try:
-        # Decision A: a labelled email is always read like a scanned receipt or bill…
-        if labelled:
-            doc_id = email_doc_id(email["messageId"], email["receivedMs"])
-            if create_email_document(table, user_id, doc_id, email["subject"], now):
-                read_email_bill(table, bedrock, model_id, user_id, doc_id, text, now)
-            documents = 1
-        # …and, labelled or not, as a subscription when it looks like one.
-        if subscription_like:
+        # As a subscription first, when it looks like one (a free keyword check before the model)…
+        if looks_like_subscription(email["subject"], text):
             result = read_subscription_email(
                 bedrock,
                 model_id,
@@ -65,15 +59,18 @@ def process_email(
                 for sub in result.subscriptions:
                     save_subscription(table, user_id, sub, email["received"], now)
                 subs = result.subscriptions
+        # …and always as a bill, like a scan. A subscription owns its renewal reminder, so the
+        # bill doesn't add a second one for the same date.
+        doc_id = email_doc_id(email["messageId"], email["receivedMs"])
+        if create_email_document(table, user_id, doc_id, email["subject"], now):
+            skip = {"renewal"} if subs else set()
+            read_email_bill(table, bedrock, model_id, user_id, doc_id, text, now, skip)
     except Exception:
         finish_email(table, user_id, email["messageId"], "failed", 0)  # may be retried
         raise
-    if not documents and not subs:
-        finish_email(table, user_id, email["messageId"], "ignored", 0)
-        return {"status": "ignored", "subscriptions": 0, "documents": 0}
     keys = sorted({s.service_key for s in subs})
     finish_email(table, user_id, email["messageId"], "processed", len(subs), keys)
-    return {"status": "processed", "subscriptions": len(subs), "documents": documents}
+    return {"status": "processed", "subscriptions": len(subs), "documents": 1}
 
 
 def _richest_body(text: str | None, html: str | None) -> str:

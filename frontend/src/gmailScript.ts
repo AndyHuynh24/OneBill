@@ -5,25 +5,22 @@
  */
 
 export const GMAIL_SCRIPT_TEMPLATE = String.raw`/**
- * OneTally: send your subscription emails from Gmail to OneTally.
+ * OneTally: send the emails you label "OneTally" in Gmail to OneTally.
  *
  * Get this script from OneTally → Subscriptions → Connect Gmail → Copy script: the copy there
  * has your API address and key filled in (this file in the repo has placeholders).
  *
- * It runs inside your own Google account, every 15 minutes. It searches your mail for
- * receipts, invoices, and renewal notices (plus anything you label "OneTally" by hand) and
- * sends each one to OneTally once. It uses the Gmail API with read-only access: it can't send,
- * change, or delete mail. OneTally skips anything that isn't about a subscription.
+ * It runs inside your own Google account, every 15 minutes, and sends each email you've
+ * labelled "OneTally" to OneTally once. Nothing else is read or sent. OneTally reads each one
+ * like a scanned bill, and tracks it as a subscription too when it is one. It uses the Gmail
+ * API with read-only access: it can't send, change, or delete mail.
  */
 
 var ONETALLY_URL = '__ONETALLY_URL__';
 var ONETALLY_KEY = '__ONETALLY_KEY__';
 
-var LABEL = 'OneTally'; // optional: label any email by hand to make sure it's read
-var QUERY =
-  'newer_than:400d -in:spam -in:trash (label:' + LABEL + ' OR subject:(receipt OR invoice OR ' +
-  'renewal OR renews OR subscription OR "your plan" OR trial OR membership OR billing OR ' +
-  '"payment confirmation"))';
+var LABEL = 'OneTally'; // only emails with this Gmail label are sent
+var QUERY = 'newer_than:400d -in:spam -in:trash label:' + LABEL;
 var MAX_BODY_CHARS = 250000;
 var SENT_CHUNKS = 8; // remembers up to 8 × 500 sent message IDs in Script properties
 var IDS_PER_CHUNK = 500;
@@ -39,16 +36,20 @@ function installTrigger() {
   sendToOneTally();
 }
 
-/** Send every matching email (from about the last year) that hasn't been sent yet. */
+/** Send every labelled email (from about the last year) that hasn't been sent yet. */
 function sendToOneTally() {
   var s = settings_();
   var sent = loadSent_();
   var labelId = labelId_();
+  if (!labelId) {
+    console.log('No "' + LABEL + '" label yet. In Gmail, create it and add it to the emails you want in OneTally.');
+    return;
+  }
   var ids = listMessageIds_(QUERY);
   var fresh = ids.filter(function (id) {
     return !sent[id];
   });
-  console.log('Found ' + ids.length + ' possible subscription emails; ' + fresh.length + ' not sent yet.');
+  console.log('Found ' + ids.length + ' labelled emails; ' + fresh.length + ' not sent yet.');
   var counts = {};
 
   for (var i = 0; i < fresh.length; i++) {

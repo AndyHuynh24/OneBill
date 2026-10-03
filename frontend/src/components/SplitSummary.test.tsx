@@ -38,7 +38,7 @@ describe("SplitSummary", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /share/i }));
 
-    expect(share).toHaveBeenCalledWith({ text: expect.stringContaining("Bao $15.79 (PAD THAI + tax/tip/fees)") });
+    expect(share).toHaveBeenCalledWith({ text: expect.stringContaining("Bao: $15.79\n- PAD THAI") });
   });
 
   it("without a share sheet, copies the message instead", async () => {

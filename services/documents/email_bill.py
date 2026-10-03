@@ -6,6 +6,8 @@ need printed evidence), minus Textract: the email is already text. It's saved as
 """
 
 import hashlib
+from collections.abc import Collection
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
@@ -55,15 +57,27 @@ def create_email_document(
 
 
 def read_email_bill(
-    table: Any, bedrock: Any, model_id: str, user_id: str, doc_id: str, text: str, now: datetime
+    table: Any,
+    bedrock: Any,
+    model_id: str,
+    user_id: str,
+    doc_id: str,
+    text: str,
+    now: datetime,
+    skip_deadlines: Collection[str] = (),
 ) -> str:
-    """Read and save the bill; returns its status (ready / needs_review / failed)."""
+    """Read and save the bill; returns its status (ready / needs_review / failed).
+    `skip_deadlines`: kinds handled elsewhere (a renewal, when the email is also a subscription:
+    the subscription owns that reminder, so there's one per renewal)."""
     expense = ExpenseResult(
         pages=1, lines=[line for line in text.splitlines() if line.strip()][:MAX_LINES]
     )
     try:
         outcome = extract(bedrock, model_id, expense)
         result = validate(outcome, expense)
+        if skip_deadlines:
+            kept = [o for o in result.obligations if o.type not in skip_deadlines]
+            result = replace(result, obligations=kept)
     except ExtractionError:
         store.mark_failed(table, user_id, doc_id, CANT_READ, now)
         return "failed"

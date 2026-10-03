@@ -9,6 +9,7 @@ import boto3
 import pytest
 from botocore.stub import ANY, Stubber
 
+from documents.extraction import TOOL_NAME as RECEIPT_TOOL
 from subscriptions import parse
 from subscriptions.ingest import create_key
 
@@ -18,6 +19,7 @@ EMAIL = {
     "from": "info@account.netflix.com",
     "date": "2026-10-01T15:04:05Z",
     "text": "Amount: $15.49\nNext billing date: November 1, 2026",
+    "labelled": True,  # only labelled emails are processed
 }
 
 
@@ -102,15 +104,35 @@ def test_a_valid_key_processes_the_email_for_its_owner(table, ingest):
         "next_renewal": "2026-11-01",
         "evidence": {"amount": "$15.49", "next_renewal": "November 1, 2026"},
     }
-    stub.add_response(
-        "converse",
-        answer({"is_subscription_email": True, "subscriptions": [sub]}),
-        {"modelId": "m", "system": ANY, "messages": ANY, "toolConfig": ANY, "inferenceConfig": ANY},
+    params = {
+        "modelId": "m",
+        "system": ANY,
+        "messages": ANY,
+        "toolConfig": ANY,
+        "inferenceConfig": ANY,
+    }
+    bill = answer(
+        {
+            "doc_type": "receipt",
+            "vendor": "Netflix",
+            "document_date": "2026-10-01",
+            "currency": "USD",
+            "lines": [
+                {"description": "Netflix", "amount": "15.49", "kind": "item"},
+                {"description": "Amount", "amount": "15.49", "kind": "total"},
+            ],
+            "deadlines": [],
+        }
     )
+    bill["output"]["message"]["content"][0]["toolUse"]["name"] = RECEIPT_TOOL
+    stub.add_response(
+        "converse", answer({"is_subscription_email": True, "subscriptions": [sub]}), params
+    )
+    stub.add_response("converse", bill, params)  # subscription first, then the bill
 
     status, body = call(handler, event(EMAIL | {"userId": "user-b"}, f"Bearer {key}"))
 
-    assert (status, body) == (200, {"status": "processed", "subscriptions": 1, "documents": 0})
+    assert (status, body) == (200, {"status": "processed", "subscriptions": 1, "documents": 1})
     assert table.get_item(Key={"PK": "USER#user-a", "SK": "SUB#netflix"}).get("Item")
     assert not table.get_item(Key={"PK": "USER#user-b", "SK": "SUB#netflix"}).get("Item")
 

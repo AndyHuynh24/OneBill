@@ -283,3 +283,9 @@ def test_whole_dollar_and_european_prices_are_kept(bedrock):
 
     assert out.amount_cents == 1500
     assert out.issues == []
+
+
+def test_the_amount_is_the_total_charged_including_taxes_not_the_plan_price():
+    """Tello: 'Custom Plan $14', 'Taxes and Surcharges $1.97', 'Total: $15.97' → $15.97."""
+    assert "not the plan price" in parse.SYSTEM_PROMPT
+    assert parse.PROMPT_VERSION == "2026-10-03.1"

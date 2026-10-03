@@ -61,25 +61,33 @@ export function canSplit(lines: DocumentLine[] | undefined): boolean {
   return !!lines?.some((l) => l.kind === "item");
 }
 
-/** The message for the share sheet: "Bao $15.79 (PAD THAI + tax/tip/fees)". */
+/**
+ * The message for the share sheet: a header, then each person with one line per item
+ * ("- PAD THAI $12.00", "- SPRING ROLLS $6.00 (split 3 ways)") and their tax/tip/fees.
+ */
 export function shareText(
   split: Split,
   lines: DocumentLine[],
   meta: { vendor?: string | null; documentDate?: string | null; currency?: string | null },
 ): string {
   const currency = meta.currency ?? "USD";
-  const description = new Map(lines.map((l) => [l.row, l.description]));
+  const byRow = new Map(lines.map((l) => [l.row, l]));
   const header = [meta.vendor, meta.documentDate && formatDate(meta.documentDate), formatCents(split.totalCents, currency)]
     .filter(Boolean)
     .join(" · ");
-  const rows = split.shares.map((share) => {
+  const people = split.shares.map((share) => {
     const member = split.members.find((m) => m.id === share.member);
-    const items = share.rows.map((r) => description.get(r)).filter(Boolean).join(", ");
-    const extras = share.extrasCents ? " + tax/tip/fees" : "";
-    const detail = items || extras ? ` (${items || "—"}${extras})` : "";
-    return `${member?.name ?? "?"} ${formatCents(share.totalCents, currency)}${detail}`;
+    const items = share.rows.flatMap((row) => {
+      const line = byRow.get(row);
+      if (!line) return [];
+      const ways = split.assignments[String(row)]?.length ?? 1;
+      const shared = ways > 1 ? ` (split ${ways} ways)` : "";
+      return [`- ${line.description} ${formatCents(line.amountCents, currency)}${shared}`];
+    });
+    const extras = share.extrasCents ? [`- Tax/tip/fees ${formatCents(share.extrasCents, currency)}`] : [];
+    return [`${member?.name ?? "?"}: ${formatCents(share.totalCents, currency)}`, ...items, ...extras].join("\n");
   });
-  return [header, ...rows].join("\n");
+  return [header, ...people].join("\n\n");
 }
 
 /** "Give to Bao" · "Split among Bao & Linh" · "Split among Bao, Linh +2" */

@@ -1,16 +1,17 @@
 # Gmail → OneTally (Apps Script)
 
-A small script that runs **in your own Google account**. Every 15 minutes it finds receipts,
-invoices, and renewal notices in your mail and sends them to OneTally, which reads the
-subscription details (service, price, renewal date) and reminds you before each renewal.
+A small script that runs **in your own Google account**. Every 15 minutes it sends the emails you
+**label "OneTally"** in Gmail, and nothing else, to OneTally. Each one is read like a scanned bill
+(items, total, due date; you can split it), and tracked as a subscription too when it is one
+(service, price, renewal date, with reminders before each renewal).
 
 - **Free:** it runs on Google's free Apps Script quotas.
 - **Read-only:** it uses the Gmail API with the `gmail.readonly` scope. It can't send, change,
   or delete mail.
-- **Nothing to configure:** OneTally hands you this script with your key and API address
-  already filled in. No Gmail filter or label is needed.
-- **Cheap to run:** OneTally skips emails with no price or no sign of recurring billing for
-  free. Only likely subscription emails are read by the AI (~0.4¢ each, at most 50 a day).
+- **You choose what's shared:** only emails with the **OneTally** label are sent. Create the
+  label once in Gmail, then add it to any bill, receipt, or subscription email.
+- **Ready-made:** OneTally hands you this script with your key and API address already filled in.
+- **Cheap to run:** about 0.6¢ per email, plus 0.4¢ if it's also a subscription; at most 50 a day.
 
 ## Setup (about 2 minutes, once)
 
@@ -25,12 +26,12 @@ subscription details (service, price, renewal date) and reminds you before each 
    your own unpublished script, it says _"Google hasn't verified this app"_: click **Advanced →
    Go to OneTally (unsafe)** → **Allow**.
 
-The first run looks back about a year. OneTally reads up to 50 likely subscription emails a day,
-so a big backlog finishes over a few days. Check **Executions** in the script's sidebar for the
+It sends labelled emails from about the last year. OneTally reads up to 50 a day, so a big
+backlog finishes over a few days. Check **Executions** in the script's sidebar for the
 log, and the **Subscriptions** section in OneTally.
 
-**Missed one?** Label any email **OneTally** in Gmail (create the label if needed). Labelled
-emails are always sent and always read.
+**Labelled one later?** That's fine: an email is sent as soon as it has the label, at the next
+15-minute run.
 
 ## Stop or disconnect
 
@@ -51,7 +52,7 @@ emails are always sent and always read.
 | `Copy the ready-made script from OneTally…` | You pasted the repo copy (placeholders). Use **Copy script** in OneTally.                           |
 | `OneTally rejected the key`                 | Create a new key in OneTally and copy the new script.                                               |
 | `Daily limit reached`                       | Nothing to do: the rest are sent tomorrow.                                                          |
-| `Found 0 possible subscription emails`      | Nothing matched the search. Label a known subscription email **OneTally** and run `sendToOneTally`. |
+| `No "OneTally" label yet`                   | In Gmail, create a label named **OneTally** and add it to an email, then run `sendToOneTally`.      |
 | An authorization error mentioning a scope   | Make sure `appsscript.json` is the copied settings file, then run `installTrigger` again.           |
 
 ## For developers

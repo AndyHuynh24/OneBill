@@ -59,7 +59,8 @@ export function ConnectGmail({ api, connection, onClose }: ConnectGmailProps) {
               </li>
               <li>
                 Choose <strong>installTrigger</strong> → <strong>Run</strong>, then allow access (Advanced → Go to
-                OneTally). Your subscriptions appear within a few minutes.
+                OneTally). Then label emails <strong>OneTally</strong> in Gmail (create the label first): they appear here
+                within 15 minutes.
               </li>
             </ol>
             <div className="sheet-actions">
@@ -85,9 +86,9 @@ export function ConnectGmail({ api, connection, onClose }: ConnectGmailProps) {
               </p>
             ) : (
               <p>
-                OneTally gives you a small script to paste into your own Google account. It finds receipts and renewal
-                notices with <strong>read-only</strong> access and sends them here every 15 minutes. About 2 minutes,
-                once.
+                OneTally gives you a small script to paste into your own Google account. Every 15 minutes it sends the
+                emails you label <strong>OneTally</strong> in Gmail, and nothing else, with <strong>read-only</strong>{" "}
+                access. Each becomes a bill you can split, and a subscription too when it is one. About 2 minutes, once.
               </p>
             )}
             <div className="sheet-actions">

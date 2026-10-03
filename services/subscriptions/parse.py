@@ -21,7 +21,7 @@ from shared.dates import parse_iso_date
 from shared.money import format_cents, to_cents_loose
 from shared.pii import redact
 
-PROMPT_VERSION = "2026-10-01.1"
+PROMPT_VERSION = "2026-10-03.1"
 TOOL_NAME = "record_subscriptions"
 MAX_OUTPUT_TOKENS = 1500
 MAX_SUBSCRIPTIONS = 10
@@ -86,6 +86,10 @@ and record them with the record_subscriptions tool.
 
 Rules:
 - Copy every amount and date exactly as printed, and quote the printed text in evidence.
+- amount is what the user pays each billing cycle: when the email prints a total charged that \
+includes taxes, surcharges, or fees (e.g. "Plan $14", "Taxes $1.97", "Total: $15.97"), record \
+that total ($15.97), not the plan price. Use a subscription's own price only when one email \
+covers several subscriptions.
 - Never compute or guess a date or an amount. If the email doesn't print the next renewal date, \
 leave it null.
 - One email can cover several subscriptions (for example an app store receipt): record each one.
