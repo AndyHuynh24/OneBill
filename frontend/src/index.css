@@ -1733,3 +1733,14 @@ button.check-use {
   margin: 0.35rem 0 0;
   font-size: 0.78rem;
 }
+
+.tag-not-counted {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  border: 1px dashed var(--warn-text);
+  color: var(--warn-text);
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: middle;
+}

@@ -99,7 +99,10 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   const deadlines = (doc?.obligations ?? [])
     .filter((o) => o.kind in DEADLINE_LABELS)
     .map((o) => ({ kind: o.kind, dueDate: o.dueDate }));
-  const notCounted = (doc?.lines ?? []).filter((l) => l.kind === "info");
+  // A left-out line that doesn't make sense (a "$52.97" shopping bag that's flagged) sits in
+  // the items, where it belongs, asking to be fixed; only unflagged notes go to the bottom.
+  const inItems = (l: { kind: string; row: number }) => ITEM_KINDS.has(l.kind) || (l.kind === "info" && checks.has(l.row));
+  const notCounted = (doc?.lines ?? []).filter((l) => l.kind === "info" && !checks.has(l.row));
   const splittable = !!doc && canSplit(doc.lines);
 
   return (
@@ -209,7 +212,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
               <>
                 <BillLines
                   label="Items"
-                  lines={(doc.lines ?? []).filter((l) => ITEM_KINDS.has(l.kind))}
+                  lines={(doc.lines ?? []).filter(inItems)}
                   addKind={doc.lines?.length ? "item" : undefined}
                   footer={<ItemsTotal math={doc.math} currency={currency} />}
                   {...lineProps}

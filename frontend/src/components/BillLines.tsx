@@ -149,6 +149,7 @@ export function BillLines({
                             {LINE_KIND_LABELS[line.kind]}
                           </span>
                         )}
+                        {!showKind && line.kind === "info" && <span className="tag-not-counted">not counted yet</span>}
                       </button>
                     ) : (
                       <>
@@ -185,13 +186,15 @@ export function BillLines({
                         <button
                           type="button"
                           className="check-ok"
-                          aria-label={`Looks right: ${line.description} ${formatCents(line.amountCents, currency)}`}
+                          aria-label={`${check.suggestedKind === "item" ? "Leave it out" : "Looks right"}: ${line.description} ${formatCents(line.amountCents, currency)}`}
                           disabled={confirming !== undefined}
                           onClick={() => onConfirm(line.row)}
                         >
                           {confirming === line.row
                             ? "Saving…"
-                            : "✓ Looks right"}
+                            : check.suggestedKind === "item"
+                              ? "✓ Leave it out"
+                              : "✓ Looks right"}
                         </button>
                       </span>
                     )}
