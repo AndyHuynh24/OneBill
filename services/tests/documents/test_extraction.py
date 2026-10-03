@@ -414,13 +414,13 @@ def test_repair_feedback_forbids_forcing_the_math():
 
 
 def test_prompt_version_is_current():
-    assert extraction.PROMPT_VERSION == "2026-10-02.4"
+    assert extraction.PROMPT_VERSION == "2026-10-03.1"
 
 
 def test_receipts_have_no_deadlines_and_return_windows_arent_tracked():
     assert "A receipt has no deadlines" in extraction.SYSTEM_PROMPT
     assert "return_by" not in extraction.DEADLINE_TYPES
-    assert extraction.PROMPT_VERSION == "2026-10-02.4"
+    assert extraction.PROMPT_VERSION == "2026-10-03.1"
 
 
 def test_prompt_says_a_sale_item_is_recorded_at_the_price_paid():
@@ -515,3 +515,8 @@ def test_an_unreadable_item_amount_is_still_flagged():
 
     assert doc.lines == []
     assert doc.warnings
+
+
+def test_prompt_says_a_bag_listed_with_the_items_is_an_item():
+    assert "listed with the items (above the subtotal" in extraction.SYSTEM_PROMPT
+    assert "fee = bag fee" not in extraction.SYSTEM_PROMPT  # no longer contradicts itself

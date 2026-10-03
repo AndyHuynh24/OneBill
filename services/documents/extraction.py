@@ -21,7 +21,7 @@ from shared.money import format_cents, to_cents
 from shared.pii import redact
 
 # Stored on every DOC item, so eval results and production behaviour map to a prompt version.
-PROMPT_VERSION = "2026-10-02.4"
+PROMPT_VERSION = "2026-10-03.1"
 TOOL_NAME = "record_document"
 MAX_OUTPUT_TOKENS = 4096
 
@@ -125,7 +125,8 @@ Copy each amount exactly as printed (keep signs, trailing minus, parentheses). \
 Never add, subtract, or compute amounts yourself; the system does all arithmetic.
 - kind: label each line with exactly one kind:
   item = a purchased product or service; discount = coupon, markdown, or member savings applied \
-to the bill; fee = bag fee, service charge, delivery fee; tax = any tax line; tip = tip or \
+to the bill; fee = a charge added after the subtotal (service charge, delivery fee, a bag \
+fee printed below the subtotal); tax = any tax line; tip = tip or \
 gratuity; subtotal = a printed subtotal; total = a printed total (a bill may print a pre-tip and \
 a final total; label both total); payment = how it was paid (cash, card, gift card, amount \
 tendered); change = change given back; balance_due = amount due / balance on a bill; \
@@ -133,7 +134,8 @@ info = anything that is not part of the bill's arithmetic (unit prices like "2 @
 "you saved" recaps of discounts already listed, loyalty points, item counts).
 - A line whose text says SUBTOTAL, TOTAL, TAX, CASH, CHANGE, a card name, or BALANCE is never \
 an item. A positive amount is a discount only when the document presents it as savings \
-(coupon, markdown, "you saved"); a purchased product such as a bag is an item.
+(coupon, markdown, "you saved"). A shopping bag listed with the items (above the subtotal, \
+often with a product code) is an item, never a fee: the subtotal already includes it.
 - Lines printed after the final total that break down or repeat amounts already listed (a tax \
 breakdown, a charge printed a second time, a "pay with cash" price offer) are info.
 - An item can show more than one price, as online orders often do (Walmart, Amazon, Instacart): \
