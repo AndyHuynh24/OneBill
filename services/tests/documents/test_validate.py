@@ -228,3 +228,11 @@ def test_bills_keep_their_deadline_kinds():
     result = validate(outcome([due], doc_type="bill"), expense())
 
     assert [o.type for o in result.obligations] == ["payment_due"]
+
+
+def test_a_clean_reading_is_confident_and_a_reviewed_one_asks_for_a_check():
+    clean = validate(outcome(), expense())
+    vague = validate(outcome(), expense(total_confidence=50.0))
+
+    assert clean.confidence == {"level": "confident", "checks": []}
+    assert vague.confidence["level"] == "check"

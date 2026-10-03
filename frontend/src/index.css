@@ -1487,3 +1487,78 @@ button.btn-delete:hover:not(:disabled) {
   color: var(--muted);
   vertical-align: middle;
 }
+
+/* --- Confidence (phase 2d): banner, flagged lines, list badges --- */
+.confidence {
+  margin: 0.6rem 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+}
+.confidence-ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.confidence-check {
+  background: var(--warn-soft);
+  color: var(--warn-text);
+}
+.confidence-quiet {
+  padding: 0;
+  color: var(--muted);
+}
+.lines tr td {
+  transition: background-color 0.4s var(--ease);
+}
+.lines tr.line-check td {
+  background: var(--warn-soft);
+}
+.lines tr.line-check td:first-child {
+  box-shadow: inset 3px 0 0 #e0a82e;
+}
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin-top: 0.3rem;
+}
+.check-reason {
+  font-size: 0.78rem;
+  color: var(--warn-text);
+}
+.check-reason::before {
+  content: "⚠ ";
+}
+button.check-ok {
+  padding: 0.2rem 0.6rem;
+  min-height: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--success);
+  background: var(--surface);
+  color: var(--success);
+  box-shadow: none;
+}
+button.check-ok:hover:not(:disabled) {
+  background: var(--success-soft);
+}
+.tag-sure {
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--success);
+}
+.tag-check {
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  background: var(--warn-soft);
+  color: var(--warn-text);
+  vertical-align: middle;
+}

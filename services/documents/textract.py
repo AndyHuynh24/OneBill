@@ -69,6 +69,8 @@ class ExpenseResult:
     currency: str | None = None
     # Where each of `lines` sits on page 1 (same order), for cutting image tiles.
     line_boxes: list[Box] = field(default_factory=list)
+    # Textract's OCR confidence (0–100) for each of `lines`, same order (phase 2d).
+    line_confidences: list[float] = field(default_factory=list)
 
     @property
     def summary_money(self) -> dict[str, int]:
@@ -218,6 +220,7 @@ def parse_expense(responses: list[dict[str, Any]]) -> ExpenseResult:
     line_blocks.sort(key=_reading_order)
     line_blocks = [b for b in line_blocks if b.get("Text")]
     result.lines = [b["Text"] for b in line_blocks]
+    result.line_confidences = [float(b.get("Confidence", 0.0)) for b in line_blocks]
     result.line_boxes = [_box(b) for b in line_blocks if b.get("Page", 1) == 1]
     return result
 

@@ -21,9 +21,16 @@ export type LineKind =
   | "balance_due"
   | "info";
 
+/** How sure the reading is, from evidence (OCR clarity, amounts found, math), phase 2d. */
+export interface Confidence {
+  level: "confident" | "mostly" | "check" | "confirmed";
+  checks: { row: number; reason: string }[];
+}
+
 export interface DocumentSummary {
   docId: string;
   status: DocStatus;
+  confidence?: Confidence;
   filename?: string;
   contentType?: string;
   vendor?: string | null;
@@ -184,7 +191,11 @@ export interface CorrectionFields {
   lines?: { description: string; kind: LineKind; amountCents: number }[];
 }
 
-export type ReviewRequest = { action: "accept" } | { action: "correct"; fields: CorrectionFields };
+export type ReviewRequest =
+  | { action: "accept" }
+  | { action: "correct"; fields: CorrectionFields }
+  /** "Looks right" on flagged lines: clears just those flags. */
+  | { action: "confirm"; rows: number[] };
 
 export interface UploadTicket {
   docId: string;

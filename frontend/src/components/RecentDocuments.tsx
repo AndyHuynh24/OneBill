@@ -38,6 +38,14 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
               <span className="doc-title">
                 {doc.vendor || doc.filename || "Document"}
                 {doc.source === "email" && <span className="tag-email">Email</span>}
+                {(doc.confidence?.level === "confident" || doc.confidence?.level === "confirmed") && (
+                  <span className="tag-sure" title="Confident: the amounts were found and add up" aria-label="Confident">
+                    ✓
+                  </span>
+                )}
+                {doc.status === "ready" && !!doc.confidence?.checks.length && (
+                  <span className="tag-check">Check</span>
+                )}
               </span>
               <span className="doc-meta">
                 {doc.documentDate ? formatDate(doc.documentDate) : ""}

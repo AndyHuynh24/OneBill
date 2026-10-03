@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+from documents.confidence import assess
 from documents.extraction import Deadline, ExtractionOutcome
 from documents.grounding import ungrounded
 from documents.textract import ExpenseResult
@@ -49,6 +50,8 @@ class ValidationResult:
     obligations: list[Obligation] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # oddities that don't need a review
     tax_included: bool = False  # item prices already include the tax
+    # {"level": "confident" | "mostly" | "check", "checks": [{"row", "reason"}]} (phase 2d)
+    confidence: dict[str, Any] = field(default_factory=dict)
 
 
 def validate(
@@ -99,8 +102,19 @@ def validate(
             continue
         obligations.append(Obligation(deadline.type, due, deadline.evidence, rec.total_cents))
 
+    assessment = assess(
+        rec.lines,
+        expense.lines,
+        expense.line_confidences or None,
+        suspect_rows=rec.suspect_rows,
+        attempts=outcome.attempts,
+        adds_up=rec.ok,
+    )
+    if issues:
+        assessment["level"] = "check"  # anything sent to review is never "confident"
     return ValidationResult(
         status="needs_review" if issues else "ready",
+        confidence=assessment,
         issues=issues,
         doc_type=doc.doc_type,
         vendor=doc.vendor,

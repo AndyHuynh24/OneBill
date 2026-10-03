@@ -710,3 +710,76 @@ def test_someone_elses_document_cant_be_deleted(table, s3):
 
     with pytest.raises(NotFound):
         delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
+
+
+# --- "Looks right" on a flagged line (phase 2d) --------------------------------------------------
+
+
+def flagged_doc(table, status="ready"):
+    doc_id = processed_doc(table, status=status, obligations=())
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET confidence = :c",
+        ExpressionAttributeValues={
+            ":c": {
+                "level": "check",
+                "checks": [
+                    {"row": 1, "reason": "Hard to read on the photo"},
+                    {"row": 4, "reason": "Hard to read on the photo"},
+                ],
+            }
+        },
+    )
+    return doc_id
+
+
+def test_confirming_a_flagged_line_clears_just_that_flag(table):
+    doc_id = flagged_doc(table)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [1]}, now=NOW)
+
+    assert doc["confidence"]["checks"] == [{"row": 4, "reason": "Hard to read on the photo"}]
+    assert doc["confidence"]["level"] == "check"
+
+
+def test_confirming_the_last_flag_marks_the_bill_checked_by_you(table):
+    doc_id = flagged_doc(table)
+    review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [1]}, now=NOW)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [4]}, now=NOW)
+
+    assert doc["confidence"] == {"level": "confirmed", "checks": []}
+    assert doc["status"] == "ready"  # confirming never changes the status
+
+
+def test_a_bill_whose_totals_dont_add_up_still_asks_for_a_check_after_confirming(table):
+    doc_id = flagged_doc(table, status="needs_review")
+
+    doc = review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [1, 4]}, now=NOW)
+
+    assert doc["confidence"] == {"level": "check", "checks": []}
+    assert doc["status"] == "needs_review"
+
+
+@pytest.mark.parametrize("rows", [None, [], "1", [1.5], [True], list(range(201))])
+def test_confirm_needs_a_list_of_row_numbers(table, rows):
+    doc_id = flagged_doc(table)
+
+    with pytest.raises(BadRequest):
+        review_document(table, "user-a", doc_id, {"action": "confirm", "rows": rows}, now=NOW)
+
+
+def test_accepting_or_fixing_a_bill_clears_its_flags(table):
+    doc_id = flagged_doc(table)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "accept"}, now=NOW)
+
+    assert doc["confidence"] == {"level": "confirmed", "checks": []}
+
+
+def test_the_receipts_list_includes_each_bills_confidence(table):
+    flagged_doc(table)
+
+    (summary,) = list_documents(table, "user-a", now=NOW)
+
+    assert summary["confidence"]["level"] == "check"

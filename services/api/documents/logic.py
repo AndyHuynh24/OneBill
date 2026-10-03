@@ -278,6 +278,7 @@ _SUMMARY_ATTRS = (
     "reviewOutcome",
     "failureReason",
     "source",  # "email" for labelled emails read like a scan
+    "confidence",  # {"level", "checks"}: the list shows a ✓ or "Check" badge (phase 2d)
 )
 
 
@@ -294,11 +295,13 @@ def review_document(
     Corrected deadlines replace the document's obligations and their GSI1 entries atomically.
     """
     action = body.get("action")
-    if action not in {"accept", "correct"}:
-        raise BadRequest('action must be "accept" or "correct".')
+    if action not in {"accept", "correct", "confirm"}:
+        raise BadRequest('action must be "accept", "correct", or "confirm".')
     current = get_document(table, user_id, doc_id)  # NotFound for other users' documents
     if current.get("status") not in REVIEWABLE_STATUSES:
         raise BadRequest("Only processed documents can be reviewed.")
+    if action == "confirm":
+        return _confirm_lines(table, user_id, doc_id, current, body.get("rows"), now)
 
     updates: dict[str, Any] = {
         "status": "ready",
@@ -313,6 +316,7 @@ def review_document(
     expected_keys = _current_keys(table, user_id, doc_id)
     if action == "accept":
         updates["reviewOutcome"] = "accepted"
+        updates["confidence"] = {"level": "confirmed", "checks": []}  # the user checked it all
     else:
         fields = _validated_corrections(body.get("fields"))
         updates["reviewOutcome"] = "corrected"
@@ -344,6 +348,10 @@ def review_document(
                 {"kind": item["kind"], "dueDate": item["dueDate"], "evidence": item["evidence"]}
                 for item in puts
             ]
+        # The user went through the bill: flags are cleared, unless the fixed lines still
+        # don't add up.
+        checked = updates.get("status") == "ready"
+        updates["confidence"] = {"level": "confirmed" if checked else "check", "checks": []}
 
     _write_review(
         table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys, removes=removes
@@ -543,6 +551,51 @@ def _validated_corrections(fields: Any) -> dict[str, Any]:
             deadlines.append((kind, due))
         out["deadlines"] = deadlines
     return out
+
+
+MAX_CONFIRM_ROWS = 200
+
+
+def _confirm_lines(
+    table: Any,
+    user_id: str,
+    doc_id: str,
+    current: dict[str, Any],
+    rows: Any,
+    now: datetime,
+) -> dict[str, Any]:
+    """'Looks right' on flagged lines: clears those flags. With none left, a bill whose totals
+    add up counts as checked by the user. The status never changes here."""
+    valid = (
+        isinstance(rows, list)
+        and 0 < len(rows) <= MAX_CONFIRM_ROWS
+        and all(isinstance(r, int) and not isinstance(r, bool) for r in rows)
+    )
+    if not valid:
+        raise BadRequest(f"rows must be a list of 1–{MAX_CONFIRM_ROWS} line numbers.")
+    before = _plain(current.get("confidence") or {"level": "check", "checks": []})
+    remaining = [c for c in before.get("checks", []) if int(c["row"]) not in set(rows)]
+    if remaining or current.get("status") != "ready":
+        level = before.get("level", "check") if remaining else "check"
+    else:
+        level = "confirmed"
+    try:
+        table.update_item(
+            Key={"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"},
+            UpdateExpression="SET confidence = :new, updatedAt = :now",
+            # Only if nothing else changed the flags since they were read (no lost confirms).
+            ConditionExpression="attribute_not_exists(confidence) OR confidence = :old",
+            ExpressionAttributeValues={
+                ":new": {"level": level, "checks": remaining},
+                ":old": current.get("confidence") or {},
+                ":now": now.isoformat(),
+            },
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise BadRequest("This bill changed. Reload and try again.") from err
+        raise
+    return get_document(table, user_id, doc_id)
 
 
 def _write_review(

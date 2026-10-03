@@ -98,6 +98,7 @@ def to_predicted(result: Any, outcome: Any) -> dict[str, Any]:
             {"type": o.type, "due_date": o.due_date.isoformat()} for o in result.obligations
         ],
         "status": result.status,
+        "confidence": result.confidence,
         "attempts": outcome.attempts,
         "issues": result.issues,
         "repair_feedback": outcome.repair_feedback,
@@ -212,6 +213,7 @@ def main() -> int:
         misses = [name for name, ok in row["fields"].items() if not ok]
         print(
             f"  {entry['file']}: {predicted['status']} · {len(images)} image(s)"
+            + f" · {predicted.get('confidence', {}).get('level', '–')}"
             + (f" · wrong: {', '.join(misses)}" if misses else "")
         )
 

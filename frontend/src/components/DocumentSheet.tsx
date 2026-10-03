@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type {
+  Confidence,
   CorrectionFields,
   DocumentDetail,
   DocumentLine,
@@ -55,6 +56,21 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // "Looks right" on one flagged line: stays on the bill, the highlight fades out.
+  const confirm = useMutation({
+    mutationFn: (row: number) => api.reviewDocument(docId, { action: "confirm", rows: [row] }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["document", docId], updated);
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+  const checks = new Map((doc?.confidence?.checks ?? []).map((c) => [c.row, c.reason]));
+  const lineTableProps = {
+    checks,
+    confirming: confirm.isPending ? confirm.variables : undefined,
+    onConfirm: (row: number) => confirm.mutate(row),
+  };
+
   const remove = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -104,6 +120,8 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
 
             {doc.status === "failed" && <p className="notice notice-error">{doc.failureReason}</p>}
 
+            {mode === "view" && <ConfidenceBanner confidence={doc.confidence} />}
+
             {!!doc.issues?.length && (
               <div className="notice notice-warn">
                 <strong>Worth a look</strong>
@@ -142,12 +160,14 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   label="Items"
                   lines={(doc.lines ?? []).filter((l) => ITEM_KINDS.has(l.kind))}
                   currency={currency}
+                  {...lineTableProps}
                 />
                 <LineTable
                   label="Summary"
                   lines={(doc.lines ?? []).filter((l) => SUMMARY_KINDS.has(l.kind))}
                   currency={currency}
                   showKind
+                  {...lineTableProps}
                 />
                 {doc.taxIncluded && (
                   <p className="muted tax-note">
@@ -237,16 +257,47 @@ const KIND_NAMES: Record<string, string> = {
   balance_due: "Amount due",
 };
 
+/** One line on top of the bill: how sure the reading is. */
+function ConfidenceBanner({ confidence }: { confidence?: Confidence }) {
+  if (!confidence) return null; // bills read before phase 2d
+  const flagged = confidence.checks.length;
+  if (confidence.level === "confident") {
+    return <p className="confidence confidence-ok">✓ Confident: every amount was found on the bill and they add up.</p>;
+  }
+  if (confidence.level === "confirmed") {
+    return <p className="confidence confidence-ok">✓ Checked by you.</p>;
+  }
+  if (flagged) {
+    return (
+      <p className="confidence confidence-check">
+        Please double-check {flagged === 1 ? "the highlighted amount" : `the ${flagged} highlighted amounts`}. Tap{" "}
+        <strong>✓ Looks right</strong> on each one that's correct.
+      </p>
+    );
+  }
+  if (confidence.level === "mostly") {
+    return <p className="confidence confidence-quiet">Read clearly and the totals add up.</p>;
+  }
+  return null; // "check" without a culprit: the "Worth a look" box already explains
+}
+
 function LineTable({
   label,
   lines,
   currency,
   showKind = false,
+  checks,
+  confirming,
+  onConfirm,
 }: {
   label: string;
   lines: DocumentLine[];
   currency: string;
   showKind?: boolean;
+  /** Flagged rows and why ("Hard to read on the photo"). */
+  checks: Map<number, string>;
+  confirming?: number;
+  onConfirm: (row: number) => void;
 }) {
   if (!lines.length) return null;
   return (
@@ -254,15 +305,32 @@ function LineTable({
       <h3>{label}</h3>
       <table className="lines" aria-label={label}>
         <tbody>
-          {lines.map((line) => (
-            <tr key={line.row}>
-              <td>
-                {line.description}
-                {showKind && <span className="kind"> {KIND_NAMES[line.kind]}</span>}
-              </td>
-              <td className="amount">{formatCents(line.amountCents, currency)}</td>
-            </tr>
-          ))}
+          {lines.map((line) => {
+            const reason = checks.get(line.row);
+            return (
+              <tr key={line.row} className={reason ? "line-check" : undefined}>
+                <td>
+                  {line.description}
+                  {showKind && <span className="kind"> {KIND_NAMES[line.kind]}</span>}
+                  {reason && (
+                    <span className="check-row">
+                      <span className="check-reason">{reason}</span>
+                      <button
+                        type="button"
+                        className="check-ok"
+                        aria-label={`Looks right: ${line.description} ${formatCents(line.amountCents, currency)}`}
+                        disabled={confirming !== undefined}
+                        onClick={() => onConfirm(line.row)}
+                      >
+                        {confirming === line.row ? "Saving…" : "✓ Looks right"}
+                      </button>
+                    </span>
+                  )}
+                </td>
+                <td className="amount">{formatCents(line.amountCents, currency)}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
