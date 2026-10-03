@@ -21,6 +21,7 @@ ROOT = EVAL_DIR.parent
 sys.path.insert(0, str(ROOT / "services"))
 
 from documents.extraction import PROMPT_VERSION, ExtractionError, extract  # noqa: E402
+from documents.image_render import model_images  # noqa: E402
 from documents.textract import parse_expense  # noqa: E402
 from documents.validate import validate  # noqa: E402
 
@@ -128,6 +129,12 @@ def main() -> int:
     )
     parser.add_argument("--limit", type=int, help="Only the first N receipts")
     parser.add_argument(
+        "--mode",
+        choices=["text", "tiles"],
+        default="text",
+        help="text: OCR text only; tiles: photo tiles (PII blacked out) + OCR text",
+    )
+    parser.add_argument(
         "--init-labels", action="store_true", help="Add label stubs for new receipt files"
     )
     parser.add_argument("--yes", action="store_true", help="Actually call AWS (costs money)")
@@ -154,7 +161,7 @@ def main() -> int:
         * (EST_TOKENS_PER_DOC[0] * INPUT_PER_M + EST_TOKENS_PER_DOC[1] * OUTPUT_PER_M)
         / 1e6
     )
-    print(f"{len(entries)} receipts · model {model} · prompt {PROMPT_VERSION}")
+    print(f"{len(entries)} receipts · model {model} · prompt {PROMPT_VERSION} · {args.mode}")
     print(f"Estimated cost: ≤ ${est:.2f} (Textract is cached per file after the first run)")
     if not args.yes:
         print("Dry run. Add --yes to call Textract and Bedrock.")
@@ -177,8 +184,13 @@ def main() -> int:
         if not cached:
             textract_pages += response.get("DocumentMetadata", {}).get("Pages", 1)
         expense = parse_expense([response])
+        images = (
+            model_images(path.read_bytes(), expense)
+            if args.mode == "tiles" and path.suffix.lower() != ".pdf"
+            else []
+        )
         try:
-            outcome = extract(bedrock, model, expense)
+            outcome = extract(bedrock, model, expense, images)
             result = validate(outcome, expense)
             predicted = to_predicted(result, outcome)
             for k in tokens:
@@ -199,20 +211,25 @@ def main() -> int:
         )
         misses = [name for name, ok in row["fields"].items() if not ok]
         print(
-            f"  {entry['file']}: {predicted['status']}"
+            f"  {entry['file']}: {predicted['status']} · {len(images)} image(s)"
             + (f" · wrong: {', '.join(misses)}" if misses else "")
         )
 
     now = datetime.now(UTC)
     summary = aggregate(rows)
     report = render_markdown(
-        summary, {"prompt_version": PROMPT_VERSION, "model": model, "date": now.date().isoformat()}
+        summary,
+        {
+            "prompt_version": f"{PROMPT_VERSION} ({args.mode})",
+            "model": model,
+            "date": now.date().isoformat(),
+        },
     )
     if latency := render_latency(model_ms):
         report += f"\n{latency}\n"
     RESULTS.mkdir(exist_ok=True)
     OUT.mkdir(exist_ok=True)
-    (RESULTS / f"{now.date().isoformat()}-{PROMPT_VERSION}.md").write_text(report)
+    (RESULTS / f"{now.date().isoformat()}-{PROMPT_VERSION}-{args.mode}.md").write_text(report)
     (OUT / f"{now:%Y%m%dT%H%M%S}.json").write_text(json.dumps(details, indent=2, default=str))
     cost = (
         textract_pages * TEXTRACT_PER_PAGE

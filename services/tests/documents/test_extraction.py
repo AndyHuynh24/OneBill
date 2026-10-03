@@ -414,13 +414,13 @@ def test_repair_feedback_forbids_forcing_the_math():
 
 
 def test_prompt_version_is_current():
-    assert extraction.PROMPT_VERSION == "2026-10-02.3"
+    assert extraction.PROMPT_VERSION == "2026-10-02.4"
 
 
 def test_receipts_have_no_deadlines_and_return_windows_arent_tracked():
     assert "A receipt has no deadlines" in extraction.SYSTEM_PROMPT
     assert "return_by" not in extraction.DEADLINE_TYPES
-    assert extraction.PROMPT_VERSION == "2026-10-02.3"
+    assert extraction.PROMPT_VERSION == "2026-10-02.4"
 
 
 def test_prompt_says_a_sale_item_is_recorded_at_the_price_paid():
@@ -472,3 +472,46 @@ def test_each_model_call_is_timed(bedrock, expense):
 
     assert len(outcome.model_ms) == outcome.attempts == 2
     assert all(isinstance(ms, int) and ms >= 0 for ms in outcome.model_ms)
+
+
+def test_photo_tiles_go_before_the_text_with_the_image_prompt():
+    request = build_request("m", "TOTAL 1.29", images=[b"tile-1", b"tile-2"])
+
+    content = request["messages"][0]["content"]
+    assert [c["image"]["source"]["bytes"] for c in content[:2]] == [b"tile-1", b"tile-2"]
+    assert content[2]["text"].startswith("<document>")
+    assert request["system"][0]["text"] == extraction.IMAGE_SYSTEM_PROMPT
+    assert "Use the OCR lines for the exact digits" in extraction.IMAGE_SYSTEM_PROMPT
+
+
+def test_without_images_the_request_is_text_only():
+    request = build_request("m", "TOTAL 1.29")
+
+    assert request["messages"][0]["content"] == [{"text": "<document>\nTOTAL 1.29\n</document>"}]
+    assert request["system"][0]["text"] == extraction.SYSTEM_PROMPT
+
+
+def test_an_info_line_with_words_in_its_amount_is_dropped_quietly():
+    """'1.02 from savings' as an info amount: info never counts, so it's no reason for review."""
+    doc = parse_output(
+        {
+            "lines": [
+                {"description": "AXE", "amount": "3.96", "kind": "item"},
+                {"description": "AXE", "amount": "1.02 from savings", "kind": "info"},
+                {"description": "Total", "amount": "3.96", "kind": "total"},
+            ],
+            "deadlines": [],
+        }
+    )
+
+    assert [line.kind for line in doc.lines] == ["item", "total"]
+    assert doc.warnings == []
+
+
+def test_an_unreadable_item_amount_is_still_flagged():
+    doc = parse_output(
+        {"lines": [{"description": "AXE", "amount": "3.96 from savings", "kind": "item"}]}
+    )
+
+    assert doc.lines == []
+    assert doc.warnings

@@ -15,7 +15,7 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { grantInvokeModel } from "./bedrock";
-import { newServiceFunction } from "./python-code";
+import { newServiceFunction, pillowLayer } from "./python-code";
 
 export interface PipelineStackProps extends StackProps {
   readonly table: dynamodb.ITable;
@@ -40,6 +40,12 @@ export interface PipelineStackProps extends StackProps {
    * @default true
    */
   readonly dailyLimits?: boolean;
+  /**
+   * Send photo tiles next to the OCR text (phase 2c). The Pillow layer is always attached;
+   * this only sets PHOTO_TILES, so turning it off is a config-only rollback.
+   * @default false
+   */
+  readonly photoTiles?: boolean;
 }
 
 /**
@@ -101,10 +107,12 @@ export class PipelineStack extends Stack {
       timeout: Duration.seconds(300),
       deadLetterQueue: deadLetters,
       enableTracing: props.enableTracing,
+      layers: [pillowLayer(this)],
       environment: {
         TABLE_NAME: props.table.tableName,
         BUCKET_NAME: props.docsBucket.bucketName,
         BEDROCK_MODEL_ID: props.bedrockModelId,
+        PHOTO_TILES: props.photoTiles ? "on" : "off",
         TEXTRACT_TOPIC_ARN: textractDone.topicArn,
         TEXTRACT_ROLE_ARN: textractPublishRole.roleArn,
         ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),

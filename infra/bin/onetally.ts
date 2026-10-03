@@ -14,6 +14,8 @@ const frontendUrl: string = app.node.getContext("frontendUrl");
 // Testing only: `cdk deploy -c dailyLimits=off` skips the daily upload limits. Any deploy
 // without the flag (including CI) turns them back on.
 const dailyLimits = app.node.tryGetContext("dailyLimits") !== "off";
+// Photo tiles next to the OCR text (phase 2c): "photoTiles" in cdk.json, so it's reviewed in a PR.
+const photoTiles = app.node.tryGetContext("photoTiles") === "on";
 
 const data = new DataStack(app, "OneTally-Data", { env, frontendUrl });
 
@@ -47,6 +49,7 @@ new PipelineStack(app, "OneTally-Pipeline", {
   appUrl: frontendUrl,
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
+  photoTiles,
 });
 
 // Account-level stack, deployed once from a laptop:

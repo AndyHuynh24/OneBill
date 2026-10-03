@@ -5,7 +5,14 @@ import boto3
 import pytest
 from botocore.stub import Stubber
 
-from documents.textract import analyze_sync, fetch_async, parse_expense, start_async
+from documents.image_tiles import Box
+from documents.textract import (
+    ExpenseResult,
+    analyze_sync,
+    fetch_async,
+    parse_expense,
+    start_async,
+)
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "textract"
 
@@ -175,3 +182,64 @@ def test_ocr_text_cannot_close_the_prompt_fence():
 
     assert "</document>" not in text
     assert text.count("</ocr_lines>") == 1  # only our own closing tag
+
+
+def test_line_boxes_keep_each_lines_position_for_image_tiles():
+    block = {
+        "BlockType": "LINE",
+        "Text": "TOTAL 1.29",
+        "Page": 1,
+        "Geometry": {"BoundingBox": {"Left": 0.1, "Top": 0.8, "Width": 0.5, "Height": 0.02}},
+    }
+
+    result = parse_expense([{"ExpenseDocuments": [{"Blocks": [block]}]}])
+
+    assert result.line_boxes == [Box(0.1, 0.8, 0.5, 0.02, "TOTAL 1.29")]
+
+
+def test_the_customers_name_and_address_are_not_shown_to_the_model():
+    def field(type_, text, label=None):
+        return {
+            "Type": {"Text": type_},
+            "ValueDetection": {"Text": text, "Confidence": 99.0},
+            **({"LabelDetection": {"Text": label}} if label else {}),
+        }
+
+    def line(text, top):
+        box = {"Left": 0.1, "Top": top, "Width": 0.5, "Height": 0.01}
+        return {"BlockType": "LINE", "Text": text, "Page": 1, "Geometry": {"BoundingBox": box}}
+
+    response = {
+        "ExpenseDocuments": [
+            {
+                "SummaryFields": [
+                    field("RECEIVER_NAME", "Jane Doe"),
+                    field("ADDRESS", "12 Elm St, Ottawa, ON K1S 5B7"),
+                    field("TOTAL", "4.99", "Total"),
+                ],
+                "Blocks": [
+                    line("Delivery Address", 0.70),
+                    line("Jane Doe", 0.72),
+                    line("12 Elm St, Ottawa, ON K1S 5B7", 0.74),
+                    line("Total 4.99", 0.80),
+                ],
+            }
+        ]
+    }
+
+    rendered = parse_expense([response]).render_for_model()
+
+    assert "Jane" not in rendered
+    assert "Elm" not in rendered
+    assert "K1S" not in rendered
+    assert "Total 4.99" in rendered
+    assert "TOTAL: $4.99" in rendered
+
+
+def test_upc_length_codes_after_an_item_name_stay_visible_but_reference_numbers_dont():
+    lines = ["PAL ORI 828 006200000123", "REF # 001001234567", "Account 004412345678"]
+    expense = ExpenseResult(pages=1, lines=lines)
+
+    masked = {lines[i] for i, _, _ in expense.private_spans()}
+
+    assert masked == {"REF # 001001234567", "Account 004412345678"}

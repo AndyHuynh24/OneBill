@@ -9,6 +9,7 @@ If the math or the output shape fails, the model gets one targeted repair turn.
 
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,7 +21,7 @@ from shared.money import format_cents, to_cents
 from shared.pii import redact
 
 # Stored on every DOC item, so eval results and production behaviour map to a prompt version.
-PROMPT_VERSION = "2026-10-02.3"
+PROMPT_VERSION = "2026-10-02.4"
 TOOL_NAME = "record_document"
 MAX_OUTPUT_TOKENS = 4096
 
@@ -163,6 +164,22 @@ class ExtractionError(Exception):
     """The model's output couldn't be used (no tool call, or invalid shape)."""
 
 
+# With a photo (phase 2c): the image shows layout, the OCR text gives the exact digits.
+_OCR_INTRO = SYSTEM_PROMPT[
+    SYSTEM_PROMPT.index("You receive one document") : SYSTEM_PROMPT.index("Call the ")
+]
+IMAGE_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
+    _OCR_INTRO,
+    """You receive one document as image tiles in reading order (column by column, top to bottom; \
+tiles don't overlap, so a line appears in only one tile), plus three views produced by OCR: \
+Textract's summary fields, Textract's line-item rows (its grouping is often wrong), and the raw \
+OCR lines. Use the image for layout: which price belongs to which product, crossed-out prices, \
+columns. Use the OCR lines for the exact digits. Black boxes hide personal information.
+
+""",
+)
+
+
 @dataclass(frozen=True)
 class Deadline:
     type: str
@@ -197,12 +214,18 @@ class ExtractionOutcome:
 
 
 def build_request(
-    model_id: str, document_text: str, repair: tuple[dict[str, Any], str, str] | None = None
+    model_id: str,
+    document_text: str,
+    repair: tuple[dict[str, Any], str, str] | None = None,
+    images: Sequence[bytes] = (),
 ) -> dict[str, Any]:
-    """Converse request. `repair` = (previous assistant message, its toolUseId, feedback)."""
-    messages: list[dict[str, Any]] = [
-        {"role": "user", "content": [{"text": f"<document>\n{document_text}\n</document>"}]}
+    """Converse request. `repair` = (previous assistant message, its toolUseId, feedback).
+    `images` are JPEG tiles of the photo, PII already blacked out (documents.image_render)."""
+    content: list[dict[str, Any]] = [
+        {"image": {"format": "jpeg", "source": {"bytes": data}}} for data in images
     ]
+    content.append({"text": f"<document>\n{document_text}\n</document>"})
+    messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
     if repair:
         assistant_message, tool_use_id, feedback = repair
         messages.append(assistant_message)
@@ -222,7 +245,7 @@ def build_request(
         )
     return {
         "modelId": model_id,
-        "system": [{"text": SYSTEM_PROMPT}],
+        "system": [{"text": IMAGE_SYSTEM_PROMPT if images else SYSTEM_PROMPT}],
         "messages": messages,
         "toolConfig": {
             "tools": [
@@ -256,6 +279,8 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
         kind, amount = raw.get("kind"), raw.get("amount")
         description = str(raw.get("description", ""))
         cents = to_cents(_TAX_FLAG.sub("", amount.strip())) if isinstance(amount, str) else None
+        if kind == "info" and cents is None:
+            continue  # info never counts toward the math: an odd amount is no reason for review
         if kind not in LINE_KINDS or cents is None:
             warnings.append(
                 f'Skipped line {index} ("{description}"): its amount couldn\'t be read.'
@@ -294,12 +319,14 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
     )
 
 
-def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOutcome:
+def extract(
+    client: Any, model_id: str, expense: ExpenseResult, images: Sequence[bytes] = ()
+) -> ExtractionOutcome:
     redaction = redact(expense.render_for_model())
     usage = {"inputTokens": 0, "outputTokens": 0}
 
     model_ms: list[int] = []
-    response = _converse(client, build_request(model_id, redaction.text), model_ms)
+    response = _converse(client, build_request(model_id, redaction.text, images=images), model_ms)
     tool_use = _tool_use(response, usage)
     try:
         document = parse_output(tool_use["input"])
@@ -322,7 +349,7 @@ def extract(client: Any, model_id: str, expense: ExpenseResult) -> ExtractionOut
         )
 
     repair = (response["output"]["message"], tool_use["toolUseId"], feedback)
-    response = _converse(client, build_request(model_id, redaction.text, repair), model_ms)
+    response = _converse(client, build_request(model_id, redaction.text, repair, images), model_ms)
     tool_use = _tool_use(response, usage)
     document = parse_output(tool_use["input"])  # a second invalid output is a hard failure
     result = reconcile(

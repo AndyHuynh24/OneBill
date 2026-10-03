@@ -113,6 +113,26 @@ describe("PipelineStack — extract Lambda", () => {
     });
   });
 
+  it("has Pillow for photo tiles, with tiles off unless cdk.json turns them on", () => {
+    template.hasResourceProperties("AWS::Lambda::LayerVersion", {
+      CompatibleRuntimes: ["python3.12"],
+      CompatibleArchitectures: ["arm64"],
+    });
+    const fns = template.findResources("AWS::Lambda::Function", {
+      Properties: { Handler: "documents.handler.handler" },
+    });
+    const fn = Object.values(fns)[0].Properties;
+    expect(fn.Layers).toHaveLength(2); // Powertools + Pillow
+    expect(fn.Environment.Variables.PHOTO_TILES).toBe("off");
+  });
+
+  it("only the extract Lambda gets the Pillow layer", () => {
+    const withTwoLayers = Object.values(template.findResources("AWS::Lambda::Function")).filter(
+      (f) => (f.Properties.Layers ?? []).length > 1,
+    );
+    expect(withTwoLayers.map((f) => f.Properties.Handler)).toEqual(["documents.handler.handler"]);
+  });
+
   it("gets only the DynamoDB actions its state machine and transaction use", () => {
     expect(actionsOf(extractStatements(), "dynamodb:")).toEqual([
       "dynamodb:DeleteItem",

@@ -20,6 +20,7 @@ coverage/
 # CDK
 infra/cdk.out/
 infra/cdk.context.json
+infra/.layers/
 
 # Python
 __pycache__/

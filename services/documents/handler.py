@@ -48,6 +48,8 @@ BUCKET = os.environ["BUCKET_NAME"]
 MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 TOPIC_ARN = os.environ["TEXTRACT_TOPIC_ARN"]
 ROLE_ARN = os.environ["TEXTRACT_ROLE_ARN"]
+# Photo tiles next to the OCR text (phase 2c). Off until the eval shows it helps; "off" rolls back.
+PHOTO_TILES = os.environ.get("PHOTO_TILES", "off") == "on"
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PDF_PAGES = 10
 
@@ -121,7 +123,8 @@ def _on_upload(detail: dict[str, Any], event_time: str | None = None) -> None:
         ocr_started = time.monotonic()
         expense = parse_expense(analyze_sync(textract, BUCKET, key, version))
         timings["textract"] = _ms(ocr_started)
-        _process(user_id, doc_id, expense, timings, started)
+        images = _photo_images(key, version, expense) if PHOTO_TILES else []
+        _process(user_id, doc_id, expense, timings, started, images)
 
 
 def _on_textract_done(message: dict[str, Any]) -> None:
@@ -153,11 +156,30 @@ def _on_textract_done(message: dict[str, Any]) -> None:
         _process(user_id, doc_id, expense, timings, started)
 
 
+def _photo_images(key: str, version: str | None, expense: ExpenseResult) -> list[bytes]:
+    """The photo as model-ready tiles (PII blacked out). Any problem means text only: the image
+    is a layout hint, never a reason to fail a scan."""
+    try:
+        from documents.image_render import model_images  # needs Pillow (the images layer)
+
+        kwargs = {"VersionId": version} if version else {}
+        data = s3.get_object(Bucket=BUCKET, Key=key, **kwargs)["Body"].read()
+        return model_images(data, expense)
+    except Exception:  # noqa: BLE001 (deliberately broad: fall back to text only)
+        logger.warning("photo_images_skipped", exc_info=True)
+        return []
+
+
 @tracer.capture_method
 def _process(
-    user_id: str, doc_id: str, expense: ExpenseResult, timings: dict[str, Any], started: float
+    user_id: str,
+    doc_id: str,
+    expense: ExpenseResult,
+    timings: dict[str, Any],
+    started: float,
+    images: list[bytes] | None = None,
 ) -> None:
-    outcome = extract(bedrock, MODEL_ID, expense)
+    outcome = extract(bedrock, MODEL_ID, expense, images or [])
     result = validate(outcome, expense)
     meta = {
         "attempts": outcome.attempts,
@@ -179,6 +201,7 @@ def _process(
             "corrections": len(result.corrections),
             "obligations": len(result.obligations),
             "pages": expense.pages,
+            "images": len(images or []),
             "redactions": outcome.redactions,
             "timingsMs": timings,
             **meta,
