@@ -221,6 +221,7 @@ def build_request(
     document_text: str,
     repair: tuple[dict[str, Any], str, str] | None = None,
     images: Sequence[bytes] = (),
+    max_tokens: int = MAX_OUTPUT_TOKENS,
 ) -> dict[str, Any]:
     """Converse request. `repair` = (previous assistant message, its toolUseId, feedback).
     `images` are JPEG tiles of the photo, PII already blacked out (documents.image_render)."""
@@ -262,7 +263,7 @@ def build_request(
             ],
             "toolChoice": {"tool": {"name": TOOL_NAME}},
         },
-        "inferenceConfig": {"maxTokens": MAX_OUTPUT_TOKENS, "temperature": 0},
+        "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0},
     }
 
 
@@ -325,13 +326,25 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
 
 
 def extract(
-    client: Any, model_id: str, expense: ExpenseResult, images: Sequence[bytes] = ()
+    client: Any,
+    model_id: str,
+    expense: ExpenseResult,
+    images: Sequence[bytes] = (),
+    *,
+    max_output_tokens: int = MAX_OUTPUT_TOKENS,
+    repair: bool = True,
 ) -> ExtractionOutcome:
+    """`repair=False`: one model call only; if the math doesn't add up, the document goes to
+    review as read (email bills: bounds the cost of a hostile email)."""
     redaction = redact(expense.render_for_model())
     usage = {"inputTokens": 0, "outputTokens": 0}
 
     model_ms: list[int] = []
-    response = _converse(client, build_request(model_id, redaction.text, images=images), model_ms)
+    response = _converse(
+        client,
+        build_request(model_id, redaction.text, images=images, max_tokens=max_output_tokens),
+        model_ms,
+    )
     tool_use = _tool_use(response, usage)
     try:
         document = parse_output(tool_use["input"])
@@ -342,19 +355,25 @@ def extract(
             savings=printed_savings(expense.lines),
         )
         invented = ungrounded(document.lines, expense.lines)
-        if result.ok and not invented:
+        if (result.ok and not invented) or not repair:
             return ExtractionOutcome(
                 document, result, 1, usage, model_id, redactions=redaction.counts, model_ms=model_ms
             )
         feedback = _math_feedback(result, invented)
     except ExtractionError as err:
+        if not repair:
+            raise
         feedback = (
             f"Your previous output was invalid: {err}. Call {TOOL_NAME} again with valid input "
             "for every money line."
         )
 
-    repair = (response["output"]["message"], tool_use["toolUseId"], feedback)
-    response = _converse(client, build_request(model_id, redaction.text, repair, images), model_ms)
+    repair_turn = (response["output"]["message"], tool_use["toolUseId"], feedback)
+    response = _converse(
+        client,
+        build_request(model_id, redaction.text, repair_turn, images, max_output_tokens),
+        model_ms,
+    )
     tool_use = _tool_use(response, usage)
     document = parse_output(tool_use["input"])  # a second invalid output is a hard failure
     result = reconcile(

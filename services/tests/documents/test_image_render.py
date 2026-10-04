@@ -114,7 +114,38 @@ def test_an_unreadable_file_means_text_only():
     assert model_images(b"not an image", receipt(ROWS)) == []
 
 
-def test_exif_rotation_is_applied_before_cropping():
-    (image,) = model_images(photo(1000, 800, orientation=6), receipt(ROWS))  # rotated 90°
+def test_masks_land_on_the_text_of_a_photo_stored_sideways():
+    """iPhone portrait: pixels stored sideways + EXIF orientation 6. Textract's boxes are on the
+    photo as viewed (verified with a real Textract call), so masks go on after the rotation."""
+    card = Box(0.1, 0.8, 0.6, 0.05, "Account 004412345678")  # bottom of the upright receipt
 
-    assert opened(image).size == (800, 1000)
+    (image,) = model_images(photo(1000, 800, orientation=6), receipt([ROWS[0], (card.text, card)]))
+
+    upright = opened(image)
+    assert upright.size == (800, 1000)
+    w, h = upright.size
+    assert max(upright.getpixel((int(0.65 * w), int(0.825 * h)))) < 40  # the digits: masked
+    assert min(upright.getpixel((int(0.15 * w), int(0.825 * h)))) > 215  # "Account": kept
+
+
+def test_a_huge_image_is_refused_before_decoding():
+    big = io.BytesIO()
+    Image.new("RGB", (8000, 7000), "white").save(big, "PNG")  # 56 MP
+
+    assert model_images(big.getvalue(), receipt(ROWS)) == []
+
+
+def test_only_jpeg_and_png_are_opened():
+    gif = io.BytesIO()
+    Image.new("RGB", (800, 1000), "white").save(gif, "GIF")
+
+    assert model_images(gif.getvalue(), receipt(ROWS)) == []
+
+
+def test_a_slanted_line_is_masked_whole_not_just_its_digits():
+    text = "VISA Ending in 6262"
+    card = Box(0.1, 0.5, 0.6, 0.05, text, tilted=True)
+
+    (image,) = model_images(photo(1000, 1000), receipt([ROWS[0], (text, card)]))
+
+    assert max(opened(image).getpixel((int(0.15 * 1000), 525))) < 40  # even "VISA" is covered

@@ -335,3 +335,32 @@ def test_a_bill_that_isnt_a_subscription_keeps_its_own_renewal_reminder(table, b
     process_email(table, client, MODEL, "user-a", EMAIL | {"messageId": "not-sub"}, NOW)
 
     assert [o["kind"] for o in documents(table)[0]["obligations"]] == ["renewal"]
+
+
+# --- security review fixes ------------------------------------------------------------------------
+
+from datetime import timedelta  # noqa: E402
+
+from documents.email_bill import create_email_document  # noqa: E402
+from subscriptions.ingest import DAILY_REQUEST_LIMIT, consume_request_quota  # noqa: E402
+
+
+def test_a_bill_left_processing_by_a_timeout_is_read_again_on_retry(table):
+    assert create_email_document(table, "user-a", "1790000000000aaaaaaaa", "Bill", NOW)
+    assert not create_email_document(table, "user-a", "1790000000000aaaaaaaa", "Bill", NOW)
+
+    later = NOW + timedelta(minutes=6)
+
+    assert create_email_document(table, "user-a", "1790000000000aaaaaaaa", "Bill", later)
+
+
+def test_over_the_request_cap_nothing_is_stored(table, bedrock):
+    client, _ = bedrock
+    for _ in range(DAILY_REQUEST_LIMIT):
+        consume_request_quota(table, "user-a", NOW)
+
+    result = process_email(table, client, MODEL, "user-a", EMAIL, NOW)
+
+    assert result["status"] == "limit"
+    marker = table.get_item(Key={"PK": "USER#user-a", "SK": f"EMAIL#{EMAIL['messageId']}"})
+    assert "Item" not in marker

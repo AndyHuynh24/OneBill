@@ -534,3 +534,21 @@ def test_an_unreadable_item_amount_is_kept_and_flagged():
 def test_prompt_says_a_bag_listed_with_the_items_is_an_item():
     assert "listed with the items (above the subtotal" in extraction.SYSTEM_PROMPT
     assert "fee = bag fee" not in extraction.SYSTEM_PROMPT  # no longer contradicts itself
+
+
+def test_without_repair_one_call_is_made_and_a_mismatch_goes_to_review(monkeypatch, expense):
+    """Email bills (cost review): a short answer, no second call."""
+    calls = []
+
+    def converse(client, request, model_ms):
+        calls.append(request)
+        return bedrock_fixture("grocery_needs_repair.json")
+
+    monkeypatch.setattr(extraction, "_converse", converse)
+
+    outcome = extract(None, MODEL, expense, max_output_tokens=1500, repair=False)
+
+    assert len(calls) == 1
+    assert calls[0]["inferenceConfig"]["maxTokens"] == 1500
+    assert outcome.attempts == 1
+    assert not outcome.reconciliation.ok  # kept as read; validate sends it to review

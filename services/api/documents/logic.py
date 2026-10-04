@@ -433,12 +433,31 @@ def delete_document(
         raise NotFound("Document not found.")
     if _effective(item, now).get("status") == "processing":
         raise BadRequest("We're still reading this document. Try again in a minute.")
-    ops = [{"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": f"DOC#{doc_id}"}}}]
-    ops += [
-        {"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": sk}}}
-        for sk in item.get("obligationKeys", [])
+    keys = list(item.get("obligationKeys", []))
+    # Only if its deadlines are still the ones read here: a concurrent edit can't leave
+    # reminders behind that keep emailing about a deleted bill.
+    unchanged = (
+        "obligationKeys = :keys"
+        if keys
+        else "attribute_not_exists(obligationKeys) OR obligationKeys = :keys"
+    )
+    ops = [
+        {
+            "Delete": {
+                "TableName": table.name,
+                "Key": {"PK": pk, "SK": f"DOC#{doc_id}"},
+                "ConditionExpression": unchanged,
+                "ExpressionAttributeValues": {":keys": keys},
+            }
+        }
     ]
-    table.meta.client.transact_write_items(TransactItems=ops)
+    ops += [{"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": sk}}} for sk in keys]
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            raise BadRequest("This bill changed. Reload and try again.") from err
+        raise
     # Versioned bucket: this adds a delete marker; the old version expires after 30 days.
     s3.delete_object(Bucket=bucket, Key=item.get("s3Key") or f"uploads/{user_id}/{doc_id}")
 
@@ -598,7 +617,8 @@ def _confirm_lines(
             Key={"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"},
             UpdateExpression="SET confidence = :new, updatedAt = :now",
             # Only if nothing else changed the flags since they were read (no lost confirms).
-            ConditionExpression="attribute_not_exists(confidence) OR confidence = :old",
+            ConditionExpression="attribute_exists(PK) AND "
+            "(attribute_not_exists(confidence) OR confidence = :old)",
             ExpressionAttributeValues={
                 ":new": {"level": level, "checks": remaining},
                 ":old": current.get("confidence") or {},

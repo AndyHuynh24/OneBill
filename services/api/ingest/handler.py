@@ -43,9 +43,11 @@ def _json(status: int, body: dict[str, Any]) -> Response:
 @app.post("/ingest/email")
 @tracer.capture_method
 def ingest_email() -> Response:
-    user_id = verify_key(table, app.current_event.get_header_value("authorization"))
+    user_id = verify_key(
+        table, app.current_event.get_header_value("authorization"), datetime.now(UTC)
+    )
     if user_id is None:
-        return _json(401, {"message": "Unknown or missing ingest key."})
+        return _json(401, {"message": "Unknown, expired, or missing ingest key."})
     try:
         payload = json.loads(app.current_event.body or "")
     except json.JSONDecodeError:

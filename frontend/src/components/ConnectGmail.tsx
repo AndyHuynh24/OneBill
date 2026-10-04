@@ -81,8 +81,9 @@ export function ConnectGmail({ api, connection, onClose }: ConnectGmailProps) {
           <>
             {connection.connected ? (
               <p>
-                Connected since {connection.createdAt ? formatDate(connection.createdAt.slice(0, 10)) : "—"}. A new key
-                replaces the old one.
+                Connected since {connection.createdAt ? formatDate(connection.createdAt.slice(0, 10)) : "—"}
+                {connection.expiresOn ? `; the key works until ${formatDate(connection.expiresOn.slice(0, 10))}` : ""}. A
+                new key replaces the old one.
               </p>
             ) : (
               <p>

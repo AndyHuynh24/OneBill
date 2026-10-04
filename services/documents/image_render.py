@@ -13,7 +13,9 @@ from PIL import Image, ImageDraw, ImageOps, UnidentifiedImageError
 from documents.image_tiles import model_scale, needs_tiles, plan_tiles
 from documents.textract import ExpenseResult
 
-Image.MAX_IMAGE_PIXELS = 60_000_000  # refuse decompression bombs (a 48 MP phone photo is fine)
+MAX_PIXELS = 50_000_000  # checked from the header, before decoding (a 48 MP phone photo is fine)
+DRAFT_ABOVE = 24_000_000  # decode big JPEGs at half size: plenty for tiles, half the memory
+Image.MAX_IMAGE_PIXELS = MAX_PIXELS  # Pillow's own guard, as a backstop
 MASK_PAD_PX = 3
 JPEG_QUALITY = 90
 
@@ -23,14 +25,24 @@ def model_images(data: bytes, expense: ExpenseResult) -> list[bytes]:
     if not boxes or len(boxes) != len(expense.lines):
         return []
     try:
-        image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
-    except (UnidentifiedImageError, Image.DecompressionBombError, OSError):
+        image = Image.open(io.BytesIO(data), formats=["JPEG", "PNG"])  # header only, so far
+        if image.width * image.height > MAX_PIXELS:
+            return []
+        # A photo stored sideways with an EXIF "rotate me" tag: Textract measures its boxes on
+        # the photo as viewed (checked 2026-10-04 with a real orientation-6 photo), so the
+        # masks are drawn after applying the same rotation (exif_transpose below).
+        if image.format == "JPEG" and image.width * image.height > DRAFT_ABOVE:
+            image.draft("RGB", (image.width // 2, image.height // 2))
+        image = ImageOps.exif_transpose(image).convert("RGB")
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
         return []
     width, height = image.size
 
     draw = ImageDraw.Draw(image)
     for i, start, end in expense.private_spans():
         b = boxes[i]
+        if b.tilted:
+            start, end = 0.0, 1.0  # a slanted line: the proportional guess can miss, mask it all
         # Characters are placed proportionally along the line; pad by one character each side.
         char = b.width / max(1, len(expense.lines[i]))
         left = b.left + b.width * start - (char if start > 0 else 0)

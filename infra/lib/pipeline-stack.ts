@@ -15,6 +15,8 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { grantInvokeModel } from "./bedrock";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import { alarmOver, HOURLY } from "./alerts";
 import { newServiceFunction, pillowLayer } from "./python-code";
 
 export interface PipelineStackProps extends StackProps {
@@ -118,6 +120,30 @@ export class PipelineStack extends Stack {
         ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),
       },
     });
+    // Uploads are capped at 15 a day for everyone (with limits on); each makes 1–2 calls.
+    alarmOver(
+      this,
+      "ExtractCallsAlarm",
+      extractFn.metricInvocations(HOURLY),
+      30,
+      "Receipt reading ran more than 30 times in an hour: are the daily limits off, or is something looping?",
+    );
+    alarmOver(
+      this,
+      "ExtractDeadLettersAlarm",
+      deadLetters.metricApproximateNumberOfMessagesVisible({ period: Duration.minutes(5), statistic: "Maximum" }),
+      0,
+      "A receipt upload failed repeatedly and landed in the dead-letter queue.",
+    );
+    // All Bedrock output tokens in the account (the metric without dimensions covers every
+    // model). A scan is ~2–4k, an email bill at most 1.5k: 60k in an hour is ~$0.33 and unusual.
+    alarmOver(
+      this,
+      "BedrockTokensAlarm",
+      new cloudwatch.Metric({ namespace: "AWS/Bedrock", metricName: "OutputTokenCount", ...HOURLY }),
+      60_000,
+      "Bedrock produced more than 60,000 output tokens in an hour: much more than normal use.",
+    );
 
     new events.Rule(this, "UploadCreatedRule", {
       description: "New uploads (uploads/ prefix) trigger extraction",

@@ -178,6 +178,8 @@ export interface NewSubscription {
 export interface GmailConnection {
   connected: boolean;
   createdAt: string | null;
+  /** Keys last a year; then the script is told to get a new one. */
+  expiresOn?: string | null;
   lastUsedAt: string | null;
 }
 

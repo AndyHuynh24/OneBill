@@ -327,3 +327,18 @@ describe("PipelineStack — logs", () => {
     }
   });
 });
+
+describe("PipelineStack — alarms (cost review)", () => {
+  it("emails the alerts topic on unusual reading, Bedrock token use, or a failed upload", () => {
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
+    expect(alarms).toHaveLength(3);
+    expect(alarms.map((a) => a.Properties.MetricName).sort()).toEqual([
+      "ApproximateNumberOfMessagesVisible",
+      "Invocations",
+      "OutputTokenCount",
+    ]);
+    for (const alarm of alarms) {
+      expect(JSON.stringify(alarm.Properties.AlarmActions)).toContain(":onetally-alerts");
+    }
+  });
+});

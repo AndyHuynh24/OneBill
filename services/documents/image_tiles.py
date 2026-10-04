@@ -32,6 +32,8 @@ class Box:
     width: float
     height: float
     text: str = ""
+    # Printed at a slant (> ~10°): partial masks can't follow the characters, so mask it whole.
+    tilted: bool = False
 
     @property
     def right(self) -> float:

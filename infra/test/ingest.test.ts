@@ -46,6 +46,13 @@ describe("ApiStack — Gmail ingest (POST /ingest/email)", () => {
     });
   });
 
+  it("gives the open email route its own, much tighter throttle than the signed-in routes", () => {
+    template.hasResourceProperties("AWS::ApiGatewayV2::Stage", {
+      DefaultRouteSettings: { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+      RouteSettings: { "POST /ingest/email": { ThrottlingRateLimit: 0.2, ThrottlingBurstLimit: 2 } },
+    });
+  });
+
   it("routes POST /ingest/email to it without the JWT authorizer (the key is checked in code)", () => {
     template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
       RouteKey: "POST /ingest/email",
@@ -77,5 +84,15 @@ describe("ApiStack — Gmail ingest (POST /ingest/email)", () => {
   it("uses the table's key only through DynamoDB", () => {
     const kms = ingestStatements().find((s) => [s.Action].flat().some((a) => a.startsWith("kms:")));
     expect(JSON.stringify(kms!.Condition)).toContain("dynamodb.us-east-1.amazonaws.com");
+  });
+});
+
+describe("ApiStack — ingest alarm (cost review)", () => {
+  it("emails the alerts topic when the open route is called unusually often", () => {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      Threshold: 60,
+      Period: 3600,
+      AlarmActions: [Match.objectLike({ "Fn::Join": Match.anyValue() })],
+    });
   });
 });

@@ -125,7 +125,9 @@ class ExpenseResult:
         so an item line with a product code keeps its name and price."""
         whole = self.address_lines()
         # Numbers Textract places inside an item row are product codes (UPCs), not accounts.
-        rows = " ".join(f"{r.row_text or ''} {r.description}" for r in self.line_items)
+        rows = " ".join(
+            f"{r.row_text or ''} {r.description}" for r in self.line_items if r.price_cents
+        )  # only rows Textract priced: payment lines it lumps in as items usually aren't
         spans = [(i, 0.0, 1.0) for i in sorted(whole)]
         for i, line in enumerate(self.lines):
             if i in whole:
@@ -177,26 +179,37 @@ class ExpenseResult:
         )
 
 
-# A reference line's number is kept private even when it's UPC-length.
-_REFERENCE = re.compile(r"(?i)\b(?:ref|trans|tc|auth|approval|acct|account|member|card|id)\b|#")
+# Words that mark a number as an account, card, or reference, never a product code.
+_PRIVATE_CONTEXT = re.compile(
+    r"(?i)\b(?:ref|trans|tc|auth|approval|acct|account|member|card|id|customer|service|"
+    r"policy|meter|invoice|no|visa|mastercard|master|amex|debit|credit|discover)\b|#"
+)
 _ITEM_NAME = re.compile(r"[A-Za-z]{2,}")
 
 
-def _product_code(line: str, start: int, end: int, rows: str) -> bool:
-    """A product code (UPC/EAN), not an account: Textract put it in an item row, or it's 12–13
-    digits after an item name on a line that isn't a reference line."""
-    groups = line[start:end].split()
-    if not all(g.isdigit() for g in groups):
+def _valid_upc(digits: str) -> bool:
+    """UPC-A (12) / EAN-13 check digit: a random account number passes only 1 time in 10."""
+    if len(digits) not in (12, 13) or not digits.isdigit():
         return False
-    if "".join(groups) in rows.replace(" ", ""):
-        return True
-    # "PAL ORI 828 006200000123": a size, then the code; the card rule reads them as one number.
+    body, check = digits[:-1], int(digits[-1])
+    weights = (3, 1) if len(digits) == 12 else (1, 3)
+    total = sum(int(d) * weights[i % 2] for i, d in enumerate(body))
+    return (10 - total % 10) % 10 == check
+
+
+def _product_code(line: str, start: int, end: int, rows: str) -> bool:
+    """A product code (UPC/EAN), not an account, only with evidence and no account or card
+    words before it: Textract put it in an item row that has a price (Walmart prints codes
+    without the check digit), or it's a valid UPC/EAN after an item name ("PAL ORI 828
+    006200000123": a size, then the code)."""
+    groups = line[start:end].split()
+    if not groups or not all(g.isdigit() for g in groups):
+        return False
     before = line[:start]
-    return (
-        len(groups[-1]) in (12, 13)
-        and bool(_ITEM_NAME.search(before))
-        and not _REFERENCE.search(before)
-    )
+    if _PRIVATE_CONTEXT.search(before):
+        return False
+    code = groups[-1]
+    return code in rows.replace(" ", "") or (_valid_upc(code) and bool(_ITEM_NAME.search(before)))
 
 
 def parse_expense(responses: list[dict[str, Any]]) -> ExpenseResult:
@@ -225,14 +238,25 @@ def parse_expense(responses: list[dict[str, Any]]) -> ExpenseResult:
     return result
 
 
+TILT_RATIO = 0.18  # rise over run of a line's top edge; ≈ 10°
+
+
 def _box(block: dict[str, Any]) -> Box:
-    box = (block.get("Geometry") or {}).get("BoundingBox") or {}
+    geometry = block.get("Geometry") or {}
+    box = geometry.get("BoundingBox") or {}
+    polygon = geometry.get("Polygon") or []
+    tilted = False
+    if len(polygon) >= 2:  # top-left → top-right corner of the line
+        dx = float(polygon[1].get("X", 0.0)) - float(polygon[0].get("X", 0.0))
+        dy = float(polygon[1].get("Y", 0.0)) - float(polygon[0].get("Y", 0.0))
+        tilted = abs(dy) > TILT_RATIO * abs(dx)
     return Box(
         float(box.get("Left", 0.0)),
         float(box.get("Top", 0.0)),
         float(box.get("Width", 0.0)),
         float(box.get("Height", 0.0)),
         block["Text"],
+        tilted,
     )
 
 

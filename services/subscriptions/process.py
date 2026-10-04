@@ -11,7 +11,7 @@ from typing import Any
 from documents.email_bill import create_email_document, email_doc_id, read_email_bill
 from shared.dates import APP_TIMEZONE, app_today
 from subscriptions.html_text import html_to_text, tidy_text
-from subscriptions.ingest import consume_email_quota, record_use
+from subscriptions.ingest import consume_email_quota, consume_request_quota, record_use
 from subscriptions.parse import read_subscription_email
 from subscriptions.signals import PRICE, looks_like_subscription
 from subscriptions.store import claim_email, finish_email, save_subscription
@@ -32,6 +32,8 @@ def process_email(
     # ignored before it's remembered, so labelling it later still gets it read.
     if not email["labelled"]:
         return {"status": "ignored", "subscriptions": 0, "documents": 0}
+    if not consume_request_quota(table, user_id, now):
+        return {"status": "limit", "subscriptions": 0, "documents": 0}  # nothing stored
     if not claim_email(table, user_id, email["messageId"], now):
         return {"status": "duplicate", "subscriptions": 0, "documents": 0}
     record_use(table, user_id, now)

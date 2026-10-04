@@ -56,7 +56,7 @@ function sendToOneTally() {
       muteHttpExceptions: true,
     });
     var code = response.getResponseCode();
-    if (code === 401) throw new Error('OneTally rejected the key. Copy a new script from OneTally → Connect Gmail.');
+    if (code === 401) throw new Error('OneTally rejected the key (keys last a year). Copy a new script from OneTally → Connect Gmail.');
     if (code === 429 || code >= 500) {
       console.log(code === 429 ? 'Daily limit reached; the rest are sent tomorrow.' : 'OneTally is busy (' + code + '); will retry next run.');
       break; // unsent emails stay unsent and are retried later

@@ -241,7 +241,12 @@ def test_get_subscriptions_lists_mine_with_the_gmail_connection(handler, table):
 
     assert status == 200
     assert [s["service"] for s in body["subscriptions"]] == ["Apple Music"]
-    assert body["connection"] == {"connected": False, "createdAt": None, "lastUsedAt": None}
+    assert body["connection"] == {
+        "connected": False,
+        "createdAt": None,
+        "expiresOn": None,
+        "lastUsedAt": None,
+    }
 
 
 def test_patch_subscription_cancels_it(handler, table):

@@ -2,7 +2,7 @@
 # AWS commands use the "onetally" SSO profile unless AWS_PROFILE is already set.
 export AWS_PROFILE ?= onetally
 
-.PHONY: install test lint synth diff dev frontend-env eval \
+.PHONY: install test lint synth diff dev frontend-env eval layer-requirements \
 	test-services test-infra test-frontend lint-services lint-infra lint-frontend
 
 install:
@@ -48,3 +48,7 @@ dev:
 # Extraction accuracy on your labelled receipts (eval/receipts/, local only). Dry run unless ARGS="--yes".
 eval:
 	cd services && uv run python ../eval/run_eval.py --profile $(AWS_PROFILE) $(ARGS)
+
+# Re-export the Pillow layer's hash-pinned requirements after changing the lambda-layer group.
+layer-requirements:
+	cd services && uv export --only-group lambda-layer --format requirements-txt --no-emit-project --no-header > ../infra/layers/pillow/requirements.txt

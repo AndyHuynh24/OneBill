@@ -1,6 +1,9 @@
 import { CfnOutput, Duration, Stack, StackProps, Tags } from "aws-cdk-lib";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import { ALERTS_TOPIC_NAME } from "./alerts";
 import { Construct } from "constructs";
 
 export interface AccountStackProps extends StackProps {
@@ -20,6 +23,7 @@ const GITHUB_OIDC_HOST = "token.actions.githubusercontent.com";
 /**
  * Account-wide safety nets, deployed once from a laptop:
  * - a $10/month budget alarm (alerts only; it does not stop spending)
+ * - an alerts topic, emailing the same address, that the app stacks' alarms publish to
  * - a GitHub Actions role (via OIDC, no stored keys) that can preview infra changes read-only
  */
 export class AccountStack extends Stack {
@@ -53,6 +57,14 @@ export class AccountStack extends Stack {
         alert("FORECASTED", 100),
       ],
     });
+
+    // Alarm notifications carry only metric names and numbers: no document data.
+    const alerts = new sns.Topic(this, "AlertsTopic", {
+      topicName: ALERTS_TOPIC_NAME,
+      displayName: "OneTally alerts",
+      enforceSSL: true,
+    });
+    alerts.addSubscription(new subscriptions.EmailSubscription(props.budgetEmail));
 
     const github = new iam.OidcProviderNative(this, "GitHubOidc", {
       url: `https://${GITHUB_OIDC_HOST}`,

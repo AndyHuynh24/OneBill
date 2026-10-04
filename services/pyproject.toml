@@ -8,14 +8,17 @@ requires-python = ">=3.12,<3.13"
 dependencies = []
 
 [dependency-groups]
+# Shipped as a Lambda layer for the extract function (photo tiles). Exported with hashes to
+# infra/layers/pillow/requirements.txt: `make layer-requirements`.
+lambda-layer = ["pillow==12.3.0"]
 dev = [
     "aws-lambda-powertools[tracer]>=3.30,<4",
     "boto3>=1.40",
     "hypothesis>=6.168.3",
     "moto[dynamodb]>=5.2",
-    "pillow>=11",
     "pytest>=9.1",
     "ruff>=0.16",
+    { include-group = "lambda-layer" },
 ]
 
 [tool.pytest.ini_options]

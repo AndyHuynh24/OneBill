@@ -84,3 +84,17 @@ describe("AccountStack — GitHub OIDC CI role", () => {
     expect(JSON.stringify(statements[0].Resource)).not.toContain("deploy-role");
   });
 });
+
+describe("AccountStack — alerts topic", () => {
+  it("has the alerts topic the app alarms publish to, emailing the budget address", () => {
+    const app = new App();
+    const stack = new AccountStack(app, "TestAccountAlerts", {
+      budgetEmail: "me@example.com",
+      githubSubject: "repo:owner@1/repo@2",
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    const template = Template.fromStack(stack);
+    template.hasResourceProperties("AWS::SNS::Topic", { TopicName: "onetally-alerts" });
+    template.hasResourceProperties("AWS::SNS::Subscription", { Protocol: "email", Endpoint: "me@example.com" });
+  });
+});

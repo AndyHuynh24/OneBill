@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DockerImage, Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
@@ -10,9 +11,10 @@ import { Construct } from "constructs";
 
 // Pinned (not "latest") so deploys are reproducible. Source: Powertools install docs.
 const POWERTOOLS_LAYER_VERSION = 38;
-// Same version as services/uv.lock (dev group), so tests and Lambda run the same Pillow.
-const PILLOW_VERSION = "12.3.0";
 const LAYER_CACHE = path.join(__dirname, "../.layers");
+// public.ecr.aws/sam/build-python3.12:latest-arm64 as of 2026-10-03, pinned by digest.
+const SAM_BUILD_IMAGE =
+  "public.ecr.aws/sam/build-python3.12@sha256:4eac38937a2ad40a13b81f87cc2b8ffcde46604c83a269f9d912937e6078aea0";
 
 /**
  * All Python Lambdas ship the whole services/ folder (api/, documents/, reminders/, shared/),
@@ -51,27 +53,36 @@ function powertoolsLayer(scope: Construct): lambda.ILayerVersion {
 }
 
 /**
- * Pillow for the extract Lambda (photo tiles, phase 2c), built locally with uv from the
- * manylinux_2_28 arm64 wheel: no Docker. Cached under infra/.layers so synth and tests stay fast.
- * If uv isn't available (e.g. CI), CDK falls back to building it in the Python bundling image.
+ * Pillow for the extract Lambda (photo tiles, phase 2c). Installed from
+ * infra/layers/pillow/requirements.txt, which pins every wheel by hash (exported from
+ * services/uv.lock), so a tampered download fails the build. Built locally with uv from the
+ * manylinux_2_28 arm64 wheel (no Docker), cached by the requirements' hash under infra/.layers.
+ * Without uv, CDK builds it in the SAM image, pinned by digest, with the same hashes.
  */
 export function pillowLayer(scope: Construct): lambda.ILayerVersion {
   const stack = Stack.of(scope);
   const existing = stack.node.tryFindChild("PillowLayer") as lambda.ILayerVersion | undefined;
   if (existing) return existing;
-  const install = `pillow==${PILLOW_VERSION}`;
+  const source = path.join(__dirname, "../layers/pillow");
+  const requirements = fs.readFileSync(path.join(source, "requirements.txt"), "utf8");
+  // The hash of what's installed: a change to the pinned wheels rebuilds and redeploys the layer.
+  const digest = createHash("sha256").update(requirements).digest("hex").slice(0, 16);
   return new lambda.LayerVersion(stack, "PillowLayer", {
-    description: `Pillow ${PILLOW_VERSION} (photo tiles for extraction)`,
+    description: "Pillow (photo tiles for extraction), hash-pinned",
     compatibleRuntimes: [lambda.Runtime.PYTHON_3_12],
     compatibleArchitectures: [lambda.Architecture.ARM_64],
-    code: lambda.Code.fromAsset(path.join(__dirname, "../layers/pillow"), {
-      assetHash: `pillow-${PILLOW_VERSION}-py312-arm64`,
+    code: lambda.Code.fromAsset(source, {
+      assetHash: `pillow-py312-arm64-${digest}`,
       bundling: {
-        image: DockerImage.fromRegistry("public.ecr.aws/sam/build-python3.12:latest-arm64"),
-        command: ["bash", "-c", `pip install --only-binary=:all: ${install} -t /asset-output/python`],
+        image: DockerImage.fromRegistry(SAM_BUILD_IMAGE),
+        command: [
+          "bash",
+          "-c",
+          "pip install --require-hashes --only-binary=:all: -r requirements.txt -t /asset-output/python",
+        ],
         local: {
           tryBundle(outputDir: string): boolean {
-            const cached = path.join(LAYER_CACHE, `pillow-${PILLOW_VERSION}`);
+            const cached = path.join(LAYER_CACHE, `pillow-${digest}`);
             try {
               if (!fs.existsSync(path.join(cached, "python", "PIL"))) {
                 execFileSync(
@@ -79,6 +90,7 @@ export function pillowLayer(scope: Construct): lambda.ILayerVersion {
                   [
                     "pip",
                     "install",
+                    "--require-hashes",
                     "--python-platform",
                     "aarch64-manylinux_2_28", // Lambda python3.12 = Amazon Linux 2023 (glibc 2.34)
                     "--python-version",
@@ -87,14 +99,18 @@ export function pillowLayer(scope: Construct): lambda.ILayerVersion {
                     ":all:",
                     "--target",
                     path.join(cached, "python"),
-                    install,
+                    "-r",
+                    path.join(source, "requirements.txt"),
                   ],
-                  { stdio: "ignore" },
+                  { stdio: ["ignore", "ignore", "pipe"] },
                 );
               }
               fs.cpSync(cached, outputDir, { recursive: true });
               return true;
-            } catch {
+            } catch (err) {
+              // Say why, then let CDK fall back to the pinned build image.
+              const detail = err instanceof Error ? err.message : String(err);
+              console.warn(`Pillow layer: local uv build failed, using the build image. ${detail}`);
               return false;
             }
           },

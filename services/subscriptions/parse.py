@@ -19,10 +19,11 @@ from typing import Any
 from documents.grounding import is_printed
 from shared.dates import parse_iso_date
 from shared.money import format_cents, to_cents_loose
-from shared.pii import redact
+from shared.pii import address_lines, redact
 
 PROMPT_VERSION = "2026-10-03.1"
 TOOL_NAME = "record_subscriptions"
+MASKED_LINE = "[PERSONAL INFO]"
 MAX_OUTPUT_TOKENS = 1500
 MAX_SUBSCRIPTIONS = 10
 MAX_TEXT = 80
@@ -132,8 +133,12 @@ class SubscriptionEmailResult:
 def read_subscription_email(
     client: Any, model_id: str, *, subject: str, sender: str, received: date, text: str
 ) -> SubscriptionEmailResult:
+    # Same masking as the bill path: the customer's name and address blocks, then redact().
+    lines = text.splitlines()
+    hidden = address_lines(lines)
+    masked = "\n".join(MASKED_LINE if i in hidden else line for i, line in enumerate(lines))
     redaction = redact(
-        f"Subject: {subject}\nFrom: {sender}\nReceived: {received.isoformat()}\n\n{text}"
+        f"Subject: {subject}\nFrom: {sender}\nReceived: {received.isoformat()}\n\n{masked}"
     )
     request = {
         "modelId": model_id,
@@ -162,7 +167,7 @@ def read_subscription_email(
     tool_input = _tool_input(response)
 
     # Checks run against the text the model saw (masked) and the original.
-    haystack = f"{text}\n{redaction.text}"
+    haystack = f"{subject}\n{sender}\n{text}\n{redaction.text}"
     raw_subs = tool_input.get("subscriptions")
     subs = [
         parsed
@@ -190,8 +195,10 @@ def _tool_input(response: dict[str, Any]) -> dict[str, Any]:
 def _subscription(raw: Any, text: str, received: date) -> ParsedSubscription | None:
     if not isinstance(raw, dict):
         return None
-    service = _short(raw.get("service"))
-    if not service:
+    service = _short(raw.get("service"), shown=True)
+    # The name goes into reminder emails we send: it must come from the email (subject, sender,
+    # or body), like amounts and dates do, so a crafted email can't inject its own text.
+    if not service or not _named_in(service, text):
         return None
     evidence = raw.get("evidence") if isinstance(raw.get("evidence"), dict) else {}
     issues: list[str] = []
@@ -228,7 +235,7 @@ def _subscription(raw: Any, text: str, received: date) -> ParsedSubscription | N
     return ParsedSubscription(
         service=service,
         service_key=service_key(service),
-        plan=_short(raw.get("plan")),
+        plan=_short(raw.get("plan"), shown=True),
         amount_cents=cents,
         currency=currency or _currency_from_symbol(amount_text),
         cycle=cycle,
@@ -300,11 +307,31 @@ def _squash(text: str) -> str:
     return " ".join(text.lower().split())
 
 
-def _short(value: Any) -> str | None:
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+_DOMAIN = re.compile(
+    r"\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|co|io|app|ca|us|uk|info|biz|me|tv|ly|xyz|online|site)\b",
+    re.IGNORECASE,
+)
+_PHONE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
+_WORD = re.compile(r"[^\W\d_]{3,}")
+
+
+def _short(value: Any, shown: bool = False) -> str | None:
+    """Trimmed text. `shown`: it appears in reminder emails, so links, domains, and phone
+    numbers are stripped (no "call 1-888… or visit netflix-billing.co" from a crafted email)."""
     if not isinstance(value, str):
         return None
-    cleaned = " ".join(value.split())[:MAX_TEXT].strip()
+    if shown:
+        value = _PHONE.sub(" ", _DOMAIN.sub(" ", _URL.sub(" ", value)))
+        value = value.strip(" -–—:|,;")
+    cleaned = " ".join(value.split())[:MAX_TEXT].strip(" -–—:|,;")
     return cleaned or None
+
+
+def _named_in(service: str, text: str) -> bool:
+    """At least one real word of the service name appears in the email (or its sender)."""
+    haystack = text.casefold()
+    return any(word.casefold() in haystack for word in _WORD.findall(service))
 
 
 def _fenced(text: str) -> str:

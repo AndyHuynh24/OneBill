@@ -11,6 +11,7 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
+import { alarmOver, HOURLY } from "./alerts";
 import { grantInvokeModel } from "./bedrock";
 import { newServiceFunction } from "./python-code";
 
@@ -249,13 +250,28 @@ export class ApiStack extends Stack {
       }),
     );
     grantInvokeModel(ingestFn, props.bedrockModelId);
-    this.api.addRoutes({
+    const [ingestRoute] = this.api.addRoutes({
       path: "/ingest/email",
       methods: [apigwv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration("IngestIntegration", ingestFn),
       authorizer: new HttpNoneAuthorizer(),
       authorizationScopes: [], // don't inherit the API's default "openid" scope (JWT-only)
     });
+    // The open route gets its own, much tighter throttle (cost review): the script sends emails
+    // one at a time, so 1 every 5 s is plenty, and an anonymous flood costs ~10× less.
+    const cfnStage = stage.node.defaultChild as apigwv2.CfnStage;
+    cfnStage.routeSettings = {
+      "POST /ingest/email": { ThrottlingRateLimit: 0.2, ThrottlingBurstLimit: 2 },
+    };
+    cfnStage.addDependency(ingestRoute.node.defaultChild as apigwv2.CfnRoute);
+    // Normal use is a few emails a day; the route allows at most ~720 calls an hour.
+    alarmOver(
+      this,
+      "IngestCallsAlarm",
+      ingestFn.metricInvocations(HOURLY),
+      60,
+      "Gmail ingest called more than 60 times in an hour: a looping script or a leaked key?",
+    );
 
     new CfnOutput(this, "ApiUrl", { value: stage.url });
   }

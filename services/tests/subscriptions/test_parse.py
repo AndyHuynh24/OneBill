@@ -289,3 +289,44 @@ def test_the_amount_is_the_total_charged_including_taxes_not_the_plan_price():
     """Tello: 'Custom Plan $14', 'Taxes and Surcharges $1.97', 'Total: $15.97' → $15.97."""
     assert "not the plan price" in parse.SYSTEM_PROMPT
     assert parse.PROMPT_VERSION == "2026-10-03.1"
+
+
+# --- security review: same masking as bills, and names that go into our reminder emails --------
+
+
+def test_the_customers_address_block_is_masked_like_on_the_bill_path(bedrock):
+    client, _ = bedrock
+    sent = []
+    client.meta.events.register(
+        "before-parameter-build.bedrock-runtime.Converse", lambda params, **_: sent.append(params)
+    )
+    with_address = NETFLIX_TEXT + "\nShipping address\nAndy Huynh\n12 Elm St\nSan Jose CA 95112"
+
+    read(bedrock, {"is_subscription_email": True, "subscriptions": [sub()]}, text=with_address)
+
+    text = sent[0]["messages"][0]["content"][0]["text"]
+    assert "Andy Huynh" not in text  # the block's name line ("Hi Andy" greetings aren't caught)
+    assert "Elm" not in text
+    assert "95112" not in text
+
+
+def test_links_and_phone_numbers_are_stripped_from_the_service_name(bedrock):
+    crafted = sub(
+        service="Netflix - call 1-888-555-0100 or visit netflix-billing.co", plan="Basic www.x.io"
+    )
+
+    result = read(bedrock, {"is_subscription_email": True, "subscriptions": [crafted]})
+
+    (parsed,) = result.subscriptions
+    assert "888" not in parsed.service
+    assert "netflix-billing.co" not in parsed.service
+    assert parsed.service.startswith("Netflix")
+    assert parsed.plan == "Basic"
+
+
+def test_a_service_name_that_isnt_in_the_email_is_refused(bedrock):
+    invented = sub(service="Totally Real Bank")
+
+    result = read(bedrock, {"is_subscription_email": True, "subscriptions": [invented]})
+
+    assert result.subscriptions == []

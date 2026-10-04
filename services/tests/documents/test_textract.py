@@ -8,6 +8,7 @@ from botocore.stub import Stubber
 from documents.image_tiles import Box
 from documents.textract import (
     ExpenseResult,
+    LineItemRow,
     analyze_sync,
     fetch_async,
     parse_expense,
@@ -236,10 +237,25 @@ def test_the_customers_name_and_address_are_not_shown_to_the_model():
     assert "TOTAL: $4.99" in rendered
 
 
-def test_upc_length_codes_after_an_item_name_stay_visible_but_reference_numbers_dont():
-    lines = ["PAL ORI 828 006200000123", "REF # 001001234567", "Account 004412345678"]
-    expense = ExpenseResult(pages=1, lines=lines)
+def test_only_real_product_codes_stay_visible_in_the_image():
+    lines = [
+        "PAL ORI 828 006200000123",  # valid UPC-A after an item name: a product code
+        "SHOPPING BAG 006791454489",  # no check digit (Walmart), but in a priced item row
+        "PAL ORI 828 006200000124",  # bad check digit, not in a row: masked
+        "REF # 001001234567",  # a reference
+        "Account 004412345678",
+        "Customer No 123456789012",  # security review: valid check digit, still masked
+        "VISA 4111111111111",  # security review: masked
+    ]
+    expense = ExpenseResult(
+        pages=1,
+        lines=lines,
+        line_items=[
+            LineItemRow(1, "SHOPPING BAG", 297, None, "SHOPPING BAG 006791454489 2.97 J", 99.0),
+            LineItemRow(2, "Customer No", None, None, "Customer No 123456789012", 90.0),
+        ],
+    )
 
     masked = {lines[i] for i, _, _ in expense.private_spans()}
 
-    assert masked == {"REF # 001001234567", "Account 004412345678"}
+    assert masked == set(lines[2:])

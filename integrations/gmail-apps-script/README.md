@@ -11,7 +11,8 @@ A small script that runs **in your own Google account**. Every 15 minutes it sen
 - **You choose what's shared:** only emails with the **OneTally** label are sent. Create the
   label once in Gmail, then add it to any bill, receipt, or subscription email.
 - **Ready-made:** OneTally hands you this script with your key and API address already filled in.
-- **Cheap to run:** about 0.6¢ per email, plus 0.4¢ if it's also a subscription; at most 50 a day.
+- **Cheap to run:** about 0.6¢ per email, plus 0.4¢ if it's also a subscription; at most 10 a day
+  (a bigger backlog continues the next day). Keys last a year.
 
 ## Setup (about 2 minutes, once)
 
@@ -50,7 +51,7 @@ log, and the **Subscriptions** section in OneTally.
 | Log message                                 | Fix                                                                                                 |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `Copy the ready-made script from OneTally…` | You pasted the repo copy (placeholders). Use **Copy script** in OneTally.                           |
-| `OneTally rejected the key`                 | Create a new key in OneTally and copy the new script.                                               |
+| `OneTally rejected the key`                 | The key was replaced, revoked, or is over a year old. Create a new key in OneTally and copy the new script. |
 | `Daily limit reached`                       | Nothing to do: the rest are sent tomorrow.                                                          |
 | `No "OneTally" label yet`                   | In Gmail, create a label named **OneTally** and add it to an email, then run `sendToOneTally`.      |
 | An authorization error mentioning a scope   | Make sure `appsscript.json` is the copied settings file, then run `installTrigger` again.           |

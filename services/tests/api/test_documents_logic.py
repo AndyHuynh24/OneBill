@@ -813,3 +813,14 @@ def test_fixing_a_line_on_the_bill_rechecks_the_math_and_keeps_other_flags(table
         "level": "check",
         "checks": [{"row": 1, "reason": "Hard to read on the photo"}],
     }
+
+
+def test_confirming_on_a_deleted_bill_doesnt_bring_it_back(table):
+    doc_id = flagged_doc(table)
+    current = get_document(table, "user-a", doc_id)
+    table.delete_item(Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"})
+
+    with pytest.raises(BadRequest):
+        logic._confirm_lines(table, "user-a", doc_id, current, [1], NOW)
+
+    assert "Item" not in table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"})

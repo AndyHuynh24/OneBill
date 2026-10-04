@@ -8,7 +8,7 @@ need printed evidence), minus Textract: the email is already text. It's saved as
 import hashlib
 from collections.abc import Collection
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from botocore.exceptions import ClientError
@@ -19,6 +19,10 @@ from documents.textract import ExpenseResult
 from documents.validate import validate
 
 MAX_LINES = 2000
+EMAIL_MAX_OUTPUT_TOKENS = 1500
+# A bill still "processing" after this was cut off (the ingest Lambda times out at 29 s): a
+# retry of the email reads it again instead of skipping it.
+STALE_PROCESSING = timedelta(minutes=5)
 CANT_READ = "We couldn't read this email as a bill."
 
 
@@ -30,7 +34,8 @@ def email_doc_id(message_id: str, received_ms: int) -> str:
 def create_email_document(
     table: Any, user_id: str, doc_id: str, subject: str, now: datetime
 ) -> bool:
-    """A DOC# ready to be read. False if this email's bill already exists (and didn't fail)."""
+    """A DOC# ready to be read. False if this email's bill already exists and is done or still
+    being read; a failed or abandoned (stale "processing") one is taken over."""
     try:
         table.put_item(
             Item={
@@ -45,9 +50,14 @@ def create_email_document(
                 "processingStartedAt": now.isoformat(),
                 "updatedAt": now.isoformat(),
             },
-            ConditionExpression="attribute_not_exists(SK) OR #s = :failed",
+            ConditionExpression="attribute_not_exists(SK) OR #s = :failed OR "
+            "(#s = :processing AND processingStartedAt < :stale)",
             ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":failed": "failed"},
+            ExpressionAttributeValues={
+                ":failed": "failed",
+                ":processing": "processing",
+                ":stale": (now - STALE_PROCESSING).isoformat(),
+            },
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
@@ -73,7 +83,10 @@ def read_email_bill(
         pages=1, lines=[line for line in text.splitlines() if line.strip()][:MAX_LINES]
     )
     try:
-        outcome = extract(bedrock, model_id, expense)
+        # One short answer, no repair pass (cost review): bounds what a hostile email can cost.
+        outcome = extract(
+            bedrock, model_id, expense, max_output_tokens=EMAIL_MAX_OUTPUT_TOKENS, repair=False
+        )
         result = validate(outcome, expense)
         if skip_deadlines:
             kept = [o for o in result.obligations if o.type not in skip_deadlines]
