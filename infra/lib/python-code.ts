@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DockerImage, Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
-import * as kms from "aws-cdk-lib/aws-kms";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -126,8 +125,6 @@ export interface ServiceFunctionProps {
   readonly description: string;
   /** Powertools service name, used in structured logs. */
   readonly serviceName: string;
-  /** Encrypts the function's log group. */
-  readonly logKey: kms.IKey;
   readonly environment?: Record<string, string>;
   readonly timeout?: Duration;
   readonly memorySize?: number;
@@ -140,7 +137,7 @@ export interface ServiceFunctionProps {
 }
 
 /**
- * A Python 3.12 arm64 Lambda with OneTally defaults: Powertools layer, a KMS-encrypted log group
+ * A Python 3.12 arm64 Lambda with OneBill defaults: Powertools layer, a log group
  * with two-week retention, and no response bodies in traces. Grant permissions explicitly
  * afterwards; this adds none beyond writing its own logs.
  */
@@ -160,7 +157,7 @@ export function newServiceFunction(scope: Construct, id: string, props: ServiceF
       ...props.environment,
       POWERTOOLS_SERVICE_NAME: props.serviceName,
       POWERTOOLS_LOG_LEVEL: "INFO",
-      // Don't copy response bodies into X-Ray (it bypasses our KMS key and PII redaction).
+      // Don't copy response bodies into X-Ray (it bypasses our PII redaction and log retention).
       POWERTOOLS_TRACER_CAPTURE_RESPONSE: "false",
       // Exception messages can quote document content: keep them out of traces too.
       POWERTOOLS_TRACER_CAPTURE_ERROR: "false",
@@ -168,7 +165,6 @@ export function newServiceFunction(scope: Construct, id: string, props: ServiceF
     },
     logGroup: new logs.LogGroup(scope, `${id}Logs`, {
       retention: logs.RetentionDays.TWO_WEEKS,
-      encryptionKey: props.logKey,
       removalPolicy: RemovalPolicy.DESTROY,
     }),
   });

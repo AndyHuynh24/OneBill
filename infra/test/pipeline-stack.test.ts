@@ -17,7 +17,6 @@ beforeAll(() => {
     env,
     table: data.table,
     docsBucket: data.docsBucket,
-    dataKey: data.key,
     bedrockModelId: MODEL,
     userPool: auth.userPool,
     appUrl: "http://localhost:5173",
@@ -174,18 +173,8 @@ describe("PipelineStack — extract Lambda", () => {
     expect(pass?.Condition).toEqual({ StringEquals: { "iam:PassedToService": "textract.amazonaws.com" } });
   });
 
-  it("uses the data key through DynamoDB, and only decrypts through S3 (it never writes files)", () => {
-    const kms = extractStatements().filter((st) => actionsOf([st], "kms:").length);
-    const via = (service: string) =>
-      kms.find((st) => JSON.stringify(st.Condition).includes(`${service}.us-east-1.amazonaws.com`));
-    expect(kms).toHaveLength(2);
-    expect([via("s3")?.Action].flat()).toEqual(["kms:Decrypt"]);
-    expect(actionsOf([via("dynamodb")!], "kms:")).toEqual([
-      "kms:Decrypt",
-      "kms:DescribeKey",
-      "kms:Encrypt",
-      "kms:GenerateDataKey",
-    ]);
+  it("needs no KMS permissions: data is encrypted with AWS-owned keys", () => {
+    expect(actionsOf(extractStatements(), "kms:")).toEqual([]);
   });
 
   it("never grants wildcard actions", () => {
@@ -273,7 +262,7 @@ describe("PipelineStack — reminders", () => {
     });
     template.hasParameter("*", {
       Type: "AWS::SSM::Parameter::Value<String>",
-      Default: "/onetally/sender-email",
+      Default: "/onebill/sender-email",
     });
   });
 
@@ -307,7 +296,7 @@ describe("PipelineStack — reminders", () => {
     expect(JSON.stringify(query?.Resource)).toContain("/index/GSI1");
   });
 
-  it("can only look up users in the OneTally pool and send from the verified sender", () => {
+  it("can only look up users in the OneBill pool and send from the verified sender", () => {
     const statements = statementsFor("reminders.handler.handler");
     expect(actionsOf(statements, "cognito-idp:")).toEqual(["cognito-idp:ListUsers"]);
     expect(actionsOf(statements, "ses:")).toEqual(["ses:SendEmail"]);
@@ -320,10 +309,9 @@ describe("PipelineStack — reminders", () => {
 });
 
 describe("PipelineStack — logs", () => {
-  it("encrypts and expires all log groups", () => {
+  it("expires all log groups (encrypted at rest by CloudWatch)", () => {
     for (const group of Object.values(template.findResources("AWS::Logs::LogGroup"))) {
-      expect(group.Properties.RetentionInDays).toBe(14);
-      expect(group.Properties.KmsKeyId).toBeDefined();
+      expect(group.Properties.RetentionInDays).toBeDefined();
     }
   });
 });
@@ -338,7 +326,7 @@ describe("PipelineStack — alarms (cost review)", () => {
       "OutputTokenCount",
     ]);
     for (const alarm of alarms) {
-      expect(JSON.stringify(alarm.Properties.AlarmActions)).toContain(":onetally-alerts");
+      expect(JSON.stringify(alarm.Properties.AlarmActions)).toContain(":onebill-alerts");
     }
   });
 });

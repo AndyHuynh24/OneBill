@@ -123,7 +123,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--profile", default="onetally")
+    parser.add_argument("--profile", default="onebill")
     parser.add_argument("--region", default="us-east-1")
     parser.add_argument(
         "--model", help="Bedrock model/profile ID (default: bedrockModelId in infra/cdk.json)"

@@ -112,13 +112,18 @@ def _on_upload(detail: dict[str, Any], event_time: str | None = None) -> None:
                 raise Refused(UNKNOWN_PAGES)
             if pages > MAX_PDF_PAGES:
                 raise Refused(TOO_MANY_PAGES)
-            if _limits_on() and not store.consume_page_budget(table, pages, _now()):
+            shared = not item.get("owner")  # the owner's uploads are capped on their own
+            if _limits_on() and shared and not store.consume_page_budget(table, pages, _now()):
                 raise Refused(DAILY_LIMIT)
             job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
             store.record_textract_job(table, user_id, doc_id, job_id, _now())
             logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
             return
-        if _limits_on() and not store.consume_page_budget(table, 1, _now()):
+        if (
+            _limits_on()
+            and not item.get("owner")
+            and not store.consume_page_budget(table, 1, _now())
+        ):
             raise Refused(DAILY_LIMIT)
         ocr_started = time.monotonic()
         expense = parse_expense(analyze_sync(textract, BUCKET, key, version))

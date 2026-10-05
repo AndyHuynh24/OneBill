@@ -1,6 +1,6 @@
 """The ingest key the Gmail script uses instead of a Cognito sign-in (design S2).
 
-- A user creates it in the app (signed in, `uploaders` only) and sees it once.
+- A user creates it in the app (signed in, `owners` only) and sees it once.
 - Only its SHA-256 hash is stored: `INGESTKEY#<hash> / KEY → userId`, plus a pointer
   `USER#<id> / INGEST` so creating a new key (or revoking) removes the old one.
 - The ingest route has no JWT authorizer: the caller's user comes only from this lookup.
@@ -15,8 +15,8 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-KEY_PREFIX = "otk_"
-UPLOADERS_GROUP = "uploaders"
+KEY_PREFIX = "obk_"
+OWNERS_GROUP = "owners"  # Connect Gmail is owner-only (emails cost money; inboxes are personal)
 DAILY_EMAIL_LIMIT = 10  # per user and day (cost review): labelled by hand, so plenty
 GLOBAL_DAILY_EMAIL_LIMIT = 30  # across all users: bounds the worst case even with leaked keys
 KEY_LIFETIME = timedelta(days=365)  # a removed user's key stops working within a year
@@ -24,7 +24,7 @@ KEY_LIFETIME = timedelta(days=365)  # a removed user's key stops working within 
 # never reach the model (e.g. an empty body), per user and day.
 DAILY_REQUEST_LIMIT = 200
 USAGE_TTL_DAYS = 7
-_KEY = re.compile(r"^Bearer (otk_[A-Za-z0-9_-]{43})$")
+_KEY = re.compile(r"^Bearer (obk_[A-Za-z0-9_-]{43})$")
 
 
 class NotAllowed(Exception):
@@ -45,7 +45,7 @@ def _key_item(key_hash: str) -> dict[str, str]:
 
 def create_key(table: Any, user_id: str, groups: set[str], now: datetime) -> str:
     """A new key for this user (returned once, never stored); the previous key stops working."""
-    if UPLOADERS_GROUP not in groups:
+    if OWNERS_GROUP not in groups:
         raise NotAllowed("Connecting Gmail is invite-only for now.")
     key = KEY_PREFIX + secrets.token_urlsafe(32)
     key_hash = _hash(key)

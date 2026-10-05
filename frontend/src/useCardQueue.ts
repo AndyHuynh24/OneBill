@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 /**
- * One card at a time, for the split screens (items, then tax/fees/tip).
+ * One card at a time, for the split screen (items, then tax/fees/tip).
  * - Choosing for the last open card finishes (calls onDone).
  * - Re-choosing a card that already had a choice (editing) just moves on; `complete` then
  *   shows a Next button instead of finishing behind the user's back.

@@ -10,7 +10,8 @@ beforeAll(() => {
   const stack = new AccountStack(app, "TestAccount", {
     env: { account: "123456789012", region: "us-east-1" },
     budgetEmail: "alerts@example.com",
-    githubSubject: "repo:AndyHuynh24@241491614/onetally@1398902241",
+    githubSubject: "repo:AndyHuynh24@241491614/onebill@1398902241",
+    ciRole: true, // the opt-in path: the CI tests below
   });
   template = Template.fromStack(stack);
 });
@@ -54,7 +55,7 @@ describe("AccountStack — GitHub OIDC CI role", () => {
 
   it("only trusts pull_request workflows from this exact repo (immutable owner and repo IDs)", () => {
     template.hasResourceProperties("AWS::IAM::Role", {
-      RoleName: "onetally-ci-diff",
+      RoleName: "onebill-ci-diff",
       MaxSessionDuration: 3600,
       AssumeRolePolicyDocument: {
         Statement: [
@@ -66,7 +67,7 @@ describe("AccountStack — GitHub OIDC CI role", () => {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                 // A deleted-and-recreated repo with the same name gets a new ID, so it can't match.
                 "token.actions.githubusercontent.com:sub":
-                  "repo:AndyHuynh24@241491614/onetally@1398902241:pull_request",
+                  "repo:AndyHuynh24@241491614/onebill@1398902241:pull_request",
               },
             },
           }),
@@ -86,7 +87,7 @@ describe("AccountStack — GitHub OIDC CI role", () => {
 });
 
 describe("AccountStack — alerts topic", () => {
-  it("has the alerts topic the app alarms publish to, emailing the budget address", () => {
+  it("has the alerts topic, emailing the budget address, and no CI role unless asked", () => {
     const app = new App();
     const stack = new AccountStack(app, "TestAccountAlerts", {
       budgetEmail: "me@example.com",
@@ -94,7 +95,10 @@ describe("AccountStack — alerts topic", () => {
       env: { account: "123456789012", region: "us-east-1" },
     });
     const template = Template.fromStack(stack);
-    template.hasResourceProperties("AWS::SNS::Topic", { TopicName: "onetally-alerts" });
+    template.hasResourceProperties("AWS::SNS::Topic", { TopicName: "onebill-alerts" });
     template.hasResourceProperties("AWS::SNS::Subscription", { Protocol: "email", Endpoint: "me@example.com" });
+    // By default (no customer-managed key), CI isn't connected to AWS: no role, no OIDC login.
+    template.resourceCountIs("AWS::IAM::Role", 0);
+    template.resourceCountIs("AWS::IAM::OIDCProvider", 0);
   });
 });

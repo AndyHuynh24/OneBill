@@ -1,6 +1,7 @@
-# OneTally developer commands. Run from the repo root.
-# AWS commands use the "onetally" SSO profile unless AWS_PROFILE is already set.
-export AWS_PROFILE ?= onetally
+# OneBill developer commands. Run from the repo root.
+# AWS commands use the "onebill-iam" profile (the IAM user in account 097021214533, no SSO)
+# unless AWS_PROFILE is already set. See docs/runbooks/new-aws-account.md.
+export AWS_PROFILE ?= onebill-iam
 
 .PHONY: install test lint synth diff dev frontend-env eval layer-requirements \
 	test-services test-infra test-frontend lint-services lint-infra lint-frontend

@@ -1,6 +1,6 @@
 """One incoming email, end to end: labelled? → dedupe → clean → cap → read → save → outcome.
 
-Only emails the user labelled "OneTally" are processed (2026-10-03). Each is read like a scanned
+Only emails the user labelled "OneBill" are processed (2026-10-03). Each is read like a scanned
 bill, and also as a subscription when it looks like one.
 """
 

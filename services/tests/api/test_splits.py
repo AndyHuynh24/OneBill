@@ -218,3 +218,20 @@ def test_correcting_only_the_total_also_clears_the_split(table):
     )
 
     assert "split" not in doc
+
+
+def test_a_charge_can_be_shared_by_some_people_like_an_item(table):
+    put_doc(table)
+
+    split = save_split(
+        table,
+        "user-a",
+        DOC,
+        body(charges={"5": {"mode": "proportional"}, "6": {"mode": "people", "members": [1, 2]}}),
+        NOW,
+    )
+
+    ids = [m["id"] for m in split["members"]]
+    assert split["charges"]["6"] == {"mode": "people", "members": [ids[1], ids[2]]}
+    me = next(s for s in split["shares"] if s["member"] == ids[0])
+    assert me["extrasCents"] < 710  # Me doesn't share the tip

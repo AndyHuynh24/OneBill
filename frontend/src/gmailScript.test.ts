@@ -7,18 +7,18 @@ const repoFile = (name: string) => readFileSync(resolve(__dirname, "../../integr
 
 describe("the ready-made Gmail script", () => {
   it("is the repo's script with your API address and key filled in", () => {
-    const script = buildGmailScript("https://api.example.com/", "otk_abc");
+    const script = buildGmailScript("https://api.example.com/", "obk_abc");
 
-    expect(script).toContain("var ONETALLY_URL = 'https://api.example.com/';");
-    expect(script).toContain("var ONETALLY_KEY = 'otk_abc';");
-    expect(script).not.toContain("__ONETALLY_");
+    expect(script).toContain("var ONEBILL_URL = 'https://api.example.com/';");
+    expect(script).toContain("var ONEBILL_KEY = 'obk_abc';");
+    expect(script).not.toContain("__ONEBILL_");
   });
 
   it("stays valid JavaScript whatever the values contain", () => {
-    const script = buildGmailScript("https://x.example/it's$&", "otk_\\'$'");
+    const script = buildGmailScript("https://x.example/it's$&", "obk_\\'$'");
 
     expect(() => new Function(script)).not.toThrow();
-    expect(script).toContain("var ONETALLY_URL = 'https://x.example/it\\'s$&';");
+    expect(script).toContain("var ONEBILL_URL = 'https://x.example/it\\'s$&';");
   });
 
   it("matches the files in integrations/gmail-apps-script (one source of truth)", () => {

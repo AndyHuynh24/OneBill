@@ -7,7 +7,6 @@ import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as kms from "aws-cdk-lib/aws-kms";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -18,7 +17,6 @@ import { newServiceFunction } from "./python-code";
 export interface ApiStackProps extends StackProps {
   readonly table: dynamodb.ITable;
   /** The customer-managed key that encrypts the table; also used for log groups. */
-  readonly dataKey: kms.IKey;
   /** Documents bucket; the API signs browser uploads into its uploads/ prefix. */
   readonly docsBucket: s3.IBucket;
   readonly userPool: cognito.IUserPool;
@@ -50,41 +48,29 @@ export class ApiStack extends Stack {
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
-    Tags.of(this).add("project", "onetally");
+    Tags.of(this).add("project", "onebill");
 
-    const viaDynamo = `dynamodb.${this.region}.amazonaws.com`;
-    const viaS3 = `s3.${this.region}.amazonaws.com`;
 
     const meFn = newServiceFunction(this, "MeFunction", {
       handler: "api.me.handler.handler",
       description: "GET /me: return the caller's PROFILE item, creating it on first call",
-      serviceName: "onetally-api",
-      logKey: props.dataKey,
+      serviceName: "onebill-api",
       environment: { TABLE_NAME: props.table.tableName },
       enableTracing: props.enableTracing,
     });
     // Least privilege: exactly the two calls logic.py makes, on the table only (no Scan, no
-    // indexes), plus use of the table's key only when DynamoDB calls KMS on our behalf.
-    // (grantReadWriteData would add Scan/Delete/BatchWrite and wildcard KMS actions.)
+    // indexes). (grantReadWriteData would add Scan/Delete/BatchWrite.)
     meFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["dynamodb:GetItem", "dynamodb:PutItem"],
         resources: [props.table.tableArn],
       }),
     );
-    meFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
-        resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
-      }),
-    );
 
     const documentsFn = newServiceFunction(this, "DocumentsFunction", {
       handler: "api.documents.handler.handler",
       description: "Documents API: create uploads, list/read documents, list obligations",
-      serviceName: "onetally-api",
-      logKey: props.dataKey,
+      serviceName: "onebill-api",
       environment: {
         TABLE_NAME: props.table.tableName,
         BUCKET_NAME: props.docsBucket.bucketName,
@@ -115,22 +101,14 @@ export class ApiStack extends Stack {
         resources: [props.docsBucket.arnForObjects("uploads/*")],
       }),
     );
-    documentsFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        // DynamoDB table encryption, and SSE-KMS for the browser's upload (signed with this role).
-        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
-        resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": [viaDynamo, viaS3] } },
-      }),
-    );
 
     const authorizer = new HttpUserPoolAuthorizer("CognitoAuthorizer", props.userPool, {
       userPoolClients: [props.userPoolClient],
     });
 
     this.api = new apigwv2.HttpApi(this, "HttpApi", {
-      apiName: "onetally",
-      description: "OneTally HTTP API",
+      apiName: "onebill",
+      description: "OneBill HTTP API",
       createDefaultStage: false,
       defaultAuthorizer: authorizer,
       // Access tokens carry a `scope` claim; ID tokens don't, so requiring one rejects ID tokens.
@@ -152,7 +130,6 @@ export class ApiStack extends Stack {
     // Explicit $default stage so we can set throttling (cost/abuse guard) and access logs.
     const accessLogs = new logs.LogGroup(this, "ApiAccessLogs", {
       retention: logs.RetentionDays.TWO_WEEKS,
-      encryptionKey: props.dataKey,
       removalPolicy: RemovalPolicy.DESTROY,
     });
     const stage = new apigwv2.HttpStage(this, "DefaultStage", {
@@ -228,8 +205,7 @@ export class ApiStack extends Stack {
     const ingestFn = newServiceFunction(this, "IngestFunction", {
       handler: "api.ingest.handler.handler",
       description: "Gmail ingest: verify key, read subscription email with Bedrock, save SUB#/OBL#",
-      serviceName: "onetally-ingest",
-      logKey: props.dataKey,
+      serviceName: "onebill-ingest",
       environment: { TABLE_NAME: props.table.tableName, BEDROCK_MODEL_ID: props.bedrockModelId },
       timeout: Duration.seconds(29), // API Gateway ends the request at 30 s
       enableTracing: props.enableTracing,
@@ -240,13 +216,6 @@ export class ApiStack extends Stack {
         // Update: daily cap, marker outcome, last-used. Delete: a replaced renewal reminder.
         actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
         resources: [props.table.tableArn],
-      }),
-    );
-    ingestFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
-        resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
       }),
     );
     grantInvokeModel(ingestFn, props.bedrockModelId);

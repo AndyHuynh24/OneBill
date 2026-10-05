@@ -319,7 +319,7 @@ dynamodb = [
 ]
 
 [[package]]
-name = "onetally-services"
+name = "onebill-services"
 version = "0.1.0"
 source = { virtual = "." }
 

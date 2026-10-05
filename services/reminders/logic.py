@@ -83,7 +83,7 @@ def render_digest(
     """(subject, plain text, HTML) for one user's reminders, soonest first."""
     ordered = sorted(items, key=lambda entry: (entry[1]["dueDate"], entry[1].get("vendor") or ""))
     count = len(ordered)
-    subject = f"OneTally: {count} thing{'s' if count != 1 else ''} due soon"
+    subject = f"OneBill: {count} thing{'s' if count != 1 else ''} due soon"
 
     rows = []
     for _offset, item in ordered:
@@ -106,7 +106,7 @@ def render_digest(
     for row in rows:
         amount = f" · {row['amount']}" if row["amount"] else ""
         text_lines.append(f"• {row['label']}: {row['vendor']}, {row['date']}{amount}")
-    text_lines += ["", f"Open OneTally: {app_url}"]
+    text_lines += ["", f"Open OneBill: {app_url}"]
 
     html_rows = "".join(
         "<li><strong>{label}</strong>: {vendor}, {date}{amount}</li>".format(
@@ -120,7 +120,7 @@ def render_digest(
     body_html = (
         "<p>Here's what's coming up:</p>"
         f"<ul>{html_rows}</ul>"
-        f'<p><a href="{html.escape(app_url, quote=True)}">Open OneTally</a></p>'
+        f'<p><a href="{html.escape(app_url, quote=True)}">Open OneBill</a></p>'
     )
     return subject, "\n".join(text_lines), body_html
 

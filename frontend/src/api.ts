@@ -1,4 +1,4 @@
-/** Typed client for the OneTally HTTP API. Every call sends the Cognito access token. */
+/** Typed client for the OneBill HTTP API. Every call sends the Cognito access token. */
 
 export interface Profile {
   userId: string;
@@ -98,7 +98,9 @@ export interface DocumentDetail extends DocumentSummary {
 export type ChargeChoice =
   | { mode: "proportional" }
   | { mode: "even" }
-  | { mode: "person"; member: number };
+  | { mode: "person"; member: number }
+  /** Shared equally by these people, like an item. */
+  | { mode: "people"; members: number[] };
 
 /** People go by seat (0 = first) and lines by row number; amounts always come from the server. */
 export interface SplitRequest {
@@ -129,7 +131,7 @@ export interface Split {
   version: number;
   members: SplitMember[];
   assignments: Record<string, string[]>;
-  charges: Record<string, { mode: string; member?: string }>;
+  charges: Record<string, { mode: string; member?: string; members?: string[] }>;
   shares: SplitShare[];
   /** What the shares add up to: the printed total, or the recorded items if they differ. */
   totalCents: number;
@@ -239,7 +241,7 @@ export class ApiError extends Error {
 /** Returns the current Cognito access token, or undefined when signed out. */
 export type TokenGetter = () => Promise<string | undefined>;
 
-export interface OneTallyApi {
+export interface OneBillApi {
   /** The API's address (shown in Connect Gmail, for the Apps Script). */
   readonly baseUrl: string;
   getProfile(): Promise<Profile>;
@@ -256,7 +258,7 @@ export interface OneTallyApi {
   /** Shown once; only its hash is stored. */
   createIngestKey(): Promise<{ key: string }>;
   revokeIngestKey(): Promise<void>;
-  /** Gone from OneTally (with its reminder); it can come back with new emails. */
+  /** Gone from OneBill (with its reminder); it can come back with new emails. */
   deleteSubscription(serviceKey: string): Promise<void>;
   addSubscription(subscription: NewSubscription): Promise<Subscription>;
   setSubscriptionReminders(serviceKey: string, on: boolean): Promise<Subscription>;
@@ -266,7 +268,7 @@ export interface OneTallyApi {
   deleteDocument(docId: string): Promise<void>;
 }
 
-export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneTallyApi {
+export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneBillApi {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const token = await getToken();
     if (!token) throw new ApiError("Not signed in", 401);

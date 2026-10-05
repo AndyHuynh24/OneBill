@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import type { OneTallyApi } from "../api";
+import type { OneBillApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
 import { AddSubscription } from "./AddSubscription";
 import { ConnectGmail } from "./ConnectGmail";
@@ -12,50 +12,28 @@ import { DocumentSheet } from "./DocumentSheet";
 import { RecentDocuments } from "./RecentDocuments";
 import { ScanButton } from "./ScanButton";
 import { Upcoming } from "./Upcoming";
+import { Logo, type SignInMethod, Welcome } from "./Welcome";
 
 export type AuthStatus = "loading" | "signedOut" | "signedIn";
 
 interface HomeProps {
   status: AuthStatus;
-  api: OneTallyApi;
-  onSignIn: () => void;
+  api: OneBillApi;
+  onSignIn: (method: SignInMethod) => void;
   onSignOut: () => void;
 }
 
 export function Home({ status, api, onSignIn, onSignOut }: HomeProps) {
   if (status !== "signedIn") {
-    return (
-      <main className="page">
-        <Brand />
-        {status === "loading" ? (
-          <p className="muted">Checking your session…</p>
-        ) : (
-          <section className="card">
-            <p>Scan receipts and bills. OneTally tracks the totals and reminds you before deadlines.</p>
-            <button type="button" className="primary" onClick={onSignIn}>
-              Sign in
-            </button>
-          </section>
-        )}
-      </main>
-    );
+    return <Welcome loading={status === "loading"} onSignIn={onSignIn} />;
   }
   return <SignedInHome api={api} onSignOut={onSignOut} />;
-}
-
-function Brand() {
-  return (
-    <header className="brand">
-      <h1>OneTally</h1>
-      <p className="tagline">One place for every bill, receipt, and dollar you owe or are owed.</p>
-    </header>
-  );
 }
 
 const HOME_DOCUMENTS = 5;
 const HOME_SUBSCRIPTIONS = 3;
 
-function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => void }) {
+function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => void }) {
   const queryClient = useQueryClient();
   const [uploading, setUploading] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -140,8 +118,8 @@ function SignedInHome({ api, onSignOut }: { api: OneTallyApi; onSignOut: () => v
       {view === "home" ? (
         <>
           <header className="topbar">
-            <h1>
-              One<span>Tally</span>
+            <h1 className="topbar-logo">
+              <Logo />
             </h1>
             <button type="button" className="link-button" onClick={onSignOut}>
               Sign out

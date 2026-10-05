@@ -22,7 +22,7 @@ try {
 } catch (err) {
   root.render(
     <main className="page">
-      <h1>OneTally</h1>
+      <h1>OneBill</h1>
       <p role="alert" className="error">
         {err instanceof Error ? err.message : "Failed to start"}
       </p>

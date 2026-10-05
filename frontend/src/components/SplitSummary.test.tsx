@@ -31,6 +31,15 @@ describe("SplitSummary", () => {
     expect(screen.getByText(/adds up to \$28\.86/i)).toBeInTheDocument();
   });
 
+  it("'Add more people and split again' goes back to choosing people", async () => {
+    const onAddPeople = vi.fn();
+    render(<SplitSummary split={SPLIT} doc={DINNER} onEdit={vi.fn()} onDone={vi.fn()} onAddPeople={onAddPeople} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /add more people and split again/i }));
+
+    expect(onAddPeople).toHaveBeenCalledOnce();
+  });
+
   it("Share opens the phone's share sheet with a ready-to-send message", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { ...navigator, share });

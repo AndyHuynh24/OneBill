@@ -18,7 +18,7 @@ from subscriptions.ingest import (
 )
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
-UPLOADERS = {"uploaders"}
+UPLOADERS = {"owners"}
 
 
 def everything(table):
@@ -28,14 +28,14 @@ def everything(table):
 def test_a_new_key_works_and_only_its_hash_is_stored(table):
     key = create_key(table, "user-a", UPLOADERS, NOW)
 
-    assert key.startswith("otk_")
+    assert key.startswith("obk_")
     assert verify_key(table, f"Bearer {key}", NOW) == "user-a"
     stored = str(everything(table))
     assert key not in stored  # never the key itself
     assert hashlib.sha256(key.encode()).hexdigest() in stored
 
 
-def test_only_uploaders_can_create_a_key(table):
+def test_only_the_owner_can_create_a_key(table):
     """Decision S2: model calls stay invite-only, like scanning."""
     with pytest.raises(NotAllowed):
         create_key(table, "user-b", set(), NOW)
@@ -71,9 +71,9 @@ def test_revoking_disconnects(table):
     [
         None,
         "",
-        "otk_abc",
+        "obk_abc",
         "Bearer",
-        "Bearer otk_" + "a" * 43 + "x",
+        "Bearer obk_" + "a" * 43 + "x",
         "Basic dXNlcjpwYXNz",
         "Bearer ../../USER#a",
     ],

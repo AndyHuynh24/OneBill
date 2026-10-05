@@ -32,11 +32,11 @@ describe("createApi", () => {
   });
 
   it("surfaces the API's error message and status", async () => {
-    const { api } = setup([json({ message: "Uploads are invite-only for now." }, 403)]);
+    const { api } = setup([json({ message: "You've used today's 3 uploads. Try again tomorrow." }, 403)]);
 
     await expect(api.listDocuments()).rejects.toMatchObject({
       status: 403,
-      message: "Uploads are invite-only for now.",
+      message: "You've used today's 3 uploads. Try again tomorrow.",
     });
   });
 

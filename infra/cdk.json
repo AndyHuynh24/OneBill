@@ -1,5 +1,5 @@
 {
-  "app": "npx tsx bin/onetally.ts",
+  "app": "npx tsx bin/onebill.ts",
   "watch": {
     "include": [
       "bin/**",
@@ -12,8 +12,9 @@
     ]
   },
   "context": {
-    "githubSubject": "repo:AndyHuynh24@241491614/onetally@1398902241",
-    "authDomainPrefix": "onetally-ah24",
+    "githubSubject": "repo:AndyHuynh24@241491614/onebill@1398902241",
+    "authDomainPrefix": "onebill",
+    "googleClientId": "955636550865-rlfff1oj3nh5uaqv1rglcjdd5b1ip29s.apps.googleusercontent.com",
     "frontendUrl": "http://localhost:5173",
     "photoTiles": "on",
     "bedrockModelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",

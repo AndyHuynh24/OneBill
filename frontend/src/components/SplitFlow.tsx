@@ -1,31 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forgetFriend, loadFriends, rememberFriends } from "../friends";
 import { useState } from "react";
-import type { DocumentDetail, OneTallyApi, Split } from "../api";
+import type { ChargeChoice, DocumentDetail, OneBillApi, Split } from "../api";
 import type { Person } from "../split";
-import { AssignCircle, type Assignments } from "./AssignCircle";
-import { ChargeStep, type Charges } from "./ChargeStep";
+import { AssignCircle, type Assignments, type Picks } from "./AssignCircle";
 import { PeoplePicker } from "./PeoplePicker";
 import { SplitSummary } from "./SplitSummary";
 
-type Step = "people" | "assign" | "charges" | "summary";
+type Step = "people" | "assign" | "summary";
+type Charges = Record<string, ChargeChoice>;
 const CHARGE_KINDS = new Set(["tax", "fee", "tip"]);
 
 interface SplitFlowProps {
-  api: OneTallyApi;
+  api: OneBillApi;
   doc: DocumentDetail;
   onCancel: () => void;
   onClose: () => void;
 }
 
-/** Split a bill: who's here → assign items → tax/fees/tip → summary (saved on the server). */
+/** Split a bill: who's here → assign every line (items, then tax/fees/tip) → summary (saved). */
 export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const queryClient = useQueryClient();
   const restored = restore(doc.split);
   const [step, setStep] = useState<Step>(doc.split ? "summary" : "people");
   const [people, setPeople] = useState<Person[]>(restored.people);
-  const [assignments, setAssignments] = useState<Assignments>(restored.assignments);
-  const [charges, setCharges] = useState<Charges>(restored.charges);
+  const [picks, setPicks] = useState<Picks>(restored.picks);
   const [saved, setSaved] = useState<Split | undefined>(doc.split);
   // The bill's version as loaded (not the split's save time): edits to the bill after a split
   // was saved (e.g. Looks right) must not make every later save look like a conflict.
@@ -59,26 +58,30 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   });
 
   function choosePeople(chosen: Person[]) {
-    // Seats changed: earlier choices may point at the wrong people.
-    if (JSON.stringify(chosen) !== JSON.stringify(people)) {
-      setAssignments({});
-      setCharges({});
-    }
+    // Only people added at the end: everyone keeps their seat, so earlier choices still hold.
+    // Anything else (removed or reordered): earlier choices may point at the wrong people.
+    const kept = people.every((p, i) => chosen[i]?.name === p.name);
+    if (!kept) setPicks({});
     setPeople(chosen);
     setStep("assign");
   }
 
-  function itemsDone(done: Assignments) {
-    setAssignments(done);
-    // Tax/tip already chosen (editing a split): go straight to who owes what.
-    const chargesChosen = chargeLines.every((l) => charges[String(l.row)]);
-    if (!chargesChosen) setStep("charges");
-    else save.mutate({ assignments: done, charges });
+  /** Every line chosen: items become assignments, tax/tip/fee picks become charge choices. */
+  function allChosen(done: Picks) {
+    setPicks(done);
+    const chargeRows = new Set(chargeLines.map((l) => String(l.row)));
+    const assignments: Assignments = {};
+    const charges: Charges = {};
+    for (const [row, pick] of Object.entries(done)) {
+      if (chargeRows.has(row)) charges[row] = toCharge(pick, people.length);
+      else if (Array.isArray(pick)) assignments[row] = pick;
+    }
+    save.mutate({ assignments, charges });
   }
 
   return (
     <div className="split-flow">
-      {step !== "summary" && <StepHeader step={step} hasCharges={chargeLines.length > 0} />}
+      {step !== "summary" && <StepHeader step={step} />}
       {step === "people" && (
         <PeoplePicker
           totalCents={doc.totalCents}
@@ -98,33 +101,20 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
         <AssignCircle
           people={people}
           lines={lines}
+          chargeLines={chargeLines}
           currency={doc.currency ?? "USD"}
-          initial={assignments}
-          onDone={itemsDone}
-          onCharges={
-            chargeLines.length
-              ? (current) => {
-                  setAssignments(current);
-                  setStep("charges");
-                }
-              : undefined
-          }
-        />
-      )}
-      {step === "charges" && (
-        <ChargeStep
-          people={people}
-          lines={chargeLines}
-          currency={doc.currency ?? "USD"}
-          initial={charges}
-          onDone={(done) => {
-            setCharges(done);
-            save.mutate({ assignments, charges: done });
-          }}
+          initial={picks}
+          onDone={allChosen}
         />
       )}
       {step === "summary" && saved && (
-        <SplitSummary split={saved} doc={doc} onEdit={() => setStep("assign")} onDone={onClose} />
+        <SplitSummary
+          split={saved}
+          doc={doc}
+          onEdit={() => setStep("assign")}
+          onAddPeople={() => setStep("people")}
+          onDone={onClose}
+        />
       )}
 
       {save.isPending && <p className="muted">Saving…</p>}
@@ -136,8 +126,8 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
       {step !== "summary" && (
         <div className="sheet-actions">
           {step !== "people" && (
-            <button type="button" onClick={() => setStep(step === "charges" ? "assign" : "people")}>
-              Back
+            <button type="button" onClick={() => setStep("people")}>
+              ← Back to who's here
             </button>
           )}
           <button type="button" className="link-button" onClick={onCancel}>
@@ -149,45 +139,46 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   );
 }
 
-/** A saved split back into screen state: people by seat, choices by seat index. */
-function restore(split: Split | undefined): { people: Person[]; assignments: Assignments; charges: Charges } {
-  if (!split) return { people: [{ name: "Me", self: true }], assignments: {}, charges: {} };
+/** A saved split back into screen state: people by seat, one pick per line by seat index. */
+function restore(split: Split | undefined): { people: Person[]; picks: Picks } {
+  if (!split) return { people: [{ name: "Me", self: true }], picks: {} };
   const seat = new Map(split.members.map((m, i) => [m.id, i]));
   const people = split.members.map((m) => (m.self ? { name: m.name, self: true } : { name: m.name }));
-  const assignments = Object.fromEntries(
+  const all = split.members.map((_, i) => i);
+  const picks: Picks = Object.fromEntries(
     Object.entries(split.assignments).map(([row, ids]) => [row, ids.map((id) => seat.get(id) ?? 0)]),
   );
-  const charges = Object.fromEntries(
-    Object.entries(split.charges).map(([row, c]) => [
-      row,
-      c.mode === "person" ? { mode: "person" as const, member: seat.get(c.member ?? "") ?? 0 } : { mode: c.mode as "even" | "proportional" },
-    ]),
-  );
-  return { people, assignments, charges };
+  for (const [row, c] of Object.entries(split.charges)) {
+    picks[row] =
+      c.mode === "proportional"
+        ? "byOrder"
+        : c.mode === "even"
+          ? all
+          : c.mode === "person"
+            ? [seat.get(c.member ?? "") ?? 0]
+            : (c.members ?? []).map((id) => seat.get(id) ?? 0);
+  }
+  return { people, picks };
 }
 
-const STEP_TITLES: Record<Exclude<Step, "summary">, { title: string; hint: string }> = {
-  people: { title: "Who's here?", hint: "" },
-  assign: {
-    title: "Who had what?",
-    hint: "Drag each item onto whoever had it, or tap one or more people and confirm.",
-  },
-  charges: {
-    title: "Tax, tip & fees",
-    hint: "Split each one by what people ordered or evenly, or give it to one person.",
-  },
+/** A tax/tip/fee pick as the API's charge choice. */
+function toCharge(pick: Picks[string], count: number): ChargeChoice {
+  if (pick === "byOrder") return { mode: "proportional" };
+  if (pick.length === count) return { mode: "even" };
+  if (pick.length === 1) return { mode: "person", member: pick[0] };
+  return { mode: "people", members: pick };
+}
+
+const STEP_TITLES: Record<Exclude<Step, "summary">, string> = {
+  people: "Who's here?",
+  assign: "Who had what?",
 };
 
-function StepHeader({ step, hasCharges }: { step: Exclude<Step, "summary">; hasCharges: boolean }) {
-  const order: Exclude<Step, "summary">[] = hasCharges ? ["people", "assign", "charges"] : ["people", "assign"];
-  const { title, hint } = STEP_TITLES[step];
+function StepHeader({ step }: { step: Exclude<Step, "summary"> }) {
   return (
     <div className="step-header">
-      <p className="step-count">
-        Step {order.indexOf(step) + 1} of {order.length}
-      </p>
-      {step !== "people" && <h2 className="step-title">{title}</h2>}
-      {hint && <p className="instruction">{hint}</p>}
+      <p className="step-count">Step {step === "people" ? 1 : 2} of 2</p>
+      {step !== "people" && <h2 className="step-title">{STEP_TITLES[step]}</h2>}
     </div>
   );
 }

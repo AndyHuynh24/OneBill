@@ -2,13 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { GmailConnection, OneTallyApi } from "../api";
+import type { GmailConnection, OneBillApi } from "../api";
 import { fakeApi } from "../test/fakeApi";
 import { ConnectGmail } from "./ConnectGmail";
 
 const OFF: GmailConnection = { connected: false, createdAt: null, lastUsedAt: null };
 
-function renderSheet(api: OneTallyApi, connection = OFF) {
+function renderSheet(api: OneBillApi, connection = OFF) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -27,8 +27,8 @@ describe("ConnectGmail", () => {
     await userEvent.click(await screen.findByRole("button", { name: /copy script/i }));
 
     const script = writeText.mock.calls[0][0] as string;
-    expect(script).toContain("var ONETALLY_KEY = 'otk_" + "k".repeat(43) + "';");
-    expect(script).toContain("var ONETALLY_URL = 'https://api.example.com/';");
+    expect(script).toContain("var ONEBILL_KEY = 'obk_" + "k".repeat(43) + "';");
+    expect(script).toContain("var ONEBILL_URL = 'https://api.example.com/';");
     expect(screen.getByText(/only once/i)).toBeInTheDocument();
   });
 

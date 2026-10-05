@@ -49,5 +49,7 @@ export async function getAccessToken(): Promise<string | undefined> {
   return session.tokens?.accessToken?.toString();
 }
 
-export const signIn = () => signInWithRedirect();
+/** Google goes straight to Google's account picker; email opens the hosted login page. */
+export const signIn = (method: "google" | "email" = "email") =>
+  signInWithRedirect(method === "google" ? { provider: "Google" } : undefined);
 export const signOut = () => amplifySignOut();

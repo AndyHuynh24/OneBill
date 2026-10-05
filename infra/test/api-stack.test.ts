@@ -28,13 +28,12 @@ beforeAll(() => {
   const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
   const auth = new AuthStack(app, "TestAuth", {
     env,
-    domainPrefix: "onetally-test",
+    domainPrefix: "onebill-test",
     frontendUrl: "http://localhost:5173",
   });
   const api = new ApiStack(app, "TestApi", {
     env,
     table: data.table,
-    dataKey: data.key,
     docsBucket: data.docsBucket,
     userPool: auth.userPool,
     userPoolClient: auth.client,
@@ -131,12 +130,11 @@ describe("ApiStack — /me Lambda", () => {
     }
   });
 
-  it("keeps all logs for two weeks, encrypted with the customer-managed key", () => {
-    const groups = template.findResources("AWS::Logs::LogGroup");
-    expect(Object.keys(groups).length).toBeGreaterThanOrEqual(2);
-    for (const group of Object.values(groups)) {
+  it("keeps all logs for two weeks (encrypted at rest by CloudWatch)", () => {
+    const groups = Object.values(template.findResources("AWS::Logs::LogGroup"));
+    expect(groups.length).toBeGreaterThan(0);
+    for (const group of groups) {
       expect(group.Properties.RetentionInDays).toBe(14);
-      expect(group.Properties.KmsKeyId).toBeDefined();
     }
   });
 
@@ -148,15 +146,11 @@ describe("ApiStack — /me Lambda", () => {
     expect(actionsOf(statements, "s3:")).toEqual([]);
   });
 
-  it("allows /me KMS use only through DynamoDB, with no wildcard KMS actions", () => {
-    const kms = statementsFor("api.me.handler.handler").filter((st) => actionsOf([st], "kms:").length);
-    expect(kms).toHaveLength(1);
-    for (const action of [kms[0].Action].flat()) {
-      expect(action).not.toContain("*");
-    }
-    expect(kms[0].Condition).toEqual({
-      StringEquals: { "kms:ViaService": "dynamodb.us-east-1.amazonaws.com" },
-    });
+  it("needs no KMS permissions: data is encrypted with AWS-owned keys", () => {
+    const actions = Object.values(template.findResources("AWS::IAM::Policy")).flatMap((p) =>
+      p.Properties.PolicyDocument.Statement.flatMap((st: { Action: string | string[] }) => [st.Action].flat()),
+    );
+    expect(actions.filter((a: string) => a.startsWith("kms:"))).toEqual([]);
   });
 
   it("never grants wildcard actions", () => {
@@ -227,15 +221,6 @@ describe("ApiStack — documents API", () => {
     expect(JSON.stringify(s3?.Resource)).toContain("/uploads/*");
   });
 
-  it("allows documents KMS use only through DynamoDB and S3", () => {
-    const kms = statementsFor("api.documents.handler.handler").filter((st) => actionsOf([st], "kms:").length);
-    expect(kms).toHaveLength(1);
-    expect(kms[0].Condition).toEqual({
-      StringEquals: {
-        "kms:ViaService": ["dynamodb.us-east-1.amazonaws.com", "s3.us-east-1.amazonaws.com"],
-      },
-    });
-  });
 });
 
 describe("ApiStack — tracing switch", () => {
@@ -247,7 +232,6 @@ describe("ApiStack — tracing switch", () => {
     const api = new ApiStack(app, "Api", {
       env,
       table: data.table,
-      dataKey: data.key,
       docsBucket: data.docsBucket,
       userPool: auth.userPool,
       userPoolClient: auth.client,

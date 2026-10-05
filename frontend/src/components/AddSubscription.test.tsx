@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, type OneTallyApi } from "../api";
+import { ApiError, type OneBillApi } from "../api";
 import { fakeApi } from "../test/fakeApi";
 import { AddSubscription } from "./AddSubscription";
 
-function renderSheet(api: OneTallyApi, onClose = vi.fn()) {
+function renderSheet(api: OneBillApi, onClose = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>

@@ -4,7 +4,7 @@ import { loadConfig } from "./config";
 const FULL = {
   VITE_USER_POOL_ID: "us-east-1_abc",
   VITE_USER_POOL_CLIENT_ID: "client123",
-  VITE_COGNITO_DOMAIN: "onetally-ah24.auth.us-east-1.amazoncognito.com",
+  VITE_COGNITO_DOMAIN: "onebill.auth.us-east-1.amazoncognito.com",
   VITE_API_URL: "https://abc.execute-api.us-east-1.amazonaws.com/",
 };
 
@@ -13,7 +13,7 @@ describe("loadConfig", () => {
     expect(loadConfig(FULL)).toEqual({
       userPoolId: "us-east-1_abc",
       userPoolClientId: "client123",
-      cognitoDomain: "onetally-ah24.auth.us-east-1.amazoncognito.com",
+      cognitoDomain: "onebill.auth.us-east-1.amazoncognito.com",
       apiUrl: "https://abc.execute-api.us-east-1.amazonaws.com/",
     });
   });

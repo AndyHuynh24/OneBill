@@ -95,7 +95,7 @@ def answer(payload):
 
 def test_a_valid_key_processes_the_email_for_its_owner(table, ingest):
     handler, stub = ingest
-    key = create_key(table, "user-a", {"uploaders"}, datetime(2026, 10, 1, tzinfo=UTC))
+    key = create_key(table, "user-a", {"owners"}, datetime(2026, 10, 1, tzinfo=UTC))
     sub = {
         "service": "Netflix",
         "amount": "$15.49",
@@ -137,7 +137,7 @@ def test_a_valid_key_processes_the_email_for_its_owner(table, ingest):
     assert not table.get_item(Key={"PK": "USER#user-b", "SK": "SUB#netflix"}).get("Item")
 
 
-@pytest.mark.parametrize("authorization", [None, "", "Bearer otk_" + "x" * 43, "Bearer nope"])
+@pytest.mark.parametrize("authorization", [None, "", "Bearer obk_" + "x" * 43, "Bearer nope"])
 def test_without_a_valid_key_nothing_happens(table, ingest, authorization):
     handler, _ = ingest  # no Bedrock call queued: any call would fail the test
 
@@ -148,7 +148,7 @@ def test_without_a_valid_key_nothing_happens(table, ingest, authorization):
 
 def test_a_bad_payload_is_400(table, ingest):
     handler, _ = ingest
-    key = create_key(table, "user-a", {"uploaders"}, datetime(2026, 10, 1, tzinfo=UTC))
+    key = create_key(table, "user-a", {"owners"}, datetime(2026, 10, 1, tzinfo=UTC))
 
     assert call(handler, event(EMAIL | {"messageId": ""}, f"Bearer {key}"))[0] == 400
     assert call(handler, event(None, f"Bearer {key}", raw="not json"))[0] == 400
@@ -164,7 +164,7 @@ def test_an_oversized_request_is_413_before_any_work(table, ingest):
 
 def test_over_the_daily_cap_is_429_so_the_script_retries_later(table, ingest, monkeypatch):
     handler, _ = ingest
-    key = create_key(table, "user-a", {"uploaders"}, datetime(2026, 10, 1, tzinfo=UTC))
+    key = create_key(table, "user-a", {"owners"}, datetime(2026, 10, 1, tzinfo=UTC))
     monkeypatch.setattr("subscriptions.process.consume_email_quota", lambda *_: False)
 
     status, body = call(handler, event(EMAIL, f"Bearer {key}"))

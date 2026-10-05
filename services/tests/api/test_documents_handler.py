@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import boto3
 import pytest
 
-BUCKET = "onetally-docs-test"
+BUCKET = "onebill-docs-test"
 
 
 @dataclass
@@ -54,7 +54,7 @@ def call(handler, event):
     return response["statusCode"], json.loads(response["body"])
 
 
-UPLOADER = {"sub": "user-a", "cognito:groups": "[uploaders]"}
+UPLOADER = {"sub": "user-a", "cognito:groups": "[owners]"}
 NEW_DOC = {"filename": "receipt.jpg", "contentType": "image/jpeg", "sizeBytes": 123456}
 
 
@@ -65,11 +65,10 @@ def test_post_documents_creates_upload(handler):
     assert body["upload"]["fields"]["key"].startswith("uploads/user-a/")
 
 
-def test_post_documents_requires_uploaders_group(handler):
-    status, body = call(handler, http_event("POST", "/documents", {"sub": "user-a"}, NEW_DOC))
+def test_post_documents_is_open_to_anyone_signed_in(handler):
+    status, _ = call(handler, http_event("POST", "/documents", {"sub": "user-a"}, NEW_DOC))
 
-    assert status == 403
-    assert "invite-only" in body["message"]
+    assert status == 201
 
 
 def test_post_documents_validates_body(handler):
@@ -286,7 +285,7 @@ def test_patch_with_an_invalid_edit_is_400(handler, table):
 def test_create_and_revoke_the_ingest_key(handler, table):
     status, body = call(handler, http_event("POST", "/ingest/keys", UPLOADER))
     assert status == 201
-    assert body["key"].startswith("otk_")
+    assert body["key"].startswith("obk_")
 
     _, listed = call(handler, http_event("GET", "/subscriptions", UPLOADER))
     assert listed["connection"]["connected"] is True
@@ -296,7 +295,7 @@ def test_create_and_revoke_the_ingest_key(handler, table):
     assert response["statusCode"] == 204
 
 
-def test_only_uploaders_can_connect_gmail(handler):
+def test_only_the_owner_can_connect_gmail(handler):
     status, _ = call(handler, http_event("POST", "/ingest/keys", {"sub": "user-b"}))
 
     assert status == 403

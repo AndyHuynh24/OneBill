@@ -17,33 +17,32 @@ const dailyLimits = app.node.tryGetContext("dailyLimits") !== "off";
 // Photo tiles next to the OCR text (phase 2c): "photoTiles" in cdk.json, so it's reviewed in a PR.
 const photoTiles = app.node.tryGetContext("photoTiles") === "on";
 
-const data = new DataStack(app, "OneTally-Data", { env, frontendUrl });
+const data = new DataStack(app, "OneBill-Data", { env, frontendUrl });
 
-const auth = new AuthStack(app, "OneTally-Auth", {
+const auth = new AuthStack(app, "OneBill-Auth", {
   env,
   domainPrefix: app.node.getContext("authDomainPrefix"),
   frontendUrl,
+  googleClientId: app.node.tryGetContext("googleClientId"),
 });
 
-new ApiStack(app, "OneTally-Api", {
+new ApiStack(app, "OneBill-Api", {
   env,
   table: data.table,
-  dataKey: data.key,
   docsBucket: data.docsBucket,
   userPool: auth.userPool,
   userPoolClient: auth.client,
   frontendUrl,
-  // Debug switch: npx cdk deploy OneTally-Api -c tracing=true
+  // Debug switch: npx cdk deploy OneBill-Api -c tracing=true
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
   bedrockModelId: app.node.getContext("bedrockModelId"),
 });
 
-new PipelineStack(app, "OneTally-Pipeline", {
+new PipelineStack(app, "OneBill-Pipeline", {
   env,
   table: data.table,
   docsBucket: data.docsBucket,
-  dataKey: data.key,
   bedrockModelId: app.node.getContext("bedrockModelId"),
   userPool: auth.userPool,
   appUrl: frontendUrl,
@@ -53,13 +52,14 @@ new PipelineStack(app, "OneTally-Pipeline", {
 });
 
 // Account-level stack, deployed once from a laptop:
-//   npx cdk deploy OneTally-Account -c budgetEmail=you@example.com
+//   npx cdk deploy OneBill-Account -c budgetEmail=you@example.com
 // Only synthesized when the email is supplied, so it never needs to be committed or set in CI.
 const budgetEmail: string | undefined = app.node.tryGetContext("budgetEmail");
 if (budgetEmail) {
-  new AccountStack(app, "OneTally-Account", {
+  new AccountStack(app, "OneBill-Account", {
     env,
     budgetEmail,
     githubSubject: app.node.getContext("githubSubject"),
+    ciRole: app.node.tryGetContext("ciRole") === "on",
   });
 }

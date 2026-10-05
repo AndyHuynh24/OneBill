@@ -1,4 +1,4 @@
-/* OneTally — warm, calm, light. One accent (terracotta), soft shadows, generous spacing. */
+/* OneBill — warm, calm, light. One accent (terracotta), soft shadows, generous spacing. */
 :root {
   --bg: #fbf6ef;
   --surface: #ffffff;
@@ -866,7 +866,9 @@ select {
 .circle {
   position: relative;
   container-type: inline-size; /* lets the fly animation use % of the circle's width (cqw) */
-  width: min(100%, 23rem);
+  /* Sized by the screen's height too, so the whole step (title to Finish split) fits without
+     scrolling: about 27rem of the sheet goes to everything else. */
+  width: max(15rem, min(100%, 23rem, calc(92dvh - 27rem)));
   aspect-ratio: 1;
   margin: 0.5rem auto;
   border-radius: 50%;
@@ -911,13 +913,11 @@ select {
     opacity 0.2s var(--ease);
 }
 
+/* Tapped (selected): just the ring in their color, no pop. Dragging over someone pops (below). */
 .circle-seat[aria-pressed="true"] .avatar {
-  transform: scale(1.15);
   box-shadow:
     0 0 0 4px var(--bg),
-    0 0 0 7px var(--seat-color, var(--accent)),
-    var(--shadow-lift);
-  animation: pop 0.3s var(--ease);
+    0 0 0 7px var(--seat-color, var(--accent));
 }
 
 .circle-seat[aria-pressed="true"] .circle-name {
@@ -1743,4 +1743,1301 @@ button.check-use {
   font-size: 0.7rem;
   font-weight: 600;
   vertical-align: middle;
+}
+
+/* --- Welcome (signed out) --- */
+.welcome {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 2rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.welcome-top {
+  padding: 0.25rem 0 1.5rem;
+}
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.logo-mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
+}
+.logo-word {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.topbar-logo {
+  margin: 0;
+  font-size: inherit;
+}
+.topbar-logo .logo-mark {
+  width: 30px;
+  height: 30px;
+}
+.welcome-hero {
+  display: grid;
+  gap: 2.25rem;
+  align-items: center;
+  padding: 1rem 0 2.5rem;
+}
+.welcome-copy h1 {
+  margin: 0 0 0.9rem;
+  font-size: clamp(2.3rem, 7vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+}
+.accent-text {
+  color: var(--accent);
+}
+.welcome-lead {
+  margin: 0 0 1.75rem;
+  max-width: 34rem;
+  font-size: 1.12rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.welcome-points {
+  list-style: none;
+  margin: 0 0 1.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+  max-width: 34rem;
+}
+.welcome-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.welcome-points strong {
+  color: var(--text);
+}
+.point-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.point-icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.soon-tag {
+  display: inline-block;
+  margin-left: 0.25rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  max-width: 22rem;
+}
+.btn-google,
+.btn-email {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 3rem;
+  padding: 0 1.2rem;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.15s var(--ease),
+    box-shadow 0.15s var(--ease),
+    background-color 0.15s var(--ease);
+}
+.btn-google {
+  background: var(--surface);
+  color: #1f1f1f;
+  border: 1px solid #dadce0;
+  box-shadow: var(--shadow);
+}
+.btn-google:hover {
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-1px);
+}
+.google-mark {
+  width: 20px;
+  height: 20px;
+}
+.btn-email {
+  background: transparent;
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-soft);
+}
+.btn-email:hover {
+  background: var(--accent-soft);
+}
+.welcome-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--muted);
+}
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.welcome-private {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 1.4rem 0 0;
+  max-width: 26rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.lock-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+/* The illustration: a bill and a subscription card, lines instead of words */
+.preview {
+  justify-self: center;
+  width: min(100%, 24rem);
+}
+.preview-art {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.preview-paper {
+  filter: drop-shadow(0 12px 24px rgba(80, 50, 25, 0.14));
+}
+.wave {
+  fill: none;
+  stroke: #d9c9b9;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.wave-soft {
+  stroke: #e8dccf;
+}
+.wave-strong {
+  stroke: #b9a493;
+  stroke-width: 3.6;
+}
+/* Features */
+.welcome-features {
+  display: grid;
+  gap: 1rem;
+  padding-bottom: 2rem;
+}
+.feature {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.2rem 1.25rem;
+}
+.feature h2 {
+  margin: 0.7rem 0 0.35rem;
+  font-size: 1.05rem;
+}
+.feature p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.feature-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.feature-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+.welcome-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+@media (min-width: 760px) {
+  .welcome {
+    padding: 1.75rem 2rem 2.5rem;
+  }
+  .welcome-hero {
+    grid-template-columns: 1.15fr 0.85fr;
+    padding: 2.5rem 0 3.5rem;
+  }
+  .welcome-actions {
+    flex-direction: row;
+    max-width: none;
+  }
+  .welcome-features {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* --- Split screen fits one screen (2026-10-04) --- */
+.step-header {
+  margin: 0 0 0.35rem;
+}
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.progress-row .progress {
+  flex: 1;
+  margin: 0;
+}
+.progress-row .assign-progress {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+.circle {
+  margin: 0.25rem auto;
+}
+.assign-cta {
+  min-height: 2.6rem;
+  margin: 0.1rem 0;
+}
+.assign-actions {
+  margin: 0.25rem 0;
+  align-items: center;
+}
+button.nav-arrow {
+  width: 2.4rem;
+  min-width: 2.4rem;
+  padding: 0;
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.charges-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0.4rem 0 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.86rem;
+  text-align: left;
+}
+.charges-label {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.charges-mode {
+  flex: 1;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.charges-edit {
+  color: var(--accent-strong);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.finish-actions {
+  margin: 0.45rem 0 0.2rem;
+}
+/* A bit smaller than other big buttons: more room for the circle and its controls */
+.finish-actions .btn-split {
+  margin-top: 0;
+  padding: 0.6rem 1rem;
+  font-size: 0.98rem;
+  border-radius: var(--radius-sm);
+}
+.finish-actions .btn-split:disabled {
+  opacity: 0.55;
+}
+.list-peek {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin: 0.2rem 0 0;
+  padding: 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  animation: peek 1.6s var(--ease) 0.6s 2;
+}
+.list-peek span {
+  font-size: 1rem;
+}
+@keyframes peek {
+  50% {
+    transform: translateY(3px);
+  }
+}
+.assign-list {
+  max-height: none;
+  margin-top: 0.3rem;
+}
+/* Who the card is assigned to: small avatars on its top-left corner */
+.card-holders {
+  position: absolute;
+  top: -0.9rem;
+  left: -0.7rem;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.card-holders .avatar {
+  box-shadow: 0 0 0 2px #fff;
+}
+.card-holders .avatar + .avatar {
+  margin-left: -0.45rem;
+}
+.card-holders-more {
+  margin-left: 0.2rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--text);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+@media (prefers-reduced-motion: reduce) {
+  .list-peek {
+    animation: none;
+  }
+}
+
+.bill-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.confidence-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: none;
+  background: currentColor;
+}
+
+/* The one hint, under the circle: readable size */
+.assign .assign-hint {
+  font-size: 0.95rem;
+}
+/* Name · amount on one line under each avatar */
+.circle-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.circle-label .circle-name {
+  max-width: 5rem;
+}
+.circle-sep {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+/* The card in the circle: "name · price" on one line (wrapping if long), a bit smaller */
+.item-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  column-gap: 0.3rem;
+}
+.item-card .item-name {
+  font-size: 0.88rem;
+}
+.item-card strong {
+  font-size: 0.95rem;
+}
+.item-sep {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+/* --- Split screen: full height, labels away from the card, long names (2026-10-04) --- */
+.sheet.sheet-full {
+  max-height: 100dvh;
+  height: 100dvh;
+  border-radius: 0;
+}
+.sheet-full .circle {
+  /* Full height: the circle can use more of it, the rest goes to the controls and the hint. */
+  width: max(15rem, min(100%, 24rem, calc(100dvh - 27rem)));
+}
+.sheet-full .assign-cta {
+  min-height: 3.4rem;
+  align-items: center;
+  margin: 0.35rem 0;
+}
+.sheet-full .assign .assign-hint {
+  margin: 0;
+  line-height: 1.4;
+  padding: 0 0.5rem;
+}
+.circle-seat.label-above {
+  flex-direction: column-reverse;
+}
+.charges-mode {
+  flex: none;
+  overflow: visible;
+}
+.charges-row .charges-edit {
+  margin-left: auto;
+}
+.item-name.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: relative;
+  padding-right: 2.2rem; /* room for "more" on the last line */
+}
+.item-name .item-more {
+  border: none;
+  background: none;
+  padding: 0 0 0 0.25rem;
+  min-height: 0;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: none;
+}
+.item-name.clamped .item-more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background: var(--surface);
+}
+
+/* ================= Split screen, simplified (2026-10-04) ================= */
+.split-flow {
+  --split-text: 0.95rem;
+}
+.step-header .step-title {
+  margin: 0.1rem 0 0;
+  font-size: 1.35rem;
+}
+.assign > .assign-hint {
+  margin: 0 0 0.7rem;
+  padding: 0;
+  text-align: left;
+  font-size: var(--split-text);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.progress-row .assign-progress {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Circle: avatars a bit bigger and further out; labels a bit bigger */
+.circle-seat .avatar-lg {
+  width: 4.4rem;
+  height: 4.4rem;
+  font-size: 1.3rem;
+}
+.circle-seat .circle-name {
+  font-size: 0.92rem;
+  max-width: 5.5rem;
+}
+.circle-seat .circle-amount {
+  font-size: 0.85rem;
+}
+/* The item card: name on top (2 lines max), a thin divider, the price */
+.item-card {
+  width: 10rem;
+  padding: 0.8rem 0.85rem 0.75rem;
+  gap: 0;
+}
+.item-card .item-name {
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+.item-divider {
+  width: 2.2rem;
+  height: 2px;
+  margin: 0.45rem 0 0.35rem;
+  border-radius: 2px;
+  background: var(--border);
+}
+.item-card .item-price {
+  font-size: 1.05rem;
+}
+/* Main button: steady, full width */
+.sheet-full .assign-cta,
+.assign-cta {
+  min-height: 0;
+  margin: 0.35rem 0 0.5rem;
+}
+.cta-main {
+  width: 100%;
+  min-height: 2.9rem;
+  font-size: var(--split-text);
+  font-weight: 700;
+  border-radius: 14px;
+}
+.cta-main:disabled {
+  background: var(--surface-2);
+  color: var(--muted);
+  box-shadow: none;
+  opacity: 1;
+}
+/* Secondary controls: one row, all the same height */
+.assign-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+}
+.assign-actions button {
+  height: 2.6rem;
+  min-height: 2.6rem;
+  padding: 0 1rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+.assign-actions button.nav-arrow {
+  width: 2.6rem;
+  min-width: 2.6rem;
+  padding: 0;
+  font-size: 1.35rem;
+}
+/* Tax / tip / fee: a calm row, not a dashed box */
+.charges-row {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 0.7rem 0.9rem;
+  margin: 0 0 0.6rem;
+  font-size: var(--split-text);
+}
+.charges-row .charges-mode {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.charges-row .charges-edit {
+  color: var(--muted);
+  font-weight: 600;
+}
+.finish-actions {
+  margin: 0 0 0.25rem;
+}
+.finish-actions .btn-split {
+  min-height: 2.9rem;
+  font-size: var(--split-text);
+  border-radius: 14px;
+}
+.list-peek {
+  font-size: 0.85rem;
+}
+.assign-row {
+  font-size: 0.92rem;
+  padding: 0.6rem 0.85rem;
+}
+
+/* Room for the labels that hang above the top seat and below the bottom seat */
+.sheet-full .circle,
+.circle {
+  margin-top: 1.5rem;
+  margin-bottom: 1.6rem;
+}
+.sheet-full .assign > .assign-hint,
+.assign > .assign-hint {
+  padding: 0;
+}
+.cta-main:disabled {
+  border: 1px solid var(--border);
+}
+
+/* ===== The table: a smaller disc in the middle, people sitting around it (2026-10-04) ===== */
+.circle {
+  background: none;
+}
+.circle::before {
+  content: "";
+  position: absolute;
+  inset: 21%;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow:
+    inset 0 2px 10px rgba(80, 50, 25, 0.05),
+    0 10px 30px rgba(80, 50, 25, 0.06);
+}
+/* Bigger name · amount labels */
+.circle-seat .circle-name {
+  font-size: 1rem;
+  font-weight: 700;
+  max-width: 6rem;
+}
+.circle-seat .circle-amount {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.circle-seat .circle-sep {
+  font-size: 0.95rem;
+}
+.item-pick {
+  margin-top: 0.3rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.cta-main {
+  font-size: 0.92rem;
+}
+.cta-main:disabled {
+  font-weight: 600;
+}
+
+/* ===== Split screen polish (2026-10-04, round 3) ===== */
+/* Avatars back to their earlier size, in proportion with the labels and card */
+.circle-seat .avatar-lg {
+  width: 4rem;
+  height: 4rem;
+  font-size: 1.2rem;
+}
+/* Even space above and below the circle: the labels above the top person and below the bottom
+   person are the same height, so equal margins balance it. */
+.sheet-full .circle,
+.circle {
+  margin-top: 2.2rem;
+  margin-bottom: 2.2rem;
+}
+.sheet-full .assign-cta,
+.assign-cta {
+  margin-top: 0;
+}
+/* The card: name · price on one row */
+.item-card {
+  width: 11.5rem;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+.item-row .item-name {
+  min-width: 0;
+  text-align: left;
+}
+.item-row .item-price {
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+.item-row .item-sep {
+  color: var(--muted);
+  font-weight: 700;
+}
+/* "By what's ordered": the suggested choice for tax/tip/fee, softly highlighted */
+.assign-actions button.chip-suggested {
+  background: var(--accent-soft);
+  border: 1px solid rgba(217, 119, 79, 0.45);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.assign-actions button.chip-suggested[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* ===== Round 4: names, controls fit, even spacing, drag & drop cues ===== */
+.item-name-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.item-name.clamped {
+  padding-right: 0;
+}
+.item-name-wrap .item-more,
+.item-name.clamped + .item-more {
+  position: static;
+  padding: 0;
+  margin-top: 0.1rem;
+  background: none;
+  font-size: 0.72rem;
+}
+.item-card {
+  width: 12rem;
+}
+/* Controls: compact enough that ‹ · By what's ordered · Everyone · › fit on one row */
+.assign-actions {
+  gap: 0.4rem;
+}
+.assign-actions button {
+  padding: 0 0.8rem;
+  font-size: 0.9rem;
+}
+.assign-actions button.nav-arrow {
+  width: 2.5rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
+}
+/* Even space above and below the circle */
+.sheet-full .circle,
+.circle {
+  margin-top: 1.95rem;
+  margin-bottom: 2.4rem;
+}
+/* Drag cue: a small dotted grip at the top of the card */
+.drag-grip {
+  display: block;
+  width: 18px;
+  height: 8px;
+  margin: -0.2rem auto 0.35rem;
+  background-image: radial-gradient(circle, #c8b8a8 1.3px, transparent 1.6px);
+  background-size: 6px 4px;
+  opacity: 0.9;
+}
+/* Drop cue: a faint dashed ring around each person; orange while dragging */
+.avatar-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.avatar-wrap::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px dashed rgba(138, 125, 114, 0.28);
+  pointer-events: none;
+  transition:
+    border-color 0.2s var(--ease),
+    opacity 0.2s var(--ease);
+}
+.circle.is-dragging .avatar-wrap::after {
+  border-color: rgba(217, 119, 79, 0.75);
+}
+/* The selected / hovered ring replaces the dashed one */
+.circle-seat[aria-pressed="true"] .avatar-wrap::after,
+.circle-seat.hovered .avatar-wrap::after {
+  opacity: 0;
+}
+.item-name-wrap button.item-more {
+  border: none;
+  box-shadow: none;
+  min-height: 0;
+  height: auto;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+/* ===== The circle sits in the middle of the free space (2026-10-04) ===== */
+.assign-main {
+  display: flex;
+  flex-direction: column;
+}
+.circle-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Room for the labels above the top person and below the bottom person, the same on both
+     sides so the circle stays centered. */
+  padding: 1.9rem 0;
+}
+.circle-zone .circle,
+.sheet-full .circle-zone .circle {
+  margin: 0 auto;
+}
+
+/* ===== The circle: sized by width only, its box fitted to where people sit (2026-10-04) =====
+   --top-y / --bottom-y: how far the topmost / bottommost person is from the box's top / bottom
+   (fractions of the width, set by PeopleCircle). Each side gets exactly the room a person's
+   avatar and label need (--seat-room), whether that means trimming empty space or adding it. */
+.circle,
+.sheet-full .circle,
+.circle-zone .circle,
+.sheet-full .circle-zone .circle {
+  --circle-w: min(100%, 22rem);
+  --seat-room: 3.9rem;
+  width: var(--circle-w);
+  margin: calc(var(--seat-room) - var(--circle-w) * var(--top-y, 0.08)) auto
+    calc(var(--seat-room) - var(--circle-w) * var(--bottom-y, 0.08));
+}
+.circle-zone {
+  padding: 0.5rem 0;
+}
+/* Balanced from the measured label heights: a hair less room above, a hair more below */
+.circle,
+.sheet-full .circle,
+.circle-zone .circle,
+.sheet-full .circle-zone .circle {
+  margin: calc(3.5rem - var(--circle-w) * var(--top-y, 0.08)) auto
+    calc(4.25rem - var(--circle-w) * var(--bottom-y, 0.08));
+}
+/* Narrow enough that it never touches the people at the sides (e.g. 3 people) */
+.item-card {
+  width: 10.25rem;
+}
+
+.item-card {
+  width: 11.5rem;
+}
+.add-people {
+  display: block;
+  width: 100%;
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.65rem;
+  border: 1px dashed var(--accent);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--accent-strong);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.add-people:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+/* ===== Fit title → "Everything and who has it" on one screen (2026-10-04) ===== */
+/* The circle shrinks a little on short windows (never below 17.5rem, where it still looks
+   right), full size on phones. The box margins keep exactly the room the name labels need. */
+.circle,
+.sheet-full .circle,
+.circle-zone .circle,
+.sheet-full .circle-zone .circle {
+  --circle-w: min(100%, clamp(17.5rem, calc(92dvh - 24rem), 21rem));
+  margin: calc(2.9rem - var(--circle-w) * var(--top-y, 0.08)) auto
+    calc(3.55rem - var(--circle-w) * var(--bottom-y, 0.08));
+}
+.circle-zone {
+  padding: 0.25rem 0;
+}
+/* The card scales with the circle so it never reaches the people at the sides */
+.item-card {
+  width: min(11.5rem, 56%);
+}
+.step-header {
+  margin-bottom: 0.25rem;
+}
+.step-header .step-title {
+  margin-top: 0;
+}
+.sheet-full .assign-cta,
+.assign-cta {
+  margin: 0.15rem 0 0.4rem;
+}
+.cta-main {
+  min-height: 2.6rem;
+}
+.assign-actions {
+  margin-bottom: 0.4rem;
+}
+.finish-actions .btn-split {
+  min-height: 2.6rem;
+}
+.list-peek {
+  margin-top: 0;
+  padding: 0.25rem;
+}
+/* ===== One circle size for 2, 3, 4… people (2026-10-04) =====
+   Same width, same height, same spacing whatever the number of people. */
+.circle,
+.sheet-full .circle,
+.circle-zone .circle,
+.sheet-full .circle-zone .circle {
+  --circle-w: min(100%, clamp(16.5rem, calc(92dvh - 25rem), 21rem));
+  margin: calc(2.75rem - var(--circle-w) * 0.08) auto calc(3.4rem - var(--circle-w) * 0.08);
+}
+.item-card {
+  width: min(12rem, 62%);
+}
+/* Name · price on one line in the narrower card */
+.item-card {
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+}
+.item-card .item-row {
+  font-size: 0.9rem;
+  gap: 0.3rem;
+}
+.item-card {
+  width: min(12.5rem, 66%);
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+.item-row .item-name {
+  overflow-wrap: break-word;
+}
+
+/* ===== Item card: "Name · $price" as one flowing line (2026-10-04) ===== */
+.item-line {
+  display: block;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+.item-line .item-name {
+  font-weight: 600;
+}
+.item-line .item-sep {
+  color: var(--muted);
+  font-weight: 700;
+}
+.item-line .item-price {
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+.item-line button.item-more {
+  display: block;
+  margin: 0.15rem auto 0;
+  padding: 0 0.3rem;
+  border: none;
+  background: none;
+  min-height: 0;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+/* "more": the card grows past the circle to show the whole name, above everything */
+.item-card:has(.item-line.open) {
+  width: max-content;
+  max-width: min(19rem, calc(100vw - 2.5rem));
+  z-index: 5;
+}
+
+/* Tax, tip, fee cards: a soft gold tint, so they read as a charge, not an item */
+.item-card:has(.is-charge) {
+  background: #fbf1d6;
+  border-color: #e6cf8f;
+}
+
+/* ===== 7+ people: the card on top, everyone in a grid below (2026-10-04) ===== */
+.people-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.5rem 0 0.25rem;
+}
+.item-card.in-grid {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  width: min(16rem, 100%);
+  z-index: 6;
+}
+.people-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 0.7rem;
+  width: 100%;
+  padding: 0.75rem 0.25rem;
+  border-radius: 20px;
+  background: var(--surface-2);
+}
+.people-grid .circle-seat.grid-seat {
+  position: static;
+  transform: none;
+  width: 25%;
+  min-width: 0;
+  gap: 0.15rem;
+  padding: 0.2rem 0.1rem;
+}
+.people-grid .circle-seat.grid-seat:active:not(:disabled) {
+  transform: none;
+}
+.people-grid .circle-seat .avatar-lg {
+  width: 3.1rem;
+  height: 3.1rem;
+  font-size: 1.15rem;
+}
+.people-grid .circle-seat .circle-name {
+  max-width: 100%;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.people-grid .circle-seat .circle-amount {
+  font-size: 0.8rem;
+}
+.people-board.is-dragging .avatar-wrap::after {
+  border-color: var(--accent);
+}
+/* Compact enough for 3 rows (up to 12 people) on a short window */
+.people-board {
+  gap: 0.7rem;
+  padding-top: 0.25rem;
+}
+.people-grid {
+  row-gap: 0.35rem;
+  padding: 0.5rem 0.25rem;
+}
+.people-grid .circle-seat.grid-seat {
+  gap: 0.1rem;
+  padding: 0.15rem 0.1rem;
+}
+.people-grid .circle-seat .avatar-lg {
+  width: 2.7rem;
+  height: 2.7rem;
+  font-size: 1.05rem;
+}
+.people-grid .circle-seat .circle-name {
+  line-height: 1.2;
+}
+.people-grid .circle-seat .circle-amount {
+  line-height: 1.15;
+}
+
+/* ===== Who has it: small avatars inside the tile, beside the grip (2026-10-04) ===== */
+.card-holders {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: -0.35rem;
+}
+.holders-row,
+.holders-side {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.card-holders .avatar,
+.card-top .avatar {
+  width: 1.3rem;
+  height: 1.3rem;
+  font-size: 0.6rem;
+  box-shadow: none;
+}
+.card-holders .avatar + .avatar {
+  margin-left: 0;
+}
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.card-top .drag-grip {
+  margin: -0.2rem 0 0.35rem;
+}
+.card-top.has-holders {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  column-gap: 0.45rem;
+  margin: -0.35rem 0 0.15rem;
+}
+.card-top.has-holders .drag-grip {
+  margin: 0;
+}
+.holders-side.left {
+  justify-content: flex-end;
+}
+.holders-side.right {
+  justify-content: flex-start;
+}
+/* The grid's tile isn't centered with a translate, so its entrance can't use one either
+   (the circle's card-in kept it shifted up and left after the animation). */
+.item-card.in-grid {
+  animation: card-in-flat 0.35s var(--ease) both;
+}
+.item-card.in-grid.dragging {
+  animation: none;
+}
+@keyframes card-in-flat {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Extra rows of holders sit above the grip row without overlapping it */
+.card-holders + .card-top.has-holders {
+  margin-top: 0.2rem;
+}
+.card-holders {
+  margin-top: -0.3rem;
+}
+
+/* ===== The tile's color ring: one border, a segment per chosen person (2026-10-04) ===== */
+.item-card {
+  --card-bg: var(--surface);
+  background: var(--card-bg);
+}
+.item-card:has(.is-charge) {
+  --card-bg: #fbf1d6;
+  background: var(--card-bg);
+}
+.item-card.ringed {
+  border: 3px solid transparent;
+  background:
+    linear-gradient(var(--card-bg), var(--card-bg)) padding-box,
+    var(--ring) border-box;
+  box-shadow: 0 18px 40px rgba(80, 50, 25, 0.22);
+}
+
+/* ===== Split screen: roomier, people farther out, ring inside a white edge (2026-10-04) ===== */
+/* The color ring sits just inside a thin white edge, so the colors stand out */
+.item-card.ringed {
+  border: 3px solid transparent;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 18px 40px rgba(80, 50, 25, 0.22);
+}
+/* Title · total on one line (no date while splitting) */
+.title-total {
+  color: var(--muted);
+  font-weight: 650;
+  white-space: nowrap;
+}
+.sheet-header h2 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 0.1rem;
+}
+/* People sit at 46% of the width from the center (was 42%): the box keeps the same room
+   for each name label (0.04 = 0.5 - 0.46). */
+.circle,
+.sheet-full .circle,
+.circle-zone .circle,
+.sheet-full .circle-zone .circle {
+  margin: calc(2.75rem - var(--circle-w) * 0.04) auto calc(3.4rem - var(--circle-w) * 0.04);
+}
+/* The room saved by the header goes back as breathing space */
+.split-flow .step-header {
+  margin: 0.35rem 0 0.6rem;
+}
+.split-flow .progress-row {
+  margin-bottom: 0.35rem;
+}
+.circle-zone {
+  padding: 0.5rem 0;
+}
+.sheet-full .assign-cta,
+.assign-cta {
+  margin: 0.45rem 0 0.6rem;
+}
+.assign-actions {
+  margin-bottom: 0.6rem;
+}
+/* Balanced so the whole step still fits a short window */
+.split-flow .step-header {
+  margin: 0.25rem 0 0.45rem;
+}
+.split-flow .progress-row {
+  margin-bottom: 0.2rem;
+}
+.circle-zone {
+  padding: 0.35rem 0;
+}
+.sheet-full .assign-cta,
+.assign-cta {
+  margin: 0.35rem 0 0.5rem;
+}
+.assign-actions {
+  margin-bottom: 0.5rem;
+}
+.sheet-header h2 {
+  column-gap: 0.35rem;
+}
+.sheet-full .assign-cta,
+.assign-cta {
+  margin: 0.3rem 0 0.4rem;
+}
+.assign-actions {
+  margin-bottom: 0.35rem;
+}
+
+
+/* ===== The card's top line: grip · "1 of 9" (no progress bar) (2026-10-04) ===== */
+.item-card .card-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: -0.4rem 0 0.15rem;
+}
+.item-card .card-top .drag-grip {
+  margin: 0;
+}
+.card-count {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+/* Room the bar used goes to the circle's breathing space */
+.circle-zone {
+  padding: 0.6rem 0 0.35rem;
+}
+
+/* The original grip (two rows of dots), beside "1 of 9" */
+.item-card .card-top .drag-grip {
+  width: 18px;
+  height: 8px;
+  background-size: 6px 4px;
 }

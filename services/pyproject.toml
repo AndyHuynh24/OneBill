@@ -1,7 +1,7 @@
 [project]
-name = "onetally-services"
+name = "onebill-services"
 version = "0.1.0"
-description = "OneTally Lambda functions"
+description = "OneBill Lambda functions"
 requires-python = ">=3.12,<3.13"
 # Runtime deps are provided by Lambda itself (boto3) and the Powertools layer,
 # so function assets ship only our source code. Everything here is for local dev/test.

@@ -8,7 +8,6 @@ import pytest
 from api.documents import logic
 from api.documents.logic import (
     BadRequest,
-    Forbidden,
     NotFound,
     QuotaExceeded,
     create_upload,
@@ -18,9 +17,10 @@ from api.documents.logic import (
     parse_groups,
 )
 
-BUCKET = "onetally-docs-test"
+BUCKET = "onebill-docs-test"
 NOW = datetime(2026, 9, 30, 18, 0, 0, tzinfo=UTC)
-UPLOADER = {"uploaders"}
+UPLOADER = set()  # anyone signed in may upload
+OWNER = {"owners"}
 
 
 @pytest.fixture
@@ -69,12 +69,31 @@ def test_create_upload_records_pending_document(table, s3):
     assert item["filename"] == "receipt.jpg"
 
 
-def test_only_uploaders_may_upload(table, s3):
-    with pytest.raises(Forbidden):
+def test_anyone_signed_in_may_upload_three_a_day(table, s3):
+    for _ in range(3):
         upload(table, s3, groups=set())
 
-    usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"}).get("Item")
-    assert usage is None  # no quota consumed by a refused request
+    with pytest.raises(QuotaExceeded, match="today's 3 uploads"):
+        upload(table, s3, groups=set())
+
+
+def test_the_owner_has_25_a_day_outside_the_shared_cap(table, s3):
+    for i in range(logic.GLOBAL_DAILY_LIMIT):  # strangers use up the shared cap
+        upload(table, s3, user=f"user-{i // logic.USER_DAILY_LIMIT}")
+
+    for _ in range(25):
+        upload(table, s3, user="andy", groups=OWNER)  # the owner isn't blocked
+    with pytest.raises(QuotaExceeded, match="today's 25 uploads"):
+        upload(table, s3, user="andy", groups=OWNER)
+
+
+def test_owner_uploads_are_marked_so_reading_skips_the_shared_page_budget(table, s3):
+    doc_id = upload(table, s3, user="andy", groups=OWNER)["docId"]
+    item = table.get_item(Key={"PK": "USER#andy", "SK": f"DOC#{doc_id}"})["Item"]
+    assert item["owner"] is True
+
+    other = upload(table, s3)["docId"]
+    assert "owner" not in table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{other}"})["Item"]
 
 
 @pytest.mark.parametrize(
@@ -110,8 +129,12 @@ def test_per_user_daily_quota(table, s3):
         upload(table, s3)
 
 
-def test_decision_r2_limits():
-    assert (logic.USER_DAILY_LIMIT, logic.GLOBAL_DAILY_LIMIT) == (10, 15)
+def test_upload_limits_decided_2026_10_04():
+    assert (logic.USER_DAILY_LIMIT, logic.GLOBAL_DAILY_LIMIT, logic.OWNER_DAILY_LIMIT) == (
+        3,
+        15,
+        25,
+    )
 
 
 def test_global_daily_quota_refunds_the_user_counter(table, s3):
@@ -224,9 +247,9 @@ def test_list_obligations_caps_the_window(table):
 @pytest.mark.parametrize(
     ("claim", "expected"),
     [
-        (["uploaders", "admins"], {"uploaders", "admins"}),
-        ("[uploaders admins]", {"uploaders", "admins"}),  # how HTTP API flattens array claims
-        ("uploaders", {"uploaders"}),
+        (["owners", "admins"], {"owners", "admins"}),
+        ("[owners admins]", {"owners", "admins"}),  # how HTTP API flattens array claims
+        ("owners", {"owners"}),
         ("[]", set()),
         (None, set()),
     ],
@@ -591,20 +614,6 @@ def test_daily_limits_can_be_switched_off_for_testing(table, s3):
             BUCKET,
             "user-a",
             UPLOADER,
-            "r.jpg",
-            "image/jpeg",
-            1000,
-            NOW,
-            enforce_limits=False,
-        )
-
-    with pytest.raises(Forbidden):  # uploads stay invite-only either way
-        create_upload(
-            table,
-            s3,
-            BUCKET,
-            "user-b",
-            set(),
             "r.jpg",
             "image/jpeg",
             1000,

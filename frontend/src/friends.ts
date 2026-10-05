@@ -10,7 +10,7 @@ export interface Friend {
 }
 
 export const MAX_FRIENDS = 50;
-const key = (userId: string) => `onetally.friends.${userId}`;
+const key = (userId: string) => `onebill.friends.${userId}`;
 
 // Storage can be missing or throw (private mode, blocked site data): chips are a convenience.
 function read(userId: string): Friend[] {

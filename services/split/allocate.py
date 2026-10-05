@@ -4,7 +4,8 @@ Every person's share of every line is computed exactly (as a fraction) first:
 - an item or discount is split evenly among the people it's assigned to;
 - a proportional charge (tax, fee, tip) is weighted by each person's items after discounts;
 - an even charge is split equally among everyone;
-- a one-person charge goes entirely to that person.
+- a one-person charge goes entirely to that person;
+- a group charge is split equally among the people chosen (like an item).
 
 Then rounding happens once, over the whole bill (largest remainder): everyone gets the floor in
 cents and the leftover cents go to the largest fractional parts, ties broken by seat order.
@@ -35,8 +36,9 @@ class SplitLine:
 
 @dataclass(frozen=True)
 class ChargeMode:
-    mode: str  # "proportional" | "even" | "person"
+    mode: str  # "proportional" | "even" | "person" | "people"
     member: str | None = None
+    members: tuple[str, ...] = ()
 
 
 PROPORTIONAL = ChargeMode("proportional")
@@ -45,6 +47,11 @@ EVEN = ChargeMode("even")
 
 def one_person(member: str) -> ChargeMode:
     return ChargeMode("person", member)
+
+
+def some_people(members: list[str]) -> ChargeMode:
+    """A charge shared equally by the people chosen, like an item."""
+    return ChargeMode("people", members=tuple(members))
 
 
 @dataclass(frozen=True)
@@ -125,6 +132,9 @@ def exact_shares(
         mode = charges[line.row]
         if mode.mode == "person":
             exact[mode.member] += line.amount_cents
+        elif mode.mode == "people":
+            for m in mode.members:
+                exact[m] += Fraction(line.amount_cents, len(mode.members))
         elif mode.mode == "proportional" and weight_total > 0:
             for m in members:
                 exact[m] += line.amount_cents * weights[m] / weight_total
@@ -195,7 +205,13 @@ def _validate(
             raise SplitError(f"Line {row} isn't a tax, fee, or tip.")
         if mode.mode == "person" and mode.member not in known:
             raise SplitError(f"Line {row} is assigned to someone who isn't in the split.")
-        if mode.mode not in ("proportional", "even", "person"):
+        if mode.mode == "people" and (
+            not mode.members
+            or set(mode.members) - known
+            or len(set(mode.members)) != len(mode.members)
+        ):
+            raise SplitError(f"Choose who shares line {row} (people in the split, once each).")
+        if mode.mode not in ("proportional", "even", "person", "people"):
             raise SplitError(f"Choose how to split line {row}.")
     for row, kind in kinds.items():
         if kind in ITEM_KINDS and row not in assignments:

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { BillingCycle, OneTallyApi, Subscription, SubscriptionEdit } from "../api";
+import type { BillingCycle, OneBillApi, Subscription, SubscriptionEdit } from "../api";
 import { centsToInput, formatCents, formatDate, parseDollars } from "../format";
 import { cycleLabel } from "../subscriptions";
 
@@ -13,7 +13,7 @@ const CYCLE_LABELS: Record<BillingCycle, string> = {
 };
 
 interface SubscriptionSheetProps {
-  api: OneTallyApi;
+  api: OneBillApi;
   subscription: Subscription;
   onClose: () => void;
 }

@@ -105,7 +105,7 @@ def test_digest_lists_items_soonest_first():
 
     subject, text, html = render_digest(items, TODAY, app_url="http://localhost:5173")
 
-    assert subject == "OneTally: 2 things due soon"
+    assert subject == "OneBill: 2 things due soon"
     assert text.index("PG&E") < text.index("Best Buy")
     assert "Payment due" in text
     assert "Thu, Oct 1 (tomorrow)" in text
@@ -132,7 +132,7 @@ def test_digest_subject_singular():
         app_url="http://localhost:5173",
     )
 
-    assert subject == "OneTally: 1 thing due soon"
+    assert subject == "OneBill: 1 thing due soon"
 
 
 def test_digest_escapes_untrusted_vendor_names_in_html():

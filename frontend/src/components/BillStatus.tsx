@@ -82,22 +82,24 @@ export function BillStatus({
       "Check the yellow lines: tap ✓ if it's right, or tap the line to fix it.",
     );
   } else {
+    // All good: just how sure the reading is. The math only shows when something's off.
     tone = "ok";
-    headline = "✓ It adds up";
-    if (math.totalCents != null) {
-      details.push(
-        `${totalSum} = ${money(math.expectedCents)}, matching the receipt's total.`,
-      );
-    }
-    if (confidence?.level === "confident")
-      details.push("Every amount was found on the receipt.");
-    if (confidence?.level === "confirmed") details.push("Checked by you.");
+    const sure = {
+      confident: ["High confidence", "Every amount was read clearly, found on the receipt, and adds up."],
+      mostly: ["Good confidence", "It adds up. A quick glance is still worth it."],
+      confirmed: ["Checked by you", "You confirmed or fixed the flagged amounts, and it adds up."],
+    }[confidence?.level as "confident" | "mostly" | "confirmed"] ?? ["Looks good", "The amounts add up."];
+    headline = sure[0];
+    details.push(sure[1]);
   }
 
   return (
     <div className={`bill-status ${tone}`} role="status">
       {lastChange && <p className="bill-change">You changed {lastChange}</p>}
-      <strong className="bill-headline">{headline}</strong>
+      <div className="bill-head">
+        {tone === "ok" && <span className="confidence-dot" aria-hidden="true" />}
+        <strong className="bill-headline">{headline}</strong>
+      </div>
       {details.map((d) => (
         <p key={d}>{d}</p>
       ))}

@@ -84,7 +84,7 @@ def test_send_email_uses_the_verified_sender_and_both_bodies(env):
             "Destination": {"ToAddresses": ["andy@example.com"]},
             "Content": {
                 "Simple": {
-                    "Subject": {"Data": "OneTally: 1 thing due soon", "Charset": "UTF-8"},
+                    "Subject": {"Data": "OneBill: 1 thing due soon", "Charset": "UTF-8"},
                     "Body": {
                         "Text": {"Data": "text", "Charset": "UTF-8"},
                         "Html": {"Data": "<p>html</p>", "Charset": "UTF-8"},
@@ -95,7 +95,7 @@ def test_send_email_uses_the_verified_sender_and_both_bodies(env):
     )
 
     env["handler"].send_email(
-        "andy@example.com", "OneTally: 1 thing due soon", "text", "<p>html</p>"
+        "andy@example.com", "OneBill: 1 thing due soon", "text", "<p>html</p>"
     )
 
 

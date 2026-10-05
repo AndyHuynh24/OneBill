@@ -106,7 +106,7 @@ export function Subscriptions({
         </>
       ) : (
         <p className="muted">
-          No subscriptions yet. Connect Gmail and OneTally reads your
+          No subscriptions yet. Connect Gmail and OneBill reads your
           subscription emails, or add rent and bills by hand.
         </p>
       )}

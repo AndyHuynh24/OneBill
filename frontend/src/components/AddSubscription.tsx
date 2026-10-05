@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { BillingCycle, NewSubscription, OneTallyApi } from "../api";
+import type { BillingCycle, NewSubscription, OneBillApi } from "../api";
 import { parseDollars } from "../format";
 
 const CYCLES: [BillingCycle, string][] = [
@@ -11,7 +11,7 @@ const CYCLES: [BillingCycle, string][] = [
 ];
 
 /** + Add: a subscription or bill that doesn't email (rent, utilities, a gym billed to a card). */
-export function AddSubscription({ api, onClose }: { api: OneTallyApi; onClose: () => void }) {
+export function AddSubscription({ api, onClose }: { api: OneBillApi; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [category, setCategory] = useState<"subscription" | "bill">("subscription");
   const [name, setName] = useState("");

@@ -20,13 +20,17 @@ from shared.dates import parse_iso_date
 from shared.ids import is_valid_id, new_id
 from subscriptions import store as subscriptions
 
-UPLOADERS_GROUP = "uploaders"
+# The app owner (a Cognito group, added by hand): a higher cap of their own, outside the shared one.
+OWNERS_GROUP = "owners"
 ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
 MAX_BYTES = 10 * 1024 * 1024
 MAX_FILENAME = 120
-# Decision R2: low enough that the worst case (every limit hit, every day) stays ~$16/month.
-USER_DAILY_LIMIT = 10
+# Uploads per day (2026-10-04, Andy): anyone signed in gets 3, and all non-owners together get
+# 15 (~2.7¢ a scan, so ~$12/month if strangers max it daily). The owner gets 25, outside the
+# shared cap, so strangers can never use up the owner's uploads.
+USER_DAILY_LIMIT = 3
 GLOBAL_DAILY_LIMIT = 15
+OWNER_DAILY_LIMIT = 25
 UPLOAD_URL_TTL_SECONDS = 300
 USAGE_TTL_DAYS = 7
 MAX_OBLIGATION_WINDOW_DAYS = 366
@@ -99,11 +103,10 @@ def create_upload(
 ) -> dict[str, Any]:
     """Reserve quota, record a pending DOC item, and return a presigned POST for the browser.
 
-    `enforce_limits=False` skips the daily counts (a temporary testing switch); the uploaders
-    group and the per-file checks always apply.
+    `enforce_limits=False` skips the daily counts (a temporary testing switch); the per-file
+    checks always apply.
     """
-    if UPLOADERS_GROUP not in groups:
-        raise Forbidden("Uploads are invite-only for now.")
+    owner = OWNERS_GROUP in groups
     if content_type not in ALLOWED_TYPES:
         raise BadRequest("Upload a JPEG, PNG, or PDF.")
     if not 0 < size_bytes <= MAX_BYTES:
@@ -114,12 +117,14 @@ def create_upload(
 
     day = now.date().isoformat()
     if enforce_limits:
-        _consume_quota(table, f"USER#{user_id}", day, USER_DAILY_LIMIT, now)
-        try:
-            _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
-        except QuotaExceeded:
-            _refund_quota(table, f"USER#{user_id}", day)
-            raise
+        limit = OWNER_DAILY_LIMIT if owner else USER_DAILY_LIMIT
+        _consume_quota(table, f"USER#{user_id}", day, limit, now, mine=True)
+        if not owner:
+            try:
+                _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
+            except QuotaExceeded:
+                _refund_quota(table, f"USER#{user_id}", day)
+                raise
 
     doc_id = new_id(int(now.timestamp() * 1000))
     key = f"uploads/{user_id}/{doc_id}"
@@ -137,6 +142,8 @@ def create_upload(
             "sizeBytes": size_bytes,
             "createdAt": timestamp,
             "updatedAt": timestamp,
+            # The owner's PDFs skip the shared daily page budget (their own cap still applies).
+            **({"owner": True} if owner else {}),
         },
         ConditionExpression="attribute_not_exists(PK)",
     )
@@ -227,7 +234,9 @@ def _display_name(filename: str) -> str:
     return name
 
 
-def _consume_quota(table: Any, pk: str, day: str, limit: int, now: datetime) -> None:
+def _consume_quota(
+    table: Any, pk: str, day: str, limit: int, now: datetime, mine: bool = False
+) -> None:
     expires = int((now + timedelta(days=USAGE_TTL_DAYS)).timestamp())
     try:
         table.update_item(
@@ -238,7 +247,11 @@ def _consume_quota(table: Any, pk: str, day: str, limit: int, now: datetime) -> 
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            raise QuotaExceeded("Daily upload limit reached. Try again tomorrow.") from err
+            raise QuotaExceeded(
+                f"You've used today's {limit} uploads. Try again tomorrow."
+                if mine
+                else "OneBill has reached today's upload limit. Try again tomorrow."
+            ) from err
         raise
 
 

@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { GmailConnection, OneTallyApi } from "../api";
+import type { GmailConnection, OneBillApi } from "../api";
 import { formatDate } from "../format";
 import { buildGmailScript, GMAIL_MANIFEST } from "../gmailScript";
 
 interface ConnectGmailProps {
-  api: OneTallyApi;
+  api: OneBillApi;
   connection: GmailConnection;
   onClose: () => void;
 }
@@ -59,7 +59,7 @@ export function ConnectGmail({ api, connection, onClose }: ConnectGmailProps) {
               </li>
               <li>
                 Choose <strong>installTrigger</strong> → <strong>Run</strong>, then allow access (Advanced → Go to
-                OneTally). Then label emails <strong>OneTally</strong> in Gmail (create the label first): they appear here
+                OneBill). Then label emails <strong>OneBill</strong> in Gmail (create the label first): they appear here
                 within 15 minutes.
               </li>
             </ol>
@@ -87,8 +87,8 @@ export function ConnectGmail({ api, connection, onClose }: ConnectGmailProps) {
               </p>
             ) : (
               <p>
-                OneTally gives you a small script to paste into your own Google account. Every 15 minutes it sends the
-                emails you label <strong>OneTally</strong> in Gmail, and nothing else, with <strong>read-only</strong>{" "}
+                OneBill gives you a small script to paste into your own Google account. Every 15 minutes it sends the
+                emails you label <strong>OneBill</strong> in Gmail, and nothing else, with <strong>read-only</strong>{" "}
                 access. Each becomes a bill you can split, and a subscription too when it is one. About 2 minutes, once.
               </p>
             )}

@@ -9,10 +9,12 @@ interface SplitSummaryProps {
   doc: DocumentDetail;
   onEdit: () => void;
   onDone: () => void;
+  /** Back to "Who's here?" with everyone kept, to add people and split again. */
+  onAddPeople?: () => void;
 }
 
 /** Who owes what. The shares come from the server and always add up to the receipt. */
-export function SplitSummary({ split, doc, onEdit, onDone }: SplitSummaryProps) {
+export function SplitSummary({ split, doc, onEdit, onDone, onAddPeople }: SplitSummaryProps) {
   const [copied, setCopied] = useState(false);
   const currency = doc.currency ?? "USD";
   const description = new Map((doc.lines ?? []).map((l) => [l.row, l.description]));
@@ -51,6 +53,11 @@ export function SplitSummary({ split, doc, onEdit, onDone }: SplitSummaryProps) 
           );
         })}
       </ul>
+      {onAddPeople && (
+        <button type="button" className="add-people" onClick={onAddPeople}>
+          + Add more people and split again
+        </button>
+      )}
       <p className={sum === split.totalCents ? "split-check" : "split-check error"}>
         {sum === split.totalCents
           ? `Adds up to ${formatCents(split.totalCents, currency)} ✓`

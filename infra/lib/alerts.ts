@@ -9,7 +9,7 @@ import { Construct } from "constructs";
  * with -c budgetEmail=..., never committed), and app stacks find it by name. Alarms catch abuse
  * within the hour, sooner than budget emails (cost review). Standard alarms: the first 10 are free.
  */
-export const ALERTS_TOPIC_NAME = "onetally-alerts";
+export const ALERTS_TOPIC_NAME = "onebill-alerts";
 
 export function alertsTopic(scope: Construct): sns.ITopic {
   const stack = Stack.of(scope);

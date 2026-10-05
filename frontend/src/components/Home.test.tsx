@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, type OneTallyApi } from "../api";
+import { ApiError, type OneBillApi } from "../api";
 import { NETFLIX, fakeApi } from "../test/fakeApi";
 import { type AuthStatus, Home } from "./Home";
 
-function renderHome(status: AuthStatus, api: OneTallyApi = fakeApi()) {
+function renderHome(status: AuthStatus, api: OneBillApi = fakeApi()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const props = { status, api, onSignIn: vi.fn(), onSignOut: vi.fn() };
   render(
@@ -89,9 +89,9 @@ describe("Home — signed in", () => {
     expect(api.uploadDocument).toHaveBeenCalledWith(file);
   });
 
-  it("explains when uploads are invite-only", async () => {
+  it("explains when today's uploads are used up", async () => {
     const api = fakeApi({
-      uploadDocument: vi.fn().mockRejectedValue(new ApiError("Uploads are invite-only for now.", 403)),
+      uploadDocument: vi.fn().mockRejectedValue(new ApiError("You've used today's 3 uploads. Try again tomorrow.", 429)),
     });
     renderHome("signedIn", api);
 
@@ -100,7 +100,7 @@ describe("Home — signed in", () => {
       new File(["x"], "a.jpg", { type: "image/jpeg" }),
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Uploads are invite-only for now.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You've used today's 3 uploads. Try again tomorrow.");
   });
 
   it("opens a document's details", async () => {

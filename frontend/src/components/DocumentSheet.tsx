@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import type { CorrectionFields, OneTallyApi, ReviewRequest } from "../api";
+import type { CorrectionFields, OneBillApi, ReviewRequest } from "../api";
 import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars } from "../format";
 import { BillLines, type LineCheck, type LineInput } from "./BillLines";
 import { BillStatus, ItemsTotal } from "./BillStatus";
@@ -14,7 +14,7 @@ const SUMMARY_KINDS = new Set(["subtotal", "tax", "tip", "total", "payment", "ch
 const isReading = (status?: string) => status === "pending_upload" || status === "processing";
 
 interface DocumentSheetProps {
-  api: OneTallyApi;
+  api: OneBillApi;
   docId: string;
   onClose: () => void;
 }
@@ -129,6 +129,13 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
             ) : (
               doc.vendor || doc.filename || "Document"
             )}
+            {/* Splitting: the total sits beside the name (no date), to save room for the circle. */}
+            {mode === "split" && doc?.totalCents != null && (
+              <span className="title-total">
+                <span aria-hidden="true">· </span>
+                {formatCents(doc.totalCents, currency)}
+              </span>
+            )}
           </h2>
           <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
             ×
@@ -146,7 +153,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
         {doc && !isReading(doc.status) && (
           <>
             {/* Missing fields are simply left out: a receipt without a printed date isn't an error. */}
-            {editable ? (
+            {mode === "split" ? null : editable ? (
               <p className="sheet-meta">
                 <InlineText
                   label="Date"

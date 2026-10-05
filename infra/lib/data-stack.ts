@@ -1,13 +1,11 @@
 import { Duration, RemovalPolicy, Stack, StackProps, Tags } from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
-import * as iam from "aws-cdk-lib/aws-iam";
-import * as kms from "aws-cdk-lib/aws-kms";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
 /**
  * Storage for every user's data: one single-table DynamoDB table (records) and one
- * S3 bucket (documents), both encrypted with a customer-managed KMS key.
+ * S3 bucket (documents), both encrypted at rest with AWS-owned keys.
  * Key design: docs/SPEC.md → Data model.
  */
 export interface DataStackProps extends StackProps {
@@ -16,43 +14,22 @@ export interface DataStackProps extends StackProps {
 }
 
 export class DataStack extends Stack {
-  readonly key: kms.Key;
   readonly table: dynamodb.Table;
   readonly docsBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
-    Tags.of(this).add("project", "onetally");
-
-    this.key = new kms.Key(this, "DataKey", {
-      alias: "alias/onetally",
-      description: "OneTally: encrypts the main table, the docs bucket, and (later) Plaid tokens",
-      enableKeyRotation: true,
-      removalPolicy: RemovalPolicy.RETAIN,
-    });
-
-    // Let CloudWatch Logs encrypt this account's log groups with the key, so log contents get
-    // the same protection (and kms:Decrypt restrictions) as the table and bucket.
-    this.key.addToResourcePolicy(
-      new iam.PolicyStatement({
-        principals: [new iam.ServicePrincipal(`logs.${this.region}.amazonaws.com`)],
-        actions: ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:Describe*"],
-        resources: ["*"], // in a key policy, "*" means "this key"
-        conditions: {
-          ArnLike: {
-            "kms:EncryptionContext:aws:logs:arn": `arn:${this.partition}:logs:${this.region}:${this.account}:log-group:*`,
-          },
-        },
-      }),
-    );
+    Tags.of(this).add("project", "onebill");
 
     this.table = new dynamodb.Table(this, "Table", {
       partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.CUSTOMER_MANAGED,
-      encryptionKey: this.key,
+      // Encrypted at rest with AWS's own key (free). A customer-managed key only adds a second
+      // lock against roles with partial access; with one user and no AWS-connected CI, there
+      // are none (decision 2026-10-04). Add one back before granting anyone limited access.
+      encryption: dynamodb.TableEncryption.DEFAULT,
       deletionProtection: true,
       // Items with an `expiresAt` epoch-seconds attribute (e.g. daily usage counters) delete themselves.
       timeToLiveAttribute: "expiresAt",
@@ -79,9 +56,7 @@ export class DataStack extends Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       minimumTLSVersion: 1.2,
-      encryption: s3.BucketEncryption.KMS,
-      encryptionKey: this.key,
-      bucketKeyEnabled: true,
+      encryption: s3.BucketEncryption.S3_MANAGED, // encrypted at rest with AWS's own key (free)
       // Versioning protects documents from accidental/malicious overwrites and deletes.
       versioned: true,
       lifecycleRules: [

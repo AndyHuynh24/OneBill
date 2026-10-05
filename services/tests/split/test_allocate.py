@@ -301,3 +301,38 @@ def test_split_target_uses_the_printed_total_when_it_matches():
         9900000,
         True,
     )
+
+
+def test_a_charge_can_be_split_among_some_people_like_an_item():
+    """Tax / tip / fee work like items (2026-10-04): tap the people who share it."""
+    from split.allocate import some_people
+
+    lines = [item(1, 1000), item(2, 1000), item(3, 1000), item(4, 600, "tip")]
+
+    result = allocate(
+        members=[ME, BAO, LINH],
+        lines=lines,
+        assignments={1: [ME], 2: [BAO], 3: [LINH]},
+        charges={4: some_people([BAO, LINH])},  # Me didn't want the tip
+        total_cents=3600,
+    )
+
+    by = {s.member: s.total_cents for s in result}
+    assert by == {ME: 1000, BAO: 1300, LINH: 1300}
+
+
+def test_a_group_charge_must_name_people_in_the_split():
+    from split.allocate import some_people
+
+    with pytest.raises(SplitError):
+        allocate(
+            [ME, BAO], [item(1, 100), item(2, 50, "tax")], {1: [ME]}, {2: some_people([])}, 150
+        )
+    with pytest.raises(SplitError):
+        allocate(
+            [ME, BAO],
+            [item(1, 100), item(2, 50, "tax")],
+            {1: [ME]},
+            {2: some_people(["ghost"])},
+            150,
+        )

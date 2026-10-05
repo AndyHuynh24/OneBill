@@ -5,44 +5,44 @@
  */
 
 export const GMAIL_SCRIPT_TEMPLATE = String.raw`/**
- * OneTally: send the emails you label "OneTally" in Gmail to OneTally.
+ * OneBill: send the emails you label "OneBill" in Gmail to OneBill.
  *
- * Get this script from OneTally → Subscriptions → Connect Gmail → Copy script: the copy there
+ * Get this script from OneBill → Subscriptions → Connect Gmail → Copy script: the copy there
  * has your API address and key filled in (this file in the repo has placeholders).
  *
  * It runs inside your own Google account, every 15 minutes, and sends each email you've
- * labelled "OneTally" to OneTally once. Nothing else is read or sent. OneTally reads each one
+ * labelled "OneBill" to OneBill once. Nothing else is read or sent. OneBill reads each one
  * like a scanned bill, and tracks it as a subscription too when it is one. It uses the Gmail
  * API with read-only access: it can't send, change, or delete mail.
  */
 
-var ONETALLY_URL = '__ONETALLY_URL__';
-var ONETALLY_KEY = '__ONETALLY_KEY__';
+var ONEBILL_URL = '__ONEBILL_URL__';
+var ONEBILL_KEY = '__ONEBILL_KEY__';
 
-var LABEL = 'OneTally'; // only emails with this Gmail label are sent
+var LABEL = 'OneBill'; // only emails with this Gmail label are sent
 var QUERY = 'newer_than:400d -in:spam -in:trash label:' + LABEL;
 var MAX_BODY_CHARS = 250000;
 var SENT_CHUNKS = 8; // remembers up to 8 × 500 sent message IDs in Script properties
 var IDS_PER_CHUNK = 500;
 
-/** Run once to start: checks the script, then schedules sendToOneTally every 15 minutes. */
+/** Run once to start: checks the script, then schedules sendToOneBill every 15 minutes. */
 function installTrigger() {
   settings_(); // fails early with a clear message if this isn't the ready-made copy
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'sendToOneTally') ScriptApp.deleteTrigger(t);
+    if (t.getHandlerFunction() === 'sendToOneBill') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('sendToOneTally').timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger('sendToOneBill').timeBased().everyMinutes(15).create();
   console.log('Scheduled every 15 minutes. Running once now…');
-  sendToOneTally();
+  sendToOneBill();
 }
 
 /** Send every labelled email (from about the last year) that hasn't been sent yet. */
-function sendToOneTally() {
+function sendToOneBill() {
   var s = settings_();
   var sent = loadSent_();
   var labelId = labelId_();
   if (!labelId) {
-    console.log('No "' + LABEL + '" label yet. In Gmail, create it and add it to the emails you want in OneTally.');
+    console.log('No "' + LABEL + '" label yet. In Gmail, create it and add it to the emails you want in OneBill.');
     return;
   }
   var ids = listMessageIds_(QUERY);
@@ -62,9 +62,9 @@ function sendToOneTally() {
       muteHttpExceptions: true,
     });
     var code = response.getResponseCode();
-    if (code === 401) throw new Error('OneTally rejected the key (keys last a year). Copy a new script from OneTally → Connect Gmail.');
+    if (code === 401) throw new Error('OneBill rejected the key (keys last a year). Copy a new script from OneBill → Connect Gmail.');
     if (code === 429 || code >= 500) {
-      console.log(code === 429 ? 'Daily limit reached; the rest are sent tomorrow.' : 'OneTally is busy (' + code + '); will retry next run.');
+      console.log(code === 429 ? 'Daily limit reached; the rest are sent tomorrow.' : 'OneBill is busy (' + code + '); will retry next run.');
       break; // unsent emails stay unsent and are retried later
     }
     var status = code === 200 ? JSON.parse(response.getContentText()).status : 'rejected (' + code + ')';
@@ -76,13 +76,13 @@ function sendToOneTally() {
 }
 
 function settings_() {
-  if (ONETALLY_URL.indexOf('__') === 0 || ONETALLY_KEY.indexOf('__') === 0) {
-    throw new Error('Copy the ready-made script from OneTally → Subscriptions → Connect Gmail.');
+  if (ONEBILL_URL.indexOf('__') === 0 || ONEBILL_KEY.indexOf('__') === 0) {
+    throw new Error('Copy the ready-made script from OneBill → Subscriptions → Connect Gmail.');
   }
-  return { url: ONETALLY_URL.replace(/\/+$/, '') + '/ingest/email', key: ONETALLY_KEY };
+  return { url: ONEBILL_URL.replace(/\/+$/, '') + '/ingest/email', key: ONEBILL_KEY };
 }
 
-/** The ID of the "OneTally" label, if you created one (emails you label are always read). */
+/** The ID of the "OneBill" label, if you created one (emails you label are always read). */
 function labelId_() {
   var labels = Gmail.Users.Labels.list('me').labels || [];
   for (var i = 0; i < labels.length; i++) {
@@ -93,12 +93,12 @@ function labelId_() {
 
 /**
  * For testing: forget which emails were sent, so the next run sends them all again. (After
- * deleting a subscription in OneTally, its emails are read again when they're re-sent.)
+ * deleting a subscription in OneBill, its emails are read again when they're re-sent.)
  */
 function forgetSentEmails() {
   var props = PropertiesService.getScriptProperties();
   for (var c = 0; c < SENT_CHUNKS; c++) props.deleteProperty('SENT_' + c);
-  console.log('Forgot sent emails. Run sendToOneTally to send them again.');
+  console.log('Forgot sent emails. Run sendToOneBill to send them again.');
 }
 
 /** Sent message IDs, kept in a few Script properties (each property holds at most 9 KB). */
@@ -145,7 +145,7 @@ function toPayload_(message, labelId) {
     headers[h.name.toLowerCase()] = h.value;
   });
   // Send both: many emails have a stub plain part ("view in browser") with the prices only in
-  // the HTML. OneTally reads whichever version shows more.
+  // the HTML. OneBill reads whichever version shows more.
   var text = findPart_(message.payload, 'text/plain');
   var html = findPart_(message.payload, 'text/html');
   return {
@@ -202,8 +202,8 @@ const quoted = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\
 
 export function buildGmailScript(apiUrl: string, key: string): string {
   // Replacer functions: "$&" or "$'" in a value must never be read as a replacement pattern.
-  return GMAIL_SCRIPT_TEMPLATE.replace("'__ONETALLY_URL__'", () => `'${quoted(apiUrl)}'`).replace(
-    "'__ONETALLY_KEY__'",
+  return GMAIL_SCRIPT_TEMPLATE.replace("'__ONEBILL_URL__'", () => `'${quoted(apiUrl)}'`).replace(
+    "'__ONEBILL_KEY__'",
     () => `'${quoted(key)}'`,
   );
 }

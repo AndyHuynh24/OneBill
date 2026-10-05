@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { OneTallyApi } from "../api";
+import type { OneBillApi } from "../api";
 import { NETFLIX, fakeApi } from "../test/fakeApi";
 import { SubscriptionSheet } from "./SubscriptionSheet";
 
-function renderSheet(api: OneTallyApi, subscription = NETFLIX, onClose = vi.fn()) {
+function renderSheet(api: OneBillApi, subscription = NETFLIX, onClose = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>

@@ -14,7 +14,6 @@ function build(dailyLimits?: boolean) {
   const api = new ApiStack(app, "Api", {
     env,
     table: data.table,
-    dataKey: data.key,
     docsBucket: data.docsBucket,
     userPool: auth.userPool,
     userPoolClient: auth.client,
@@ -26,7 +25,6 @@ function build(dailyLimits?: boolean) {
     env,
     table: data.table,
     docsBucket: data.docsBucket,
-    dataKey: data.key,
     bedrockModelId: "m",
     userPool: auth.userPool,
     appUrl: "http://localhost:5173",

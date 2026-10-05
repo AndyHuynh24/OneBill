@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, type DocumentDetail, type OneTallyApi } from "../api";
+import { ApiError, type DocumentDetail, type OneBillApi } from "../api";
 import { DINNER, fakeApi } from "../test/fakeApi";
 import { SplitFlow } from "./SplitFlow";
 
@@ -22,7 +22,7 @@ const SAVED = {
   ],
 };
 
-function renderFlow(api: OneTallyApi, doc: DocumentDetail = DINNER, onClose = vi.fn()) {
+function renderFlow(api: OneBillApi, doc: DocumentDetail = DINNER, onClose = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -42,11 +42,12 @@ async function splitWithBao() {
   await userEvent.click(screen.getByRole("button", { name: /continue/i })); // adds Bao too
   await giveTo(/^bao/i); // PAD THAI
   await giveTo(/^me/i); // CURRY
-  await userEvent.click(screen.getByRole("button", { name: /by what each ordered/i })); // TAX
+  // TAX is a card in the same circle, after the items: one tap for "by what's ordered".
+  await userEvent.click(screen.getByRole("button", { name: /by what's ordered/i }));
 }
 
 describe("SplitFlow", () => {
-  it("who's here → assign → tax → saved; sends seats and rows, never amounts", async () => {
+  it("who's here → assign every line (tax too) → saved; sends seats and rows, never amounts", async () => {
     const api = fakeApi({ saveSplit: vi.fn().mockResolvedValue(SAVED) });
     renderFlow(api);
 
@@ -61,7 +62,7 @@ describe("SplitFlow", () => {
     });
     expect(await screen.findByText(/adds up to \$28\.86/i)).toBeInTheDocument();
     // Bao is now a one-tap chip, remembered only in this browser.
-    expect(JSON.parse(localStorage.getItem("onetally.friends.u") ?? "[]")).toEqual([
+    expect(JSON.parse(localStorage.getItem("onebill.friends.u") ?? "[]")).toEqual([
       expect.objectContaining({ name: "Bao", timesUsed: 1 }),
     ]);
   });
@@ -73,6 +74,7 @@ describe("SplitFlow", () => {
     expect(screen.getByText(/adds up to \$28\.86/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /edit/i }));
     await userEvent.click(screen.getByRole("button", { name: /PAD THAI.*Bao/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^bao/i })); // Bao has it: deselect
     await giveTo(/^me/i); // give PAD THAI to me
     await userEvent.click(screen.getByRole("button", { name: /finish split/i })); // tax already chosen
 

@@ -11,30 +11,9 @@ beforeAll(() => {
   template = Template.fromStack(stack);
 });
 
-describe("DataStack — KMS key", () => {
-  it("creates one customer-managed key with rotation, retained on delete", () => {
-    template.resourceCountIs("AWS::KMS::Key", 1);
-    template.hasResource("AWS::KMS::Key", {
-      Properties: { EnableKeyRotation: true },
-      DeletionPolicy: "Retain",
-      UpdateReplacePolicy: "Retain",
-    });
-    template.hasResourceProperties("AWS::KMS::Alias", { AliasName: "alias/onetally" });
-  });
-
-  it("lets CloudWatch Logs use the key only for this account's log groups", () => {
-    template.hasResourceProperties("AWS::KMS::Key", {
-      KeyPolicy: {
-        Statement: Match.arrayWith([
-          Match.objectLike({
-            Principal: { Service: Match.objectLike({ "Fn::Join": Match.anyValue() }) },
-            Condition: {
-              ArnLike: { "kms:EncryptionContext:aws:logs:arn": Match.anyValue() },
-            },
-          }),
-        ]),
-      },
-    });
+describe("DataStack — encryption", () => {
+  it("creates no customer-managed key (AWS-owned keys encrypt the table and bucket)", () => {
+    template.resourceCountIs("AWS::KMS::Key", 0);
   });
 });
 
@@ -83,14 +62,10 @@ describe("DataStack — DynamoDB table", () => {
     });
   });
 
-  it("is encrypted with the customer-managed key", () => {
-    template.hasResourceProperties("AWS::DynamoDB::Table", {
-      SSESpecification: {
-        SSEEnabled: true,
-        SSEType: "KMS",
-        KMSMasterKeyId: Match.anyValue(),
-      },
-    });
+  it("is encrypted at rest with an AWS-owned key (no customer-managed key)", () => {
+    const table = Object.values(template.findResources("AWS::DynamoDB::Table"))[0].Properties;
+    expect(table.SSESpecification?.SSEType).toBeUndefined();
+    expect(table.SSESpecification?.KMSMasterKeyId).toBeUndefined();
   });
 
   it("is retained when the stack is deleted", () => {
@@ -113,18 +88,10 @@ describe("DataStack — S3 docs bucket", () => {
     });
   });
 
-  it("uses SSE-KMS with the customer-managed key and a bucket key", () => {
+  it("is encrypted at rest with S3-managed keys", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       BucketEncryption: {
-        ServerSideEncryptionConfiguration: [
-          {
-            BucketKeyEnabled: true,
-            ServerSideEncryptionByDefault: {
-              SSEAlgorithm: "aws:kms",
-              KMSMasterKeyID: Match.anyValue(),
-            },
-          },
-        ],
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }],
       },
     });
   });
@@ -198,9 +165,9 @@ describe("DataStack — Phase 1 upload pipeline settings", () => {
 });
 
 describe("DataStack — tagging", () => {
-  it("tags resources with project=onetally", () => {
+  it("tags resources with project=onebill", () => {
     const tables = template.findResources("AWS::DynamoDB::Table");
     const tags = Object.values(tables)[0].Properties.Tags;
-    expect(tags).toContainEqual({ Key: "project", Value: "onetally" });
+    expect(tags).toContainEqual({ Key: "project", Value: "onebill" });
   });
 });

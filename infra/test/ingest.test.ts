@@ -16,7 +16,6 @@ beforeAll(() => {
   const api = new ApiStack(app, "Api", {
     env,
     table: data.table,
-    dataKey: data.key,
     docsBucket: data.docsBucket,
     userPool: auth.userPool,
     userPoolClient: auth.client,
@@ -81,9 +80,8 @@ describe("ApiStack — Gmail ingest (POST /ingest/email)", () => {
     expect(JSON.stringify(conditioned!.Condition)).toContain("bedrock:InferenceProfileArn");
   });
 
-  it("uses the table's key only through DynamoDB", () => {
-    const kms = ingestStatements().find((s) => [s.Action].flat().some((a) => a.startsWith("kms:")));
-    expect(JSON.stringify(kms!.Condition)).toContain("dynamodb.us-east-1.amazonaws.com");
+  it("needs no KMS permissions", () => {
+    expect(ingestStatements().flatMap((st) => [st.Action].flat()).filter((a) => a.startsWith("kms:"))).toEqual([]);
   });
 });
 

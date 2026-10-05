@@ -14,7 +14,7 @@ import pytest
 from botocore.stub import ANY, Stubber
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
-BUCKET = "onetally-docs-test"
+BUCKET = "onebill-docs-test"
 USER = "6f1c2a9e-1111-2222-3333-444455556666"
 DOC = "1790000000000aaaaaaaa"
 KEY = f"uploads/{USER}/{DOC}"
