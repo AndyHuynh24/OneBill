@@ -25,11 +25,11 @@ const actionsOf = (statements: Statement[], prefix: string) =>
 beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
-  const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
+  const data = new DataStack(app, "TestData", { env, frontendUrls: ["http://localhost:5173"] });
   const auth = new AuthStack(app, "TestAuth", {
     env,
     domainPrefix: "onebill-test",
-    frontendUrl: "http://localhost:5173",
+    frontendUrls: ["http://localhost:5173"],
   });
   const api = new ApiStack(app, "TestApi", {
     env,
@@ -37,7 +37,7 @@ beforeAll(() => {
     docsBucket: data.docsBucket,
     userPool: auth.userPool,
     userPoolClient: auth.client,
-    frontendUrl: "http://localhost:5173",
+    frontendUrls: ["http://localhost:5173"],
     bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   });
   template = Template.fromStack(api);
@@ -227,15 +227,15 @@ describe("ApiStack — tracing switch", () => {
   it("turns on active X-Ray tracing when enableTracing is set", () => {
     const app = new App();
     const env = { account: "123456789012", region: "us-east-1" };
-    const data = new DataStack(app, "D", { env, frontendUrl: "http://localhost:5173" });
-    const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
+    const data = new DataStack(app, "D", { env, frontendUrls: ["http://localhost:5173"] });
+    const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrls: ["http://localhost:5173"] });
     const api = new ApiStack(app, "Api", {
       env,
       table: data.table,
       docsBucket: data.docsBucket,
       userPool: auth.userPool,
       userPoolClient: auth.client,
-      frontendUrl: "http://localhost:5173",
+      frontendUrls: ["http://localhost:5173"],
       bedrockModelId: "us.m",
       enableTracing: true,
     });

@@ -11,8 +11,8 @@ let template: Template;
 beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
-  const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
-  const auth = new AuthStack(app, "TestAuth", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
+  const data = new DataStack(app, "TestData", { env, frontendUrls: ["http://localhost:5173"] });
+  const auth = new AuthStack(app, "TestAuth", { env, domainPrefix: "x", frontendUrls: ["http://localhost:5173"] });
   const pipeline = new PipelineStack(app, "TestPipeline", {
     env,
     table: data.table,

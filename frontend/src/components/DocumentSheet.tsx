@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useBackLayer } from "../backButton";
 import type { CorrectionFields, OneBillApi, ReviewRequest } from "../api";
 import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars } from "../format";
 import { BillLines, type LineCheck, type LineInput } from "./BillLines";
@@ -29,6 +30,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     refetchInterval: (query) => (isReading(query.state.data?.status) ? 1500 : false),
   });
   const [mode, setMode] = useState<"view" | "ask" | "split" | "confirm-delete">("view");
+  useBackLayer(mode !== "view", () => setMode("view")); // Back leaves splitting before the sheet
 
   const review = useMutation({
     mutationFn: (request: ReviewRequest) => api.reviewDocument(docId, request),

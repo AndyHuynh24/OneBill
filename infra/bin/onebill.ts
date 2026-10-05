@@ -1,15 +1,23 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { App } from "aws-cdk-lib";
 import { AccountStack } from "../lib/account-stack";
 import { ApiStack } from "../lib/api-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
 import { PipelineStack } from "../lib/pipeline-stack";
+import { WebStack } from "../lib/web-stack";
 
 const app = new App();
 
 // Everything lives in us-east-1 (Phase 0 decision: SES inbound needs it later).
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
-const frontendUrl: string = app.node.getContext("frontendUrl");
+// Where the app runs: the public site ("publicUrl", once it exists) and local dev. Sign-in
+// redirects, API CORS, and upload CORS allow each; emails link to the public site.
+const devUrl: string = app.node.getContext("devUrl");
+const publicUrl: string | undefined = app.node.tryGetContext("publicUrl") || undefined;
+const frontendUrls = publicUrl ? [publicUrl, devUrl] : [devUrl];
+const appUrl = publicUrl ?? devUrl;
 
 // Testing only: `cdk deploy -c dailyLimits=off` skips the daily upload limits. Any deploy
 // without the flag (including CI) turns them back on.
@@ -17,12 +25,12 @@ const dailyLimits = app.node.tryGetContext("dailyLimits") !== "off";
 // Photo tiles next to the OCR text (phase 2c): "photoTiles" in cdk.json, so it's reviewed in a PR.
 const photoTiles = app.node.tryGetContext("photoTiles") === "on";
 
-const data = new DataStack(app, "OneBill-Data", { env, frontendUrl });
+const data = new DataStack(app, "OneBill-Data", { env, frontendUrls });
 
 const auth = new AuthStack(app, "OneBill-Auth", {
   env,
   domainPrefix: app.node.getContext("authDomainPrefix"),
-  frontendUrl,
+  frontendUrls,
   googleClientId: app.node.tryGetContext("googleClientId"),
 });
 
@@ -32,7 +40,7 @@ new ApiStack(app, "OneBill-Api", {
   docsBucket: data.docsBucket,
   userPool: auth.userPool,
   userPoolClient: auth.client,
-  frontendUrl,
+  frontendUrls,
   // Debug switch: npx cdk deploy OneBill-Api -c tracing=true
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
@@ -45,10 +53,18 @@ new PipelineStack(app, "OneBill-Pipeline", {
   docsBucket: data.docsBucket,
   bedrockModelId: app.node.getContext("bedrockModelId"),
   userPool: auth.userPool,
-  appUrl: frontendUrl,
+  appUrl,
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
   photoTiles,
+});
+
+// The public website (phase 2f). `make deploy-web` builds the frontend first; without a build,
+// the stack still synthesizes (bucket and distribution, nothing uploaded).
+const siteDir = join(__dirname, "..", "..", "frontend", "dist");
+new WebStack(app, "OneBill-Web", {
+  env,
+  siteDir: existsSync(join(siteDir, "index.html")) ? siteDir : undefined,
 });
 
 // Account-level stack, deployed once from a laptop:

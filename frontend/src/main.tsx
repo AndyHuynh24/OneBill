@@ -4,7 +4,12 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { configureAuth } from "./auth";
 import { loadConfig } from "./config";
+import { listenForInstall, registerServiceWorker } from "./install";
 import "./index.css";
+
+// Before anything renders: the browser can offer the install prompt right away.
+listenForInstall();
+registerServiceWorker();
 
 const root = createRoot(document.getElementById("root")!);
 

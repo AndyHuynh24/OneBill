@@ -22,7 +22,8 @@ export interface ApiStackProps extends StackProps {
   readonly userPool: cognito.IUserPool;
   readonly userPoolClient: cognito.IUserPoolClient;
   /** Only this browser origin may call the API (CORS). */
-  readonly frontendUrl: string;
+  /** Origins allowed to call the API from a browser (the public site and local dev). */
+  readonly frontendUrls: string[];
   /**
    * Active X-Ray tracing. Off by default: X-Ray samples every request at ~1/s and can't be
    * turned down, which dominated the abuse-case cost (decision R1). Enable while debugging.
@@ -114,7 +115,7 @@ export class ApiStack extends Stack {
       // Access tokens carry a `scope` claim; ID tokens don't, so requiring one rejects ID tokens.
       defaultAuthorizationScopes: ["openid"],
       corsPreflight: {
-        allowOrigins: [props.frontendUrl],
+        allowOrigins: props.frontendUrls,
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,

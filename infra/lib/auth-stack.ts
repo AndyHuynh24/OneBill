@@ -7,7 +7,8 @@ export interface AuthStackProps extends StackProps {
   /** Globally unique prefix for the hosted login URL (<prefix>.auth.<region>.amazoncognito.com). */
   readonly domainPrefix: string;
   /** Where the React app runs; Cognito only redirects to URLs registered here. */
-  readonly frontendUrl: string;
+  /** Every address the app runs at (the public site and local dev): sign-in may return to each. */
+  readonly frontendUrls: string[];
   /**
    * Google OAuth client ID ("Continue with Google", design: phase2e-google-signin). Not a
    * secret. Without it, sign-in is email only.
@@ -98,8 +99,8 @@ export class AuthStack extends Stack {
           cognito.OAuthScope.EMAIL,
           cognito.OAuthScope.PROFILE,
         ],
-        callbackUrls: [`${props.frontendUrl}/callback`],
-        logoutUrls: [`${props.frontendUrl}/`],
+        callbackUrls: props.frontendUrls.map((url) => `${url}/callback`),
+        logoutUrls: props.frontendUrls.map((url) => `${url}/`),
       },
     });
 

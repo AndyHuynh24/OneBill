@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forgetFriend, loadFriends, rememberFriends } from "../friends";
 import { useState } from "react";
+import { useBackLayer } from "../backButton";
 import type { ChargeChoice, DocumentDetail, OneBillApi, Split } from "../api";
 import type { Person } from "../split";
 import { AssignCircle, type Assignments, type Picks } from "./AssignCircle";
@@ -22,7 +23,12 @@ interface SplitFlowProps {
 export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const queryClient = useQueryClient();
   const restored = restore(doc.split);
-  const [step, setStep] = useState<Step>(doc.split ? "summary" : "people");
+  // The steps taken, so the phone's Back retraces them (going to an earlier step trims back to it).
+  const [trail, setTrail] = useState<Step[]>([doc.split ? "summary" : "people"]);
+  const step = trail[trail.length - 1];
+  const setStep = (next: Step) =>
+    setTrail((t) => (t.includes(next) ? t.slice(0, t.indexOf(next) + 1) : [...t, next]));
+  useBackLayer(trail.length > 1, () => setTrail((t) => t.slice(0, -1)), trail.length);
   const [people, setPeople] = useState<Person[]>(restored.people);
   const [picks, setPicks] = useState<Picks>(restored.picks);
   const [saved, setSaved] = useState<Split | undefined>(doc.split);

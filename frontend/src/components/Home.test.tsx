@@ -56,7 +56,7 @@ describe("Home — signed in", () => {
     expect(await screen.findByText("Target")).toBeInTheDocument();
     expect(screen.getByText("Reading…")).toBeInTheDocument();
     expect(screen.getByText("Check this")).toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument(); // the normal state needs no label
     expect(screen.getByText(/\$84\.10/)).toBeInTheDocument();
   });
 
@@ -68,7 +68,8 @@ describe("Home — signed in", () => {
     });
     renderHome("signedIn", api);
 
-    expect(await screen.findByText(/Payment due: PG&E/)).toBeInTheDocument();
+    expect(await screen.findByText("PG&E")).toBeInTheDocument();
+    expect(screen.getByText(/payment due in \d+ days/i)).toBeInTheDocument();
     expect(api.listObligations).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
   });
 
@@ -76,7 +77,7 @@ describe("Home — signed in", () => {
     renderHome("signedIn");
 
     expect(await screen.findByText(/tap scan receipt to add your first/i)).toBeInTheDocument();
-    expect(screen.getByText(/nothing due in the next 30 days/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing coming up/i)).toBeInTheDocument();
   });
 
   it("uploads the scanned file", async () => {
@@ -210,7 +211,7 @@ describe("Home — signed in", () => {
     expect(screen.getByText("Shop 7")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /back/i }));
-    expect(screen.getByRole("heading", { name: /coming up/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /subscriptions & bills/i, level: 2 })).toBeInTheDocument();
   });
 
   it("the subscriptions page shows them all", async () => {
@@ -226,6 +227,76 @@ describe("Home — signed in", () => {
 
     expect(screen.getByRole("heading", { name: /subscriptions & bills/i, level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("table", { name: /subscriptions/i })).toHaveTextContent("Netflix");
+  });
+
+  it("subscriptions and bill due dates share one list: the 3 soonest, each once", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [
+          NETFLIX, // renews Nov 1
+          { ...NETFLIX, serviceKey: "spotify", service: "Spotify", nextRenewal: "2026-10-20" },
+          { ...NETFLIX, serviceKey: "gym", service: "Gym", nextRenewal: "2026-12-01" },
+        ],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+      listObligations: vi.fn().mockResolvedValue({
+        obligations: [
+          { oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E", amountCents: 8734 },
+          { oblId: "o2", docId: "x", kind: "renewal", dueDate: "2026-10-20", vendor: "Spotify" }, // Spotify's own reminder
+        ],
+      }),
+    });
+    renderHome("signedIn", api);
+
+    const rows = await screen.findAllByRole("button", { name: /renews|due/i });
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Spotify"),
+      expect.stringContaining("PG&E"),
+      expect.stringContaining("Netflix"),
+    ]);
+    expect(screen.queryByText("Gym")).not.toBeInTheDocument(); // 4th: on the full page
+  });
+
+  it("tapping a bill's due date opens that bill; a subscription opens its sheet", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+      listObligations: vi.fn().mockResolvedValue({
+        obligations: [{ oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E" }],
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /PG&E/ }));
+    expect(api.getDocument).toHaveBeenCalledWith("d1");
+
+    await userEvent.click(screen.getByRole("button", { name: /close/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Netflix/ }));
+    expect(await screen.findByRole("dialog", { name: /netflix/i })).toBeInTheDocument();
+  });
+
+  it("the full page lists bill due dates (not subscription reminders) and can remove one", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+      listObligations: vi.fn().mockResolvedValue({
+        obligations: [
+          { oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E" },
+          { oblId: "o2", docId: "x", kind: "renewal", dueDate: "2026-11-01", vendor: "Netflix" },
+        ],
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /^view all$/i }));
+
+    const due = screen.getByRole("region", { name: /bill due dates/i });
+    expect(due).toHaveTextContent("Payment due: PG&E");
+    expect(due).not.toHaveTextContent("Netflix");
   });
 
   it("signs out", async () => {

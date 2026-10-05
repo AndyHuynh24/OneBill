@@ -524,6 +524,8 @@ button.danger {
   padding: 0.75rem 1.1rem calc(1.5rem + env(safe-area-inset-bottom));
   box-shadow: 0 -10px 40px rgba(80, 50, 25, 0.18);
   animation: slide-up 0.32s var(--ease) both;
+  /* Sheets are <section>s: without this, the page's section spacing left a gap at the bottom. */
+  margin: 0;
 }
 
 .sheet::before {
@@ -3040,4 +3042,214 @@ button.nav-arrow {
   width: 18px;
   height: 8px;
   background-size: 6px 4px;
+}
+
+/* ===== Install the app (PWA) (2026-10-05) ===== */
+.install {
+  position: relative;
+}
+.install-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+.install-icon {
+  font-size: 1.05em;
+  line-height: 1;
+}
+.install-welcome {
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--accent);
+  color: var(--accent-strong);
+}
+.install-topbar {
+  min-height: 0;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.install-tip {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+.topbar .install-tip {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  width: 15rem;
+  z-index: 5;
+  box-shadow: var(--shadow-lift);
+}
+
+/* "Press back again to exit": a small toast above the Scan button */
+.exit-hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(6.5rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: rgba(45, 37, 32, 0.88);
+  color: #fff;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  z-index: 30;
+  animation: fade-in 0.15s ease both;
+}
+
+/* ===== Home: one "Subscriptions & bills" card, soonest first (2026-10-05) ===== */
+.section-title {
+  margin-bottom: 0.55rem;
+}
+.section-title .link-button {
+  font-size: 0.88rem;
+}
+.coming {
+  padding: 0.35rem 0.35rem 0.6rem;
+}
+.coming-total {
+  margin: 0.55rem 0.65rem 0.35rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.coming-total strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+.coming-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.coming-list li + li .coming-row {
+  border-top: 1px solid var(--border);
+}
+.coming-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.65rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  min-height: 0;
+}
+.coming-row:hover:not(:disabled) {
+  background: var(--surface-2);
+  transform: none;
+}
+.coming-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  line-height: 1;
+}
+.coming-month {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.coming-day {
+  font-size: 1.1rem;
+  font-weight: 750;
+  margin-top: 0.1rem;
+}
+.coming-what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.coming-name {
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coming-when {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.coming-amount {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.coming-row.warn .coming-date {
+  background: #fde8e4;
+  color: #b4432f;
+}
+.coming-row.warn .coming-when {
+  color: #b4432f;
+  font-weight: 600;
+}
+.coming-empty {
+  margin: 0.75rem 0.65rem;
+}
+.coming-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0.65rem 0;
+}
+.coming-actions .coming-all {
+  margin-left: auto;
+}
+.due-section {
+  margin-top: 1.5rem;
+}
+.due-title {
+  margin-bottom: 0.5rem;
+}
+
+/* Receipts: one card with dividers, like Subscriptions & bills */
+.doc-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 0.35rem;
+  gap: 0;
+}
+.doc-list > li + li .doc-card,
+.doc-list > li + li.doc-card {
+  border-top: 1px solid var(--border);
+}
+.doc-list .doc-card {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0.7rem 0.65rem;
+  min-height: 3.3rem;
+}
+.doc-list .doc-card:hover:not(:disabled) {
+  transform: none;
+  background: var(--surface-2);
 }

@@ -9,7 +9,7 @@ beforeAll(() => {
   const app = new App();
   const stack = new AuthStack(app, "TestAuth", {
     domainPrefix: "onebill-test",
-    frontendUrl: "http://localhost:5173",
+    frontendUrls: ["http://localhost:5173"],
   });
   template = Template.fromStack(stack);
 });
@@ -82,7 +82,7 @@ describe("AuthStack — sign in with Google (phase 2e)", () => {
     const app = new App();
     const stack = new AuthStack(app, "TestAuthGoogle", {
       domainPrefix: "x",
-      frontendUrl: "http://localhost:5173",
+      frontendUrls: ["http://localhost:5173"],
       googleClientId: "123.apps.googleusercontent.com",
     });
     return Template.fromStack(stack);

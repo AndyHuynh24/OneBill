@@ -7,7 +7,7 @@ let template: Template;
 
 beforeAll(() => {
   const app = new App();
-  const stack = new DataStack(app, "TestData", { frontendUrl: "http://localhost:5173" });
+  const stack = new DataStack(app, "TestData", { frontendUrls: ["http://localhost:5173"] });
   template = Template.fromStack(stack);
 });
 

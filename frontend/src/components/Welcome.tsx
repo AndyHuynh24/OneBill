@@ -1,4 +1,5 @@
 export type SignInMethod = "google" | "email";
+import { InstallButton } from "./InstallButton";
 
 /** The signed-out front door: what OneBill does, and two ways in. */
 export function Welcome({
@@ -69,6 +70,7 @@ export function Welcome({
               >
                 Sign in with email
               </button>
+              <InstallButton className="install-welcome" />
             </div>
           )}
           <p className="welcome-private">

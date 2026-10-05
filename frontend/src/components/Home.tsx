@@ -1,4 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { trapBackButton, useBackLayer, useExitHint } from "../backButton";
+import { InstallButton } from "./InstallButton";
 import { useEffect, useRef, useState } from "react";
 import type { OneBillApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
@@ -6,6 +8,8 @@ import { AddSubscription } from "./AddSubscription";
 import { ConnectGmail } from "./ConnectGmail";
 import { ScanProgress } from "./ScanProgress";
 import { SubscriptionSheet } from "./SubscriptionSheet";
+import { ComingUp } from "./ComingUp";
+import { billReminders, upcomingItems } from "../upcoming";
 import { Subscriptions } from "./Subscriptions";
 import { todayIso } from "../format";
 import { DocumentSheet } from "./DocumentSheet";
@@ -31,7 +35,7 @@ export function Home({ status, api, onSignIn, onSignOut }: HomeProps) {
 }
 
 const HOME_DOCUMENTS = 5;
-const HOME_SUBSCRIPTIONS = 3;
+const HOME_UPCOMING = 3;
 
 function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => void }) {
   const queryClient = useQueryClient();
@@ -79,6 +83,16 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const shownDoc = openDoc;
   const closeSheet = () => setOpenDoc(null);
 
+  // Back closes what's open (newest first) and never leaves from a single press on home.
+  useEffect(() => trapBackButton(), []); // this screen only shows while signed in
+  useBackLayer(view !== "home", () => setView("home"));
+  useBackLayer(openDoc !== null, closeSheet);
+  useBackLayer(scanning && openDoc === null, () => setScanning(false));
+  useBackLayer(openSub !== null, () => setOpenSub(null));
+  useBackLayer(adding, () => setAdding(false));
+  useBackLayer(connecting, () => setConnecting(false));
+  const exitHint = useExitHint();
+
   const upload = useMutation({
     mutationFn: (file: File) => api.uploadDocument(file),
     onSuccess: (docId) => setOpenDoc(docId), // the uploading sheet becomes the bill's screen
@@ -96,17 +110,15 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
     onError: (error) => setNotice(error.message || "Upload failed. Please try again."),
   });
 
-  const subscriptionsSection = (limit?: number) =>
+  const subscriptionsSection = () =>
     subscriptions.data ? (
       <Subscriptions
         subscriptions={subscriptions.data.subscriptions}
         connection={subscriptions.data.connection}
         today={todayIso()}
-        limit={limit}
         onOpen={setOpenSub}
         onConnect={() => setConnecting(true)}
         onAdd={() => setAdding(true)}
-        onViewAll={limit ? () => setView("subscriptions") : undefined}
       />
     ) : (
       <p className="muted">{subscriptions.error ? "Couldn't load subscriptions." : "Loading…"}</p>
@@ -121,36 +133,50 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
             <h1 className="topbar-logo">
               <Logo />
             </h1>
-            <button type="button" className="link-button" onClick={onSignOut}>
-              Sign out
-            </button>
+            <div className="topbar-actions">
+              <InstallButton className="install-topbar" />
+              <button type="button" className="link-button" onClick={onSignOut}>
+                Sign out
+              </button>
+            </div>
           </header>
 
-          <section aria-labelledby="upcoming-title">
+          {/* One list for everything with a date: subscriptions and bills, soonest first. */}
+          <section aria-labelledby="coming-title">
             <div className="section-title">
-              <h2 id="upcoming-title">Coming up</h2>
+              <h2 id="coming-title">Subscriptions &amp; bills</h2>
             </div>
-            <p className="section-desc">Due dates, renewals and return windows</p>
-            {obligations.data ? (
-              <Upcoming obligations={obligations.data.obligations} onRemove={(o) => removeReminder.mutate(o.oblId)} />
+            {subscriptions.data && obligations.data ? (
+              <ComingUp
+                items={upcomingItems(subscriptions.data.subscriptions, obligations.data.obligations, todayIso())}
+                subscriptions={subscriptions.data.subscriptions}
+                connection={subscriptions.data.connection}
+                today={todayIso()}
+                limit={HOME_UPCOMING}
+                onOpen={(item) => ("subscription" in item.open ? setOpenSub(item.open.subscription) : setOpenDoc(item.open.document))}
+                onViewAll={() => setView("subscriptions")}
+                onAdd={() => setAdding(true)}
+                onConnect={() => setConnecting(true)}
+              />
             ) : (
-              <p className="muted">{obligations.error ? "Couldn't load deadlines." : "Loading…"}</p>
+              <p className="muted">{subscriptions.error || obligations.error ? "Couldn't load this." : "Loading…"}</p>
             )}
-          </section>
-
-          <section aria-labelledby="subscriptions-title">
-            <div className="section-title">
-              <h2 id="subscriptions-title">Subscriptions &amp; bills</h2>
-            </div>
-            <p className="section-desc">What renews and what's due each month</p>
-            {subscriptionsSection(HOME_SUBSCRIPTIONS)}
           </section>
 
           <section aria-labelledby="recent-title">
             <div className="section-title">
               <h2 id="recent-title">Receipts</h2>
+              {allDocuments.length > HOME_DOCUMENTS && (
+                <button
+                  type="button"
+                  className="link-button"
+                  aria-label="View all receipts"
+                  onClick={() => setView("documents")}
+                >
+                  View all ({allDocuments.length})
+                </button>
+              )}
             </div>
-            <p className="section-desc">Scan a receipt to check it and split it with friends</p>
             {documents.data ? (
               <>
                 <RecentDocuments
@@ -159,16 +185,6 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
                   onOpen={setOpenDoc}
                   limit={HOME_DOCUMENTS}
                 />
-                {allDocuments.length > HOME_DOCUMENTS && (
-                  <button
-                    type="button"
-                    className="link-button view-all"
-                    aria-label="View all receipts"
-                    onClick={() => setView("documents")}
-                  >
-                    View all ({allDocuments.length})
-                  </button>
-                )}
               </>
             ) : (
               <p className="muted">{documents.error ? "Couldn't load documents." : "Loading…"}</p>
@@ -186,7 +202,21 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
           {view === "documents" ? (
             <RecentDocuments documents={allDocuments} uploading={uploading} onOpen={setOpenDoc} />
           ) : (
-            subscriptionsSection()
+            <>
+              {subscriptionsSection()}
+              {/* Due dates from scanned or emailed bills (subscriptions remind on their own). */}
+              {obligations.data && billReminders(obligations.data.obligations).length > 0 && (
+                <section aria-labelledby="due-title" className="due-section">
+                  <h2 id="due-title" className="due-title">
+                    Bill due dates
+                  </h2>
+                  <Upcoming
+                    obligations={billReminders(obligations.data.obligations)}
+                    onRemove={(o) => removeReminder.mutate(o.oblId)}
+                  />
+                </section>
+              )}
+            </>
           )}
         </>
       )}
@@ -198,6 +228,12 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
       )}
 
       <ScanButton onFile={(file) => upload.mutate(file)} busy={upload.isPending} />
+
+      {exitHint && (
+        <p className="exit-hint" role="status">
+          Press back again to exit
+        </p>
+      )}
 
       {scanning && !shownDoc && <UploadingSheet onClose={() => setScanning(false)} />}
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}

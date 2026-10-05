@@ -10,7 +10,8 @@ import { Construct } from "constructs";
  */
 export interface DataStackProps extends StackProps {
   /** Browser origin allowed to POST uploads straight to the docs bucket (presigned POST). */
-  readonly frontendUrl: string;
+  /** Origins allowed to upload straight to the docs bucket (presigned POST). */
+  readonly frontendUrls: string[];
 }
 
 export class DataStack extends Stack {
@@ -67,7 +68,7 @@ export class DataStack extends Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.POST],
-          allowedOrigins: [props.frontendUrl],
+          allowedOrigins: props.frontendUrls,
           allowedHeaders: ["*"],
           maxAge: 3000,
         },

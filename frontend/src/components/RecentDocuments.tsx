@@ -51,7 +51,8 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
                 {doc.documentDate ? formatDate(doc.documentDate) : ""}
                 {doc.totalCents != null ? ` · ${formatCents(doc.totalCents, doc.currency ?? "USD")}` : ""}
               </span>
-              <span className={`chip chip-${status.tone}`}>{status.label}</span>
+              {/* Ready is the normal state: only what needs attention (or is still going) shows. */}
+              {status.tone !== "ok" && <span className={`chip chip-${status.tone}`}>{status.label}</span>}
             </button>
           </li>
         );
