@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from api.me.logic import get_or_create_profile
+from api.me.logic import get_or_create_profile, set_email_reminders
 
 NOW = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
 LATER = datetime(2026, 10, 1, 8, 30, 0, tzinfo=UTC)
@@ -15,6 +15,7 @@ def test_first_call_creates_profile_with_defaults(table):
         "userId": "abc-123",
         "baseCurrency": "USD",
         "createdAt": "2026-09-29T12:00:00+00:00",
+        "emailReminders": True,  # on by default
     }
     stored = table.get_item(Key={"PK": "USER#abc-123", "SK": "PROFILE"})["Item"]
     assert stored["type"] == "PROFILE"
@@ -77,3 +78,14 @@ def test_concurrent_first_call_returns_the_winning_item(table):
 def test_rejects_empty_user_id(table, bad_id):
     with pytest.raises(ValueError, match="user_id"):
         get_or_create_profile(table, bad_id, now=NOW)
+
+
+def test_reminder_emails_can_be_turned_off_and_on(table):
+    assert set_email_reminders(table, "abc-123", False)["emailReminders"] is False
+    assert get_or_create_profile(table, "abc-123")["emailReminders"] is False
+    assert set_email_reminders(table, "abc-123", True)["emailReminders"] is True
+
+
+def test_reminder_setting_only_accepts_true_or_false(table):
+    with pytest.raises(ValueError, match="true or false"):
+        set_email_reminders(table, "abc-123", "no")

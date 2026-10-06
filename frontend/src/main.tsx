@@ -4,7 +4,12 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { configureAuth } from "./auth";
 import { loadConfig } from "./config";
+import { listenForInstall, registerServiceWorker } from "./install";
 import "./index.css";
+
+// Before anything renders: the browser can offer the install prompt right away.
+listenForInstall();
+registerServiceWorker();
 
 const root = createRoot(document.getElementById("root")!);
 
@@ -22,7 +27,7 @@ try {
 } catch (err) {
   root.render(
     <main className="page">
-      <h1>OneTally</h1>
+      <h1>OneBill</h1>
       <p role="alert" className="error">
         {err instanceof Error ? err.message : "Failed to start"}
       </p>

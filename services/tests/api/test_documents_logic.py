@@ -8,7 +8,6 @@ import pytest
 from api.documents import logic
 from api.documents.logic import (
     BadRequest,
-    Forbidden,
     NotFound,
     QuotaExceeded,
     create_upload,
@@ -18,9 +17,10 @@ from api.documents.logic import (
     parse_groups,
 )
 
-BUCKET = "onetally-docs-test"
+BUCKET = "onebill-docs-test"
 NOW = datetime(2026, 9, 30, 18, 0, 0, tzinfo=UTC)
-UPLOADER = {"uploaders"}
+UPLOADER = set()  # anyone signed in may upload
+OWNER = {"owners"}
 
 
 @pytest.fixture
@@ -69,12 +69,31 @@ def test_create_upload_records_pending_document(table, s3):
     assert item["filename"] == "receipt.jpg"
 
 
-def test_only_uploaders_may_upload(table, s3):
-    with pytest.raises(Forbidden):
+def test_anyone_signed_in_may_upload_three_a_day(table, s3):
+    for _ in range(3):
         upload(table, s3, groups=set())
 
-    usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"}).get("Item")
-    assert usage is None  # no quota consumed by a refused request
+    with pytest.raises(QuotaExceeded, match="today's 3 uploads"):
+        upload(table, s3, groups=set())
+
+
+def test_the_owner_has_25_a_day_outside_the_shared_cap(table, s3):
+    for i in range(logic.GLOBAL_DAILY_LIMIT):  # strangers use up the shared cap
+        upload(table, s3, user=f"user-{i // logic.USER_DAILY_LIMIT}")
+
+    for _ in range(25):
+        upload(table, s3, user="andy", groups=OWNER)  # the owner isn't blocked
+    with pytest.raises(QuotaExceeded, match="today's 25 uploads"):
+        upload(table, s3, user="andy", groups=OWNER)
+
+
+def test_owner_uploads_are_marked_so_reading_skips_the_shared_page_budget(table, s3):
+    doc_id = upload(table, s3, user="andy", groups=OWNER)["docId"]
+    item = table.get_item(Key={"PK": "USER#andy", "SK": f"DOC#{doc_id}"})["Item"]
+    assert item["owner"] is True
+
+    other = upload(table, s3)["docId"]
+    assert "owner" not in table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{other}"})["Item"]
 
 
 @pytest.mark.parametrize(
@@ -110,8 +129,12 @@ def test_per_user_daily_quota(table, s3):
         upload(table, s3)
 
 
-def test_decision_r2_limits():
-    assert (logic.USER_DAILY_LIMIT, logic.GLOBAL_DAILY_LIMIT) == (10, 15)
+def test_upload_limits_decided_2026_10_04():
+    assert (logic.USER_DAILY_LIMIT, logic.GLOBAL_DAILY_LIMIT, logic.OWNER_DAILY_LIMIT) == (
+        3,
+        15,
+        25,
+    )
 
 
 def test_global_daily_quota_refunds_the_user_counter(table, s3):
@@ -124,6 +147,28 @@ def test_global_daily_quota_refunds_the_user_counter(table, s3):
 
     usage = table.get_item(Key={"PK": "USER#someone-new", "SK": "USAGE#2026-09-30"})["Item"]
     assert usage["uploads"] == 0  # the per-user slot was given back
+
+
+def test_the_whole_app_has_a_monthly_cap_that_counts_the_owner_too(table, s3):
+    # The month is nearly used up: the next scan (even the owner's) is refused, and the daily
+    # counters it took are given back.
+    table.put_item(Item={"PK": "GLOBAL", "SK": "USAGE#2026-09", "uploads": logic.MONTHLY_APP_LIMIT})
+
+    with pytest.raises(QuotaExceeded, match="this month"):
+        upload(table, s3)
+
+    usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"})["Item"]
+    assert usage["uploads"] == 0
+    daily = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert daily["uploads"] == 0
+
+
+def test_monthly_counter_outlives_the_month(table, s3):
+    upload(table, s3)
+
+    month = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"})["Item"]
+    assert month["uploads"] == 1
+    assert month["expiresAt"] > int(NOW.timestamp()) + 31 * 24 * 3600
 
 
 def test_usage_counters_expire(table, s3):
@@ -193,7 +238,7 @@ def put_obligation(table, user, due, obl_id, **extra):
             "type": "OBLIGATION",
             "oblId": obl_id,
             "dueDate": due,
-            "kind": "return_by",
+            "kind": "payment_due",
             "vendor": "Target",
             "docId": "1790000000000aaaaaaaa",
         }
@@ -224,9 +269,9 @@ def test_list_obligations_caps_the_window(table):
 @pytest.mark.parametrize(
     ("claim", "expected"),
     [
-        (["uploaders", "admins"], {"uploaders", "admins"}),
-        ("[uploaders admins]", {"uploaders", "admins"}),  # how HTTP API flattens array claims
-        ("uploaders", {"uploaders"}),
+        (["owners", "admins"], {"owners", "admins"}),
+        ("[owners admins]", {"owners", "admins"}),  # how HTTP API flattens array claims
+        ("owners", {"owners"}),
         ("[]", set()),
         (None, set()),
     ],
@@ -253,7 +298,7 @@ def processed_doc(table, user="user-a", status="needs_review", obligations=("202
                 "type": "OBLIGATION",
                 "oblId": sk.rsplit("#", 1)[1],
                 "docId": doc_id,
-                "kind": "return_by",
+                "kind": "payment_due",
                 "dueDate": due,
                 "remindersSent": [7],
                 "GSI1PK": f"DUE#{due}",
@@ -324,7 +369,7 @@ def test_correcting_deadlines_replaces_obligations_and_their_index_entries(table
         doc_id,
         {
             "action": "correct",
-            "fields": {"deadlines": [{"kind": "return_by", "dueDate": "2026-11-15"}]},
+            "fields": {"deadlines": [{"kind": "payment_due", "dueDate": "2026-11-15"}]},
         },
         now=NOW,
     )
@@ -365,7 +410,10 @@ def test_removing_all_deadlines(table):
             "action": "correct",
             "fields": {"deadlines": [{"kind": "someday", "dueDate": "2026-11-15"}]},
         },
-        {"action": "correct", "fields": {"deadlines": [{"kind": "return_by", "dueDate": "soon"}]}},
+        {
+            "action": "correct",
+            "fields": {"deadlines": [{"kind": "payment_due", "dueDate": "soon"}]},
+        },
     ],
 )
 def test_review_rejects_invalid_requests(table, body):
@@ -464,7 +512,7 @@ def test_concurrent_corrections_cannot_orphan_obligations(table):
     ]
     body = {
         "action": "correct",
-        "fields": {"deadlines": [{"kind": "return_by", "dueDate": "2026-11-15"}]},
+        "fields": {"deadlines": [{"kind": "payment_due", "dueDate": "2026-11-15"}]},
     }
     review_document(table, "user-a", doc_id, body, now=NOW)
 
@@ -595,16 +643,215 @@ def test_daily_limits_can_be_switched_off_for_testing(table, s3):
             enforce_limits=False,
         )
 
-    with pytest.raises(Forbidden):  # uploads stay invite-only either way
-        create_upload(
-            table,
-            s3,
-            BUCKET,
-            "user-b",
-            set(),
-            "r.jpg",
-            "image/jpeg",
-            1000,
-            NOW,
-            enforce_limits=False,
-        )
+
+# --- removing a reminder, deleting a document --------------------------------------------------
+
+from api.documents.logic import delete_document, remove_obligation  # noqa: E402
+
+
+def test_removing_a_deadline_takes_it_off_the_document_too(table):
+    doc_id = processed_doc(table, obligations=("2026-10-28", "2027-09-28"))
+    keep, remove = sorted(o["SK"] for o in obligations_for(table))
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET obligations = :o",
+        ExpressionAttributeValues={
+            ":o": [
+                {"kind": "payment_due", "dueDate": "2026-10-28", "evidence": "a"},
+                {"kind": "payment_due", "dueDate": "2027-09-28", "evidence": "b"},
+            ]
+        },
+    )
+
+    remove_obligation(table, "user-a", remove.rsplit("#", 1)[1], NOW)
+
+    assert [o["SK"] for o in obligations_for(table)] == [keep]
+    doc = get_document(table, "user-a", doc_id)
+    assert doc["obligations"] == [{"kind": "payment_due", "dueDate": "2026-10-28", "evidence": "a"}]
+
+
+def test_removing_a_subscription_reminder_turns_its_reminders_off(table):
+    from subscriptions.parse import ParsedSubscription
+    from subscriptions.store import list_subscriptions, save_subscription
+
+    sub = ParsedSubscription(
+        service="Netflix",
+        service_key="netflix",
+        plan=None,
+        amount_cents=1549,
+        currency="USD",
+        cycle="monthly",
+        status="charged",
+        charge_date=date(2026, 10, 1),
+        period_end=None,
+        next_renewal=date(2026, 11, 1),
+    )
+    save_subscription(table, "user-a", sub, date(2026, 10, 1), NOW)
+    (reminder,) = obligations_for(table)
+
+    remove_obligation(table, "user-a", reminder["oblId"], NOW)
+
+    assert obligations_for(table) == []
+    assert list_subscriptions(table, "user-a")[0]["remindersOff"] is True
+
+
+def test_someone_elses_reminder_is_not_found(table):
+    processed_doc(table, user="user-b")
+    (other,) = obligations_for(table, user="user-b")
+
+    with pytest.raises(NotFound):
+        remove_obligation(table, "user-a", other["oblId"], NOW)
+    with pytest.raises(NotFound):
+        remove_obligation(table, "user-a", "../PROFILE", NOW)
+
+
+def test_deleting_a_document_removes_it_its_deadlines_and_its_photo(table, s3):
+    upload(table, s3)  # a pending upload with an S3 key
+    doc_id = processed_doc(table)
+    key = f"uploads/user-a/{doc_id}"
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET s3Key = :k",
+        ExpressionAttributeValues={":k": key},
+    )
+    s3.put_object(Bucket=BUCKET, Key=key, Body=b"jpeg")
+
+    delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
+
+    with pytest.raises(NotFound):
+        get_document(table, "user-a", doc_id)
+    assert obligations_for(table) == []
+    assert s3.list_objects_v2(Bucket=BUCKET, Prefix=key).get("KeyCount", 0) == 0
+
+
+def test_a_document_still_being_read_cant_be_deleted_yet(table, s3):
+    doc_id = processed_doc(table, status="processing")
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET processingStartedAt = :t",
+        ExpressionAttributeValues={":t": NOW.isoformat()},
+    )
+
+    with pytest.raises(BadRequest, match="still reading"):
+        delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
+
+
+def test_someone_elses_document_cant_be_deleted(table, s3):
+    doc_id = processed_doc(table, user="user-b")
+
+    with pytest.raises(NotFound):
+        delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
+
+
+# --- "Looks right" on a flagged line (phase 2d) --------------------------------------------------
+
+
+def flagged_doc(table, status="ready"):
+    doc_id = processed_doc(table, status=status, obligations=())
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET confidence = :c",
+        ExpressionAttributeValues={
+            ":c": {
+                "level": "check",
+                "checks": [
+                    {"row": 1, "reason": "Hard to read on the photo"},
+                    {"row": 4, "reason": "Hard to read on the photo"},
+                ],
+            }
+        },
+    )
+    return doc_id
+
+
+def test_confirming_a_flagged_line_clears_just_that_flag(table):
+    doc_id = flagged_doc(table)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [1]}, now=NOW)
+
+    assert doc["confidence"]["checks"] == [{"row": 4, "reason": "Hard to read on the photo"}]
+    assert doc["confidence"]["level"] == "check"
+
+
+def test_confirming_the_last_flag_marks_the_bill_checked_by_you(table):
+    doc_id = flagged_doc(table)
+    review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [1]}, now=NOW)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [4]}, now=NOW)
+
+    assert doc["confidence"] == {"level": "confirmed", "checks": []}
+    assert doc["status"] == "ready"  # confirming never changes the status
+
+
+def test_a_bill_whose_totals_dont_add_up_still_asks_for_a_check_after_confirming(table):
+    doc_id = flagged_doc(table, status="needs_review")
+
+    doc = review_document(table, "user-a", doc_id, {"action": "confirm", "rows": [1, 4]}, now=NOW)
+
+    assert doc["confidence"] == {"level": "check", "checks": []}
+    assert doc["status"] == "needs_review"
+
+
+@pytest.mark.parametrize("rows", [None, [], "1", [1.5], [True], list(range(201))])
+def test_confirm_needs_a_list_of_row_numbers(table, rows):
+    doc_id = flagged_doc(table)
+
+    with pytest.raises(BadRequest):
+        review_document(table, "user-a", doc_id, {"action": "confirm", "rows": rows}, now=NOW)
+
+
+def test_accepting_or_fixing_a_bill_clears_its_flags(table):
+    doc_id = flagged_doc(table)
+
+    doc = review_document(table, "user-a", doc_id, {"action": "accept"}, now=NOW)
+
+    assert doc["confidence"] == {"level": "confirmed", "checks": []}
+
+
+def test_the_receipts_list_includes_each_bills_confidence(table):
+    flagged_doc(table)
+
+    (summary,) = list_documents(table, "user-a", now=NOW)
+
+    assert summary["confidence"]["level"] == "check"
+
+
+def test_fixing_a_line_on_the_bill_rechecks_the_math_and_keeps_other_flags(table):
+    doc_id = flagged_doc(table)
+    stored = [
+        {"row": 1, "description": "BANANAS", "kind": "item", "amountCents": 129},
+        {"row": 2, "description": "MILK", "kind": "item", "amountCents": 419},
+        {"row": 3, "description": "SUBTOTAL", "kind": "subtotal", "amountCents": 548},
+        {"row": 4, "description": "TAX", "kind": "tax", "amountCents": 54},  # misread 0.44
+        {"row": 5, "description": "TOTAL", "kind": "total", "amountCents": 592},
+    ]
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"},
+        UpdateExpression="SET #l = :l",
+        ExpressionAttributeNames={"#l": "lines"},
+        ExpressionAttributeValues={":l": stored},
+    )
+    edited = [{k: v for k, v in line.items() if k != "row"} for line in stored]
+    edited[3]["amountCents"] = 44  # the user fixes the tax: it adds up now
+
+    doc = review_document(
+        table, "user-a", doc_id, {"action": "correct", "fields": {"lines": edited}}, now=NOW
+    )
+
+    assert doc["status"] == "ready"
+    # Row 1 wasn't touched, so its "hard to read" flag stays for the user to tick.
+    assert doc["confidence"] == {
+        "level": "check",
+        "checks": [{"row": 1, "reason": "Hard to read on the photo"}],
+    }
+
+
+def test_confirming_on_a_deleted_bill_doesnt_bring_it_back(table):
+    doc_id = flagged_doc(table)
+    current = get_document(table, "user-a", doc_id)
+    table.delete_item(Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"})
+
+    with pytest.raises(BadRequest):
+        logic._confirm_lines(table, "user-a", doc_id, current, [1], NOW)
+
+    assert "Item" not in table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{doc_id}"})

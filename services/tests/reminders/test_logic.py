@@ -2,11 +2,14 @@ from datetime import date
 
 import pytest
 
+from api.me.logic import set_email_reminders
 from reminders.logic import (
+    SEND_NOW_DAILY_CAP,
     collect_due,
     mark_sent,
     render_digest,
     run_reminders,
+    send_now,
     unmark_sent,
 )
 
@@ -14,7 +17,7 @@ TODAY = date(2026, 9, 30)
 
 
 def put_obligation(
-    table, user, due, obl_id, kind="return_by", vendor="Target", amount=2618, sent=()
+    table, user, due, obl_id, kind="payment_due", vendor="Target", amount=2618, sent=()
 ):
     item = {
         "PK": f"USER#{user}",
@@ -105,7 +108,7 @@ def test_digest_lists_items_soonest_first():
 
     subject, text, html = render_digest(items, TODAY, app_url="http://localhost:5173")
 
-    assert subject == "OneTally: 2 things due soon"
+    assert subject == "OneBill: 2 things due soon"
     assert text.index("PG&E") < text.index("Best Buy")
     assert "Payment due" in text
     assert "Thu, Oct 1 (tomorrow)" in text
@@ -121,7 +124,7 @@ def test_digest_subject_singular():
             (
                 3,
                 {
-                    "kind": "return_by",
+                    "kind": "payment_due",
                     "vendor": "Target",
                     "dueDate": "2026-10-03",
                     "amountCents": 2618,
@@ -132,12 +135,12 @@ def test_digest_subject_singular():
         app_url="http://localhost:5173",
     )
 
-    assert subject == "OneTally: 1 thing due soon"
+    assert subject == "OneBill: 1 thing due soon"
 
 
 def test_digest_escapes_untrusted_vendor_names_in_html():
     _, _, html = render_digest(
-        [(3, {"kind": "return_by", "vendor": "<script>x</script>", "dueDate": "2026-10-03"})],
+        [(3, {"kind": "payment_due", "vendor": "<script>x</script>", "dueDate": "2026-10-03"})],
         TODAY,
         app_url="http://localhost:5173",
     )
@@ -216,3 +219,102 @@ def test_directory_returning_nothing_is_a_skip(table, bad):
     summary = run_reminders(table, TODAY, lambda _: bad, FakeMailer(), app_url="x")
 
     assert summary["skipped"] == 1
+
+
+def test_subscription_reminders_say_renews_or_trial_ends():
+    items = [
+        (3, {"kind": "renewal", "vendor": "Netflix", "dueDate": "2026-10-03", "amountCents": 1549}),
+        (1, {"kind": "trial_ends", "vendor": "Max", "dueDate": "2026-10-01", "amountCents": 1699}),
+    ]
+
+    _, text, _ = render_digest(items, TODAY, app_url="http://localhost:5173")
+
+    assert "Trial ends" in text
+    assert "Renews" in text
+    assert "Due" not in text  # no unlabelled fallback
+
+
+def test_past_due_subscriptions_and_bills_roll_forward_each_morning(table):
+    from datetime import UTC, datetime
+
+    from reminders.logic import roll_forward
+    from subscriptions.store import add_subscription
+
+    now = datetime(2026, 9, 1, tzinfo=UTC)
+    add_subscription(
+        table, "u1", {"service": "Rent", "category": "bill", "nextRenewal": "2026-09-29"}, now
+    )
+    add_subscription(
+        table, "u1", {"service": "Gym", "nextRenewal": "2026-10-05"}, now
+    )  # not due yet
+
+    moved = roll_forward(table, TODAY, now)  # TODAY = Sep 30: Rent's date passed yesterday
+
+    assert moved == 1
+    rent = table.get_item(Key={"PK": "USER#u1", "SK": "SUB#rent"})["Item"]
+    assert rent["nextRenewal"] == "2026-10-29"
+
+
+# --- turning reminder emails off, and emailing right away when a reminder starts late --------
+
+
+def test_people_who_turned_emails_off_get_none_and_nothing_is_claimed(table):
+    put_obligation(table, "a", "2026-10-07", "o7")
+    set_email_reminders(table, "a", False)
+    mailer = FakeMailer()
+
+    summary = run_reminders(table, TODAY, DIRECTORY.get, mailer, app_url="x")
+
+    assert mailer.sent == []
+    assert summary["skipped"] == 1
+    assert get(table, "a", "2026-10-07", "o7")["remindersSent"] == []  # turning it on resumes
+
+
+def test_a_reminder_5_days_out_is_emailed_now_and_counts_as_the_7_day_one(table):
+    item = put_obligation(table, "a", "2026-10-05", "o5")  # 5 days after TODAY
+    mailer = FakeMailer()
+
+    assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "sent"
+    assert [to for to, _ in mailer.sent] == ["a@example.com"]
+    assert get(table, "a", "2026-10-05", "o5")["remindersSent"] == [7]
+    # The daily run still sends the 3-day and 1-day emails later, never the 7-day one again.
+    assert (
+        send_now(table, get(table, "a", "2026-10-05", "o5"), TODAY, DIRECTORY.get, mailer, "x")
+        == "already_sent"
+    )
+
+
+def test_far_off_reminders_wait_for_the_daily_run(table):
+    item = put_obligation(table, "a", "2026-10-20", "o20")
+    mailer = FakeMailer()
+
+    assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "not_soon"
+    assert mailer.sent == []
+
+
+def test_no_immediate_email_when_turned_off(table):
+    item = put_obligation(table, "a", "2026-10-02", "o2")
+    set_email_reminders(table, "a", False)
+    mailer = FakeMailer()
+
+    assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "turned_off"
+    assert mailer.sent == []
+
+
+def test_immediate_emails_are_capped_per_person_per_day(table):
+    mailer = FakeMailer()
+    outcomes = [
+        send_now(
+            table,
+            put_obligation(table, "a", "2026-10-02", f"o{i}"),
+            TODAY,
+            DIRECTORY.get,
+            mailer,
+            "x",
+        )
+        for i in range(SEND_NOW_DAILY_CAP + 2)
+    ]
+
+    assert outcomes.count("sent") == SEND_NOW_DAILY_CAP
+    assert outcomes[-2:] == ["capped", "capped"]  # the daily run still sends the scheduled ones
+    assert len(mailer.sent) == SEND_NOW_DAILY_CAP

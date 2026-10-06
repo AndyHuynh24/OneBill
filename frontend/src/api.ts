@@ -1,9 +1,11 @@
-/** Typed client for the OneTally HTTP API. Every call sends the Cognito access token. */
+/** Typed client for the OneBill HTTP API. Every call sends the Cognito access token. */
 
 export interface Profile {
   userId: string;
   baseCurrency: string;
   createdAt: string;
+  /** Reminder emails (7, 3, and 1 day before): on unless turned off. */
+  emailReminders?: boolean;
 }
 
 export type DocStatus = "pending_upload" | "processing" | "ready" | "needs_review" | "failed";
@@ -21,9 +23,39 @@ export type LineKind =
   | "balance_due"
   | "info";
 
+/** The server's two checks, as numbers: items → subtotal, and subtotal + charges → total. */
+export interface BillMath {
+  /** Calculated: items + discounts as read. */
+  itemsCents: number;
+  /** Printed. */
+  subtotalCents: number | null;
+  itemsMatch: boolean | null;
+  feesInSubtotal: boolean;
+  /** Negative: a discount taken off after the subtotal (and before tax); 0 when none. */
+  discountAfterCents?: number;
+  basisCents: number;
+  taxCents: number;
+  tipCents: number;
+  feesCents: number;
+  /** Calculated: basis + charges. */
+  expectedCents: number;
+  /** Printed. */
+  totalCents: number | null;
+  totalMatch: boolean | null;
+  taxIncluded: boolean;
+}
+
+/** How sure the reading is, from evidence (OCR clarity, amounts found, math), phase 2d. */
+export interface Confidence {
+  level: "confident" | "mostly" | "check" | "confirmed";
+  /** suggestedCents: one digit off; this amount would make the bill add up. */
+  checks: { row: number; reason: string; suggestedCents?: number; suggestedKind?: LineKind }[];
+}
+
 export interface DocumentSummary {
   docId: string;
   status: DocStatus;
+  confidence?: Confidence;
   filename?: string;
   contentType?: string;
   vendor?: string | null;
@@ -33,6 +65,8 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt?: string;
   reviewOutcome?: "accepted" | "corrected";
+  /** "email": a labelled email read like a scan. */
+  source?: "email";
 }
 
 export interface DocumentLine {
@@ -50,6 +84,7 @@ export interface DocumentDeadline {
 
 export interface DocumentDetail extends DocumentSummary {
   docType?: string;
+  math?: BillMath;
   issues?: string[];
   failureReason?: string;
   lines?: DocumentLine[];
@@ -60,12 +95,16 @@ export interface DocumentDetail extends DocumentSummary {
   discountsCents?: number;
   obligations?: DocumentDeadline[];
   split?: Split;
+  /** Item prices already include the tax (common outside the US). */
+  taxIncluded?: boolean;
 }
 
 export type ChargeChoice =
   | { mode: "proportional" }
   | { mode: "even" }
-  | { mode: "person"; member: number };
+  | { mode: "person"; member: number }
+  /** Shared equally by these people, like an item. */
+  | { mode: "people"; members: number[] };
 
 /** People go by seat (0 = first) and lines by row number; amounts always come from the server. */
 export interface SplitRequest {
@@ -96,10 +135,65 @@ export interface Split {
   version: number;
   members: SplitMember[];
   assignments: Record<string, string[]>;
-  charges: Record<string, { mode: string; member?: string }>;
+  charges: Record<string, { mode: string; member?: string; members?: string[] }>;
   shares: SplitShare[];
+  /** What the shares add up to: the printed total, or the recorded items if they differ. */
   totalCents: number;
+  receiptTotalCents?: number;
+  matchesReceipt?: boolean;
+  taxIncluded?: boolean;
   updatedAt?: string;
+}
+
+export type BillingCycle = "weekly" | "monthly" | "quarterly" | "yearly" | "other";
+export type SubscriptionStatus = "charged" | "upcoming" | "trial_ending" | "payment_failed" | "cancelled";
+
+/** One service, as read from its emails (amounts in cents). */
+export interface Subscription {
+  serviceKey: string;
+  service: string;
+  plan: string | null;
+  amountCents: number | null;
+  currency: string;
+  cycle: BillingCycle | null;
+  status: SubscriptionStatus;
+  nextRenewal: string | null;
+  renewalComputed: boolean;
+  lastChargedAt?: string | null;
+  previousAmountCents?: number;
+  priceChangedAt?: string;
+  history: { date: string; amountCents: number; status: string }[];
+  issues: string[];
+  remindersOff?: boolean;
+  /** Bills (rent, utilities) are "due"; subscriptions "renew". */
+  category?: "subscription" | "bill";
+  source?: "manual";
+  updatedAt?: string;
+}
+
+/** Added by hand: anything that doesn't email (rent, utilities, a gym billed to a card). */
+export interface NewSubscription {
+  service: string;
+  category: "subscription" | "bill";
+  amountCents?: number;
+  cycle: BillingCycle;
+  nextRenewal: string;
+}
+
+/** The Gmail script's connection; the key itself is never returned after creation. */
+export interface GmailConnection {
+  connected: boolean;
+  createdAt: string | null;
+  /** Keys last a year; then the script is told to get a new one. */
+  expiresOn?: string | null;
+  lastUsedAt: string | null;
+}
+
+export interface SubscriptionEdit {
+  amountCents?: number;
+  nextRenewal?: string;
+  cycle?: BillingCycle;
+  plan?: string | null;
 }
 
 export interface Obligation {
@@ -127,7 +221,11 @@ export interface CorrectionFields {
   lines?: { description: string; kind: LineKind; amountCents: number }[];
 }
 
-export type ReviewRequest = { action: "accept" } | { action: "correct"; fields: CorrectionFields };
+export type ReviewRequest =
+  | { action: "accept" }
+  | { action: "correct"; fields: CorrectionFields }
+  /** "Looks right" on flagged lines: clears just those flags. */
+  | { action: "confirm"; rows: number[] };
 
 export interface UploadTicket {
   docId: string;
@@ -147,8 +245,11 @@ export class ApiError extends Error {
 /** Returns the current Cognito access token, or undefined when signed out. */
 export type TokenGetter = () => Promise<string | undefined>;
 
-export interface OneTallyApi {
+export interface OneBillApi {
+  /** The API's address (shown in Connect Gmail, for the Apps Script). */
+  readonly baseUrl: string;
   getProfile(): Promise<Profile>;
+  setEmailReminders(on: boolean): Promise<Profile>;
   listDocuments(): Promise<{ documents: DocumentSummary[]; review: ReviewStats }>;
   getDocument(docId: string): Promise<DocumentDetail>;
   reviewDocument(docId: string, request: ReviewRequest): Promise<DocumentDetail>;
@@ -156,9 +257,23 @@ export interface OneTallyApi {
   /** Ask the API for an upload ticket, then send the file straight to S3. */
   uploadDocument(file: File): Promise<string>;
   saveSplit(docId: string, request: SplitRequest): Promise<Split>;
+  listSubscriptions(): Promise<{ subscriptions: Subscription[]; connection: GmailConnection }>;
+  cancelSubscription(serviceKey: string): Promise<Subscription>;
+  editSubscription(serviceKey: string, fields: SubscriptionEdit): Promise<Subscription>;
+  /** Shown once; only its hash is stored. */
+  createIngestKey(): Promise<{ key: string }>;
+  revokeIngestKey(): Promise<void>;
+  /** Gone from OneBill (with its reminder); it can come back with new emails. */
+  deleteSubscription(serviceKey: string): Promise<void>;
+  addSubscription(subscription: NewSubscription): Promise<Subscription>;
+  setSubscriptionReminders(serviceKey: string, on: boolean): Promise<Subscription>;
+  /** A document's deadline (removed from the document too) or a subscription's renewal (turns its reminders off). */
+  deleteObligation(oblId: string): Promise<void>;
+  /** The receipt or bill, its deadlines, and its photo. */
+  deleteDocument(docId: string): Promise<void>;
 }
 
-export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneTallyApi {
+export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: typeof fetch = fetch): OneBillApi {
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const token = await getToken();
     if (!token) throw new ApiError("Not signed in", 401);
@@ -178,13 +293,36 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
   }
 
   return {
+    baseUrl: apiUrl,
     getProfile: () => call<Profile>("GET", "me"),
+    setEmailReminders: (on) => call<Profile>("PATCH", "me", { emailReminders: on }),
     listDocuments: () => call("GET", "documents"),
     getDocument: (docId) => call<DocumentDetail>("GET", `documents/${encodeURIComponent(docId)}`),
     reviewDocument: (docId, request) =>
       call<DocumentDetail>("PATCH", `documents/${encodeURIComponent(docId)}`, request),
     listObligations: (fromDate, withinDays = 30) =>
       call("GET", `obligations?from=${encodeURIComponent(fromDate)}&withinDays=${withinDays}`),
+    listSubscriptions: () => call("GET", "subscriptions"),
+    cancelSubscription: (key) =>
+      call<Subscription>("PATCH", `subscriptions/${encodeURIComponent(key)}`, { action: "cancel" }),
+    editSubscription: (key, fields) =>
+      call<Subscription>("PATCH", `subscriptions/${encodeURIComponent(key)}`, { action: "edit", fields }),
+    createIngestKey: () => call("POST", "ingest/keys"),
+    revokeIngestKey: async () => {
+      await call("DELETE", "ingest/keys");
+    },
+    addSubscription: (subscription) => call<Subscription>("POST", "subscriptions", subscription),
+    deleteSubscription: async (key) => {
+      await call("DELETE", `subscriptions/${encodeURIComponent(key)}`);
+    },
+    setSubscriptionReminders: (key, on) =>
+      call<Subscription>("PATCH", `subscriptions/${encodeURIComponent(key)}`, { action: "reminders", on }),
+    deleteObligation: async (oblId) => {
+      await call("DELETE", `obligations/${encodeURIComponent(oblId)}`);
+    },
+    deleteDocument: async (docId) => {
+      await call("DELETE", `documents/${encodeURIComponent(docId)}`);
+    },
     saveSplit: (docId, request) => call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split`, request),
     async uploadDocument(file) {
       const ticket = await call<UploadTicket>("POST", "documents", {

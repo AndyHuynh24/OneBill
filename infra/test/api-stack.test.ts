@@ -25,20 +25,20 @@ const actionsOf = (statements: Statement[], prefix: string) =>
 beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
-  const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
+  const data = new DataStack(app, "TestData", { env, frontendUrls: ["http://localhost:5173"] });
   const auth = new AuthStack(app, "TestAuth", {
     env,
-    domainPrefix: "onetally-test",
-    frontendUrl: "http://localhost:5173",
+    domainPrefix: "onebill-test",
+    frontendUrls: ["http://localhost:5173"],
   });
   const api = new ApiStack(app, "TestApi", {
     env,
     table: data.table,
-    dataKey: data.key,
     docsBucket: data.docsBucket,
     userPool: auth.userPool,
     userPoolClient: auth.client,
-    frontendUrl: "http://localhost:5173",
+    frontendUrls: ["http://localhost:5173"],
+    bedrockModelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   });
   template = Template.fromStack(api);
 });
@@ -49,7 +49,7 @@ describe("ApiStack — HTTP API", () => {
       ProtocolType: "HTTP",
       CorsConfiguration: Match.objectLike({
         AllowOrigins: ["http://localhost:5173"],
-        AllowMethods: ["GET", "POST", "PATCH", "PUT"],
+        AllowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
         AllowHeaders: ["authorization", "content-type"],
       }),
     });
@@ -70,11 +70,13 @@ describe("ApiStack — HTTP API", () => {
     expect(routes.some((r) => String(r.Properties.RouteKey).includes("friends"))).toBe(false);
   });
 
-  it("has no unauthenticated routes", () => {
-    const routes = template.findResources("AWS::ApiGatewayV2::Route");
-    for (const route of Object.values(routes)) {
-      expect(route.Properties.AuthorizationType).toBe("JWT");
-    }
+  it("requires a Cognito sign-in on every route except the Gmail script's ingest route", () => {
+    const routes = Object.values(template.findResources("AWS::ApiGatewayV2::Route"));
+    const open = routes
+      .filter((r) => r.Properties.AuthorizationType !== "JWT")
+      .map((r) => r.Properties.RouteKey);
+    // POST /ingest/email checks the hashed ingest key in code (Apps Script can't sign in).
+    expect(open).toEqual(["POST /ingest/email"]);
   });
 
   it("configures the authorizer with the Cognito issuer and app client audience", () => {
@@ -128,32 +130,27 @@ describe("ApiStack — /me Lambda", () => {
     }
   });
 
-  it("keeps all logs for two weeks, encrypted with the customer-managed key", () => {
-    const groups = template.findResources("AWS::Logs::LogGroup");
-    expect(Object.keys(groups).length).toBeGreaterThanOrEqual(2);
-    for (const group of Object.values(groups)) {
+  it("keeps all logs for two weeks (encrypted at rest by CloudWatch)", () => {
+    const groups = Object.values(template.findResources("AWS::Logs::LogGroup"));
+    expect(groups.length).toBeGreaterThan(0);
+    for (const group of groups) {
       expect(group.Properties.RetentionInDays).toBe(14);
-      expect(group.Properties.KmsKeyId).toBeDefined();
     }
   });
 
-  it("grants /me only GetItem and PutItem on the table itself (no Scan, no indexes)", () => {
+  it("grants /me only GetItem, PutItem, and UpdateItem on the table itself (no Scan, no indexes)", () => {
     const statements = statementsFor("api.me.handler.handler");
-    expect(actionsOf(statements, "dynamodb:")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
+    expect(actionsOf(statements, "dynamodb:")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]);
     const dynamo = statements.find((st) => actionsOf([st], "dynamodb:").length);
     expect(JSON.stringify(dynamo?.Resource)).not.toContain("index");
     expect(actionsOf(statements, "s3:")).toEqual([]);
   });
 
-  it("allows /me KMS use only through DynamoDB, with no wildcard KMS actions", () => {
-    const kms = statementsFor("api.me.handler.handler").filter((st) => actionsOf([st], "kms:").length);
-    expect(kms).toHaveLength(1);
-    for (const action of [kms[0].Action].flat()) {
-      expect(action).not.toContain("*");
-    }
-    expect(kms[0].Condition).toEqual({
-      StringEquals: { "kms:ViaService": "dynamodb.us-east-1.amazonaws.com" },
-    });
+  it("needs no KMS permissions: data is encrypted with AWS-owned keys", () => {
+    const actions = Object.values(template.findResources("AWS::IAM::Policy")).flatMap((p) =>
+      p.Properties.PolicyDocument.Statement.flatMap((st: { Action: string | string[] }) => [st.Action].flat()),
+    );
+    expect(actions.filter((a: string) => a.startsWith("kms:"))).toEqual([]);
   });
 
   it("never grants wildcard actions", () => {
@@ -174,6 +171,14 @@ describe("ApiStack — documents API", () => {
     "PATCH /documents/{docId}",
     "GET /obligations",
     "PUT /documents/{docId}/split",
+    "GET /subscriptions",
+    "POST /subscriptions",
+    "PATCH /subscriptions/{key}",
+    "POST /ingest/keys",
+    "DELETE /ingest/keys",
+    "DELETE /subscriptions/{key}",
+    "DELETE /obligations/{oblId}",
+    "DELETE /documents/{docId}",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {
@@ -209,38 +214,29 @@ describe("ApiStack — documents API", () => {
     expect(JSON.stringify(dynamo?.Resource)).not.toContain("index");
   });
 
-  it("lets documents sign uploads only under uploads/ (PutObject, nothing else in S3)", () => {
+  it("lets documents sign uploads and delete them, only under uploads/ (nothing else in S3)", () => {
     const statements = statementsFor("api.documents.handler.handler");
-    expect(actionsOf(statements, "s3:")).toEqual(["s3:PutObject"]);
+    expect(actionsOf(statements, "s3:")).toEqual(["s3:DeleteObject", "s3:PutObject"]);
     const s3 = statements.find((st) => actionsOf([st], "s3:").length);
     expect(JSON.stringify(s3?.Resource)).toContain("/uploads/*");
   });
 
-  it("allows documents KMS use only through DynamoDB and S3", () => {
-    const kms = statementsFor("api.documents.handler.handler").filter((st) => actionsOf([st], "kms:").length);
-    expect(kms).toHaveLength(1);
-    expect(kms[0].Condition).toEqual({
-      StringEquals: {
-        "kms:ViaService": ["dynamodb.us-east-1.amazonaws.com", "s3.us-east-1.amazonaws.com"],
-      },
-    });
-  });
 });
 
 describe("ApiStack — tracing switch", () => {
   it("turns on active X-Ray tracing when enableTracing is set", () => {
     const app = new App();
     const env = { account: "123456789012", region: "us-east-1" };
-    const data = new DataStack(app, "D", { env, frontendUrl: "http://localhost:5173" });
-    const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
+    const data = new DataStack(app, "D", { env, frontendUrls: ["http://localhost:5173"] });
+    const auth = new AuthStack(app, "A", { env, domainPrefix: "x", frontendUrls: ["http://localhost:5173"] });
     const api = new ApiStack(app, "Api", {
       env,
       table: data.table,
-      dataKey: data.key,
       docsBucket: data.docsBucket,
       userPool: auth.userPool,
       userPoolClient: auth.client,
-      frontendUrl: "http://localhost:5173",
+      frontendUrls: ["http://localhost:5173"],
+      bedrockModelId: "us.m",
       enableTracing: true,
     });
     const t = Template.fromStack(api);

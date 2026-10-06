@@ -20,6 +20,7 @@ coverage/
 # CDK
 infra/cdk.out/
 infra/cdk.context.json
+infra/.layers/
 
 # Python
 __pycache__/
@@ -40,3 +41,6 @@ START_HERE.md
 eval/receipts/
 eval/cache/
 eval/out/
+
+# Firebase Hosting deploy cache
+.firebase/

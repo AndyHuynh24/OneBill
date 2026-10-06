@@ -4,7 +4,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-TABLE_NAME = "onetally-test"
+TABLE_NAME = "onebill-test"
 
 
 @pytest.fixture(autouse=True)
@@ -15,7 +15,7 @@ def aws_env(monkeypatch):
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     monkeypatch.setenv("TABLE_NAME", TABLE_NAME)
-    monkeypatch.setenv("POWERTOOLS_SERVICE_NAME", "onetally-test")
+    monkeypatch.setenv("POWERTOOLS_SERVICE_NAME", "onebill-test")
     monkeypatch.setenv("POWERTOOLS_TRACE_DISABLED", "true")
     monkeypatch.delenv("AWS_PROFILE", raising=False)
     assert os.environ["AWS_ACCESS_KEY_ID"] == "testing"

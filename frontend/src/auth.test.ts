@@ -8,7 +8,7 @@ vi.mock("aws-amplify/auth/enable-oauth-listener", () => ({}));
 const CONFIG = {
   userPoolId: "us-east-1_abc",
   userPoolClientId: "client123",
-  cognitoDomain: "onetally-ah24.auth.us-east-1.amazoncognito.com",
+  cognitoDomain: "onebill.auth.us-east-1.amazoncognito.com",
   apiUrl: "https://abc.execute-api.us-east-1.amazonaws.com/",
 };
 

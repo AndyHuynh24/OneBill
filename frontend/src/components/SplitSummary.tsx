@@ -9,10 +9,12 @@ interface SplitSummaryProps {
   doc: DocumentDetail;
   onEdit: () => void;
   onDone: () => void;
+  /** Back to "Who's here?" with everyone kept, to add people and split again. */
+  onAddPeople?: () => void;
 }
 
 /** Who owes what. The shares come from the server and always add up to the receipt. */
-export function SplitSummary({ split, doc, onEdit, onDone }: SplitSummaryProps) {
+export function SplitSummary({ split, doc, onEdit, onDone, onAddPeople }: SplitSummaryProps) {
   const [copied, setCopied] = useState(false);
   const currency = doc.currency ?? "USD";
   const description = new Map((doc.lines ?? []).map((l) => [l.row, l.description]));
@@ -51,11 +53,23 @@ export function SplitSummary({ split, doc, onEdit, onDone }: SplitSummaryProps) 
           );
         })}
       </ul>
+      {onAddPeople && (
+        <button type="button" className="add-people" onClick={onAddPeople}>
+          + Add more people and split again
+        </button>
+      )}
       <p className={sum === split.totalCents ? "split-check" : "split-check error"}>
         {sum === split.totalCents
           ? `Adds up to ${formatCents(split.totalCents, currency)} ✓`
           : `Shares total ${formatCents(sum, currency)}, receipt says ${formatCents(split.totalCents, currency)}`}
       </p>
+      {split.matchesReceipt === false && split.receiptTotalCents != null && (
+        <p className="notice notice-warn">
+          Split on the recorded items ({formatCents(split.totalCents, currency)}). The receipt says{" "}
+          {formatCents(split.receiptTotalCents, currency)}; fix the bill and split again if a number was misread.
+        </p>
+      )}
+      {split.taxIncluded && <p className="muted tax-note">Prices include tax, so it's already in each share.</p>}
       <div className="sheet-actions">
         <button type="button" className="primary" onClick={share}>
           Share

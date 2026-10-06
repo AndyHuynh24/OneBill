@@ -36,6 +36,41 @@ def to_cents(raw: str | None) -> int | None:
     return -cents if negative else cents
 
 
+def to_cents_loose(raw: str | None) -> int | None:
+    """Amounts as emails print them, in any common style: "$15", "$1,299", "€10,99",
+    "1.234,56 €", "99.000 ₫", "15.49 USD". None if it isn't clearly one amount.
+
+    A single separator followed by 1–2 digits is a decimal point; followed by exactly 3 digits
+    it groups thousands. With both "." and ",", the last one is the decimal point.
+    """
+    if not raw:
+        return None
+    negative = bool(re.search(r"^\s*\(|-", raw))
+    number = re.sub(r"[^\d.,]", "", raw).strip(".,")
+    if not re.search(r"\d", number):
+        return None
+    if "." in number and "," in number:
+        decimal = "." if number.rfind(".") > number.rfind(",") else ","
+        whole, frac = number.rsplit(decimal, 1)
+        groups = whole.split("," if decimal == "." else ".")
+    else:
+        sep = "." if "." in number else ","
+        parts = number.split(sep) if sep in number else [number]
+        if len(parts) == 2 and 1 <= len(parts[1]) <= 2:
+            whole, frac, groups = parts[0], parts[1], [parts[0]]
+        else:
+            whole, frac, groups = number.replace(sep, ""), "", parts
+    if len(frac) > 2 or not all(groups) or any(len(g) != 3 for g in groups[1:]):
+        return None
+    if len(groups) > 1 and not 1 <= len(groups[0]) <= 3:
+        return None
+    digits = "".join(groups) if len(groups) > 1 else whole
+    if not digits.isdigit() or (frac and not frac.isdigit()):
+        return None
+    cents = int(Decimal(f"{digits}.{frac.ljust(2, '0')}") * 100)
+    return -cents if negative else cents
+
+
 def format_cents(cents: int) -> str:
     """Render cents for people: 2318 → "$23.18", -100 → "-$1.00"."""
     sign = "-" if cents < 0 else ""

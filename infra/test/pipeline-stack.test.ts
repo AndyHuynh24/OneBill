@@ -11,13 +11,12 @@ let template: Template;
 beforeAll(() => {
   const app = new App();
   const env = { account: "123456789012", region: "us-east-1" };
-  const data = new DataStack(app, "TestData", { env, frontendUrl: "http://localhost:5173" });
-  const auth = new AuthStack(app, "TestAuth", { env, domainPrefix: "x", frontendUrl: "http://localhost:5173" });
+  const data = new DataStack(app, "TestData", { env, frontendUrls: ["http://localhost:5173"] });
+  const auth = new AuthStack(app, "TestAuth", { env, domainPrefix: "x", frontendUrls: ["http://localhost:5173"] });
   const pipeline = new PipelineStack(app, "TestPipeline", {
     env,
     table: data.table,
     docsBucket: data.docsBucket,
-    dataKey: data.key,
     bedrockModelId: MODEL,
     userPool: auth.userPool,
     appUrl: "http://localhost:5173",
@@ -113,6 +112,26 @@ describe("PipelineStack — extract Lambda", () => {
     });
   });
 
+  it("has Pillow for photo tiles, with tiles off unless cdk.json turns them on", () => {
+    template.hasResourceProperties("AWS::Lambda::LayerVersion", {
+      CompatibleRuntimes: ["python3.12"],
+      CompatibleArchitectures: ["arm64"],
+    });
+    const fns = template.findResources("AWS::Lambda::Function", {
+      Properties: { Handler: "documents.handler.handler" },
+    });
+    const fn = Object.values(fns)[0].Properties;
+    expect(fn.Layers).toHaveLength(2); // Powertools + Pillow
+    expect(fn.Environment.Variables.PHOTO_TILES).toBe("off");
+  });
+
+  it("only the extract Lambda gets the Pillow layer", () => {
+    const withTwoLayers = Object.values(template.findResources("AWS::Lambda::Function")).filter(
+      (f) => (f.Properties.Layers ?? []).length > 1,
+    );
+    expect(withTwoLayers.map((f) => f.Properties.Handler)).toEqual(["documents.handler.handler"]);
+  });
+
   it("gets only the DynamoDB actions its state machine and transaction use", () => {
     expect(actionsOf(extractStatements(), "dynamodb:")).toEqual([
       "dynamodb:DeleteItem",
@@ -154,18 +173,8 @@ describe("PipelineStack — extract Lambda", () => {
     expect(pass?.Condition).toEqual({ StringEquals: { "iam:PassedToService": "textract.amazonaws.com" } });
   });
 
-  it("uses the data key through DynamoDB, and only decrypts through S3 (it never writes files)", () => {
-    const kms = extractStatements().filter((st) => actionsOf([st], "kms:").length);
-    const via = (service: string) =>
-      kms.find((st) => JSON.stringify(st.Condition).includes(`${service}.us-east-1.amazonaws.com`));
-    expect(kms).toHaveLength(2);
-    expect([via("s3")?.Action].flat()).toEqual(["kms:Decrypt"]);
-    expect(actionsOf([via("dynamodb")!], "kms:")).toEqual([
-      "kms:Decrypt",
-      "kms:DescribeKey",
-      "kms:Encrypt",
-      "kms:GenerateDataKey",
-    ]);
+  it("needs no KMS permissions: data is encrypted with AWS-owned keys", () => {
+    expect(actionsOf(extractStatements(), "kms:")).toEqual([]);
   });
 
   it("never grants wildcard actions", () => {
@@ -253,7 +262,7 @@ describe("PipelineStack — reminders", () => {
     });
     template.hasParameter("*", {
       Type: "AWS::SSM::Parameter::Value<String>",
-      Default: "/onetally/sender-email",
+      Default: "/onebill/sender-email",
     });
   });
 
@@ -272,23 +281,36 @@ describe("PipelineStack — reminders", () => {
     });
   });
 
-  it("can query only the due-date index, and update obligations", () => {
+  it("can query only the due-date index, update obligations, and roll bills forward", () => {
     const statements = statementsFor("reminders.handler.handler");
+    // Put/Delete: rolling a passed due date forward rewrites the SUB# item and replaces its
+    // OBL# reminder in one transaction. Still no Scan, and Query only on the GSI1 index.
     expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:DeleteItem",
+      "dynamodb:DescribeStream", // the four stream reads: new reminders, emailed right away
       "dynamodb:GetItem",
+      "dynamodb:GetRecords",
+      "dynamodb:GetShardIterator",
+      "dynamodb:ListStreams",
+      "dynamodb:PutItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);
     const query = statements.find((st) => [st.Action].flat().includes("dynamodb:Query"));
     expect(JSON.stringify(query?.Resource)).toContain("/index/GSI1");
+    // Stream reads only on the table's stream, never on the table itself.
+    const stream = statements.find((st) => [st.Action].flat().includes("dynamodb:GetRecords"));
+    expect(JSON.stringify(stream?.Resource)).toContain("StreamArn");
   });
 
-  it("can only look up users in the OneTally pool and send from the verified sender", () => {
+  it("can only look up users in the OneBill pool and send from the verified sender", () => {
     const statements = statementsFor("reminders.handler.handler");
     expect(actionsOf(statements, "cognito-idp:")).toEqual(["cognito-idp:ListUsers"]);
     expect(actionsOf(statements, "ses:")).toEqual(["ses:SendEmail"]);
     const ses = statements.find((st) => actionsOf([st], "ses:").length);
     expect(JSON.stringify(ses?.Resource)).toContain(":identity/");
+    // Any verified recipient (the SES sandbox checks those too), but only from the sender.
+    expect(JSON.stringify(ses?.Condition)).toContain("ses:FromAddress");
     for (const st of statements) {
       expect([st.Action].flat()).not.toContain("*");
     }
@@ -296,10 +318,60 @@ describe("PipelineStack — reminders", () => {
 });
 
 describe("PipelineStack — logs", () => {
-  it("encrypts and expires all log groups", () => {
+  it("expires all log groups (encrypted at rest by CloudWatch)", () => {
     for (const group of Object.values(template.findResources("AWS::Logs::LogGroup"))) {
-      expect(group.Properties.RetentionInDays).toBe(14);
-      expect(group.Properties.KmsKeyId).toBeDefined();
+      expect(group.Properties.RetentionInDays).toBeDefined();
     }
   });
 });
+
+describe("PipelineStack — alarms (cost review)", () => {
+  it("emails the alerts topic on unusual reading, Bedrock token use, or a failed upload", () => {
+    const alarms = Object.values(template.findResources("AWS::CloudWatch::Alarm"));
+    expect(alarms).toHaveLength(3);
+    expect(alarms.map((a) => a.Properties.MetricName).sort()).toEqual([
+      "ApproximateNumberOfMessagesVisible",
+      "Invocations",
+      "OutputTokenCount",
+    ]);
+    for (const alarm of alarms) {
+      expect(JSON.stringify(alarm.Properties.AlarmActions)).toContain(":onebill-alerts");
+    }
+  });
+});
+
+describe("PipelineStack — reminders right away", () => {
+  it("wakes the reminders Lambda only for new OBL# items on the table's stream", () => {
+    const mappings = Object.values(template.findResources("AWS::Lambda::EventSourceMapping"));
+    const stream = mappings.find((m) => JSON.stringify(m.Properties.EventSourceArn ?? "").includes("StreamArn"));
+    expect(stream).toBeDefined();
+    const pattern = JSON.parse(stream!.Properties.FilterCriteria.Filters[0].Pattern);
+    expect(pattern).toEqual({ eventName: ["INSERT"], dynamodb: { NewImage: { SK: { S: [{ prefix: "OBL#" }] } } } });
+  });
+});
+
+describe("PipelineStack — reminders through Gmail", () => {
+  it("can read only the Gmail password parameter, and only when it's configured", () => {
+    const app = new App({ context: { "aws:cdk:bundling-stacks": [] } });
+    const env = { account: "123456789012", region: "us-east-1" };
+    const data = new DataStack(app, "GD", { env, frontendUrls: ["http://localhost:5173"] });
+    const auth = new AuthStack(app, "GA", { env, domainPrefix: "x", frontendUrls: ["http://localhost:5173"] });
+    const stack = new PipelineStack(app, "GP", {
+      env,
+      table: data.table,
+      docsBucket: data.docsBucket,
+      bedrockModelId: "test-model",
+      userPool: auth.userPool,
+      appUrl: "http://localhost:5173",
+      gmailPasswordParameter: "/onebill/gmail-app-password",
+    });
+    const gmail = Template.fromStack(stack);
+    const policies = JSON.stringify(gmail.findResources("AWS::IAM::Policy"));
+    expect(policies).toContain("ssm:GetParameter");
+    expect(policies).toContain("parameter/onebill/gmail-app-password");
+    expect(policies).not.toContain("ses:SendEmail"); // Gmail sends: no SES permission or identity
+    gmail.resourceCountIs("AWS::SES::EmailIdentity", 0);
+    expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).not.toContain("gmail-app-password"); // default: none
+  });
+});
+

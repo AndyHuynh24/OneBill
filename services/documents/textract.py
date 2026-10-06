@@ -5,10 +5,13 @@ grouping is imperfect (summary lines often end up as "items"), so this module ke
 views side by side for the model, and leaves deciding what each line *is* to later steps.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from documents.image_tiles import Box
 from shared.money import format_cents, to_cents
+from shared.pii import address_lines, sensitive_spans
 
 MONEY_FIELDS = frozenset(
     {
@@ -24,6 +27,11 @@ MONEY_FIELDS = frozenset(
     }
 )
 HINT_FIELDS = frozenset({"VENDOR_NAME", "NAME", "INVOICE_RECEIPT_DATE", "DUE_DATE"})
+# Textract fields that hold the customer's name or address: never shown to the model, and lines
+# matching them are masked (phase 2c). The generic NAME/ADDRESS/STREET/CITY fields aren't here:
+# on a paper receipt they hold the store's name and address.
+CUSTOMER_FIELDS = frozenset({"RECEIVER_NAME", "RECEIVER_ADDRESS"})
+MASKED_LINE = "[PERSONAL INFO]"
 LOW_CONFIDENCE = 80.0
 
 
@@ -59,6 +67,10 @@ class ExpenseResult:
     line_items: list[LineItemRow] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
     currency: str | None = None
+    # Where each of `lines` sits on page 1 (same order), for cutting image tiles.
+    line_boxes: list[Box] = field(default_factory=list)
+    # Textract's OCR confidence (0–100) for each of `lines`, same order (phase 2d).
+    line_confidences: list[float] = field(default_factory=list)
 
     @property
     def summary_money(self) -> dict[str, int]:
@@ -99,10 +111,43 @@ class ExpenseResult:
     def _first_text(self, type_: str) -> str | None:
         return next((f.text for f in self.summary_fields if f.type == type_ and f.text), None)
 
+    def address_lines(self) -> set[int]:
+        """Lines holding the customer's name or address (masked whole, in text and image)."""
+        return address_lines(
+            self.lines,
+            self.line_boxes if len(self.line_boxes) == len(self.lines) else None,
+            [f.text for f in self.summary_fields if f.type in CUSTOMER_FIELDS],
+        )
+
+    def private_spans(self) -> list[tuple[int, float, float]]:
+        """What to black out in an image: (line index, start, end) as fractions of the line's
+        width. Address lines go whole; a card, account number, or email only its own characters,
+        so an item line with a product code keeps its name and price."""
+        whole = self.address_lines()
+        # Numbers Textract places inside an item row are product codes (UPCs), not accounts.
+        rows = " ".join(
+            f"{r.row_text or ''} {r.description}" for r in self.line_items if r.price_cents
+        )  # only rows Textract priced: payment lines it lumps in as items usually aren't
+        spans = [(i, 0.0, 1.0) for i in sorted(whole)]
+        for i, line in enumerate(self.lines):
+            if i in whole:
+                continue
+            for s, e in sensitive_spans(line):
+                if not _product_code(line, s, e, rows):
+                    spans.append((i, s / len(line), e / len(line)))
+        return spans
+
     def render_for_model(self) -> str:
-        """Three labelled views of the same document, so the model can cross-check them."""
+        """Three labelled views of the same document, so the model can cross-check them.
+        Customer names and addresses are left out; the caller still runs `redact` on the result."""
+        hidden = self.address_lines()
+        hidden_text = [self.lines[i].strip().lower() for i in hidden]
         summary = []
         for f in self.summary_fields:
+            if f.type in CUSTOMER_FIELDS or (
+                f.text.strip().lower() in hidden_text and f.type not in MONEY_FIELDS
+            ):
+                continue
             value = (
                 format_cents(f.cents) if f.type in MONEY_FIELDS and f.cents is not None else f.text
             )
@@ -125,10 +170,46 @@ class ExpenseResult:
                 *items,
                 "</textract_line_items>",
                 "<ocr_lines>",
-                *(_fenced(line) for line in self.lines),
+                *(
+                    MASKED_LINE if i in hidden else _fenced(line)
+                    for i, line in enumerate(self.lines)
+                ),
                 "</ocr_lines>",
             ]
         )
+
+
+# Words that mark a number as an account, card, or reference, never a product code.
+_PRIVATE_CONTEXT = re.compile(
+    r"(?i)\b(?:ref|trans|tc|auth|approval|acct|account|member|card|id|customer|service|"
+    r"policy|meter|invoice|no|visa|mastercard|master|amex|debit|credit|discover)\b|#"
+)
+_ITEM_NAME = re.compile(r"[A-Za-z]{2,}")
+
+
+def _valid_upc(digits: str) -> bool:
+    """UPC-A (12) / EAN-13 check digit: a random account number passes only 1 time in 10."""
+    if len(digits) not in (12, 13) or not digits.isdigit():
+        return False
+    body, check = digits[:-1], int(digits[-1])
+    weights = (3, 1) if len(digits) == 12 else (1, 3)
+    total = sum(int(d) * weights[i % 2] for i, d in enumerate(body))
+    return (10 - total % 10) % 10 == check
+
+
+def _product_code(line: str, start: int, end: int, rows: str) -> bool:
+    """A product code (UPC/EAN), not an account, only with evidence and no account or card
+    words before it: Textract put it in an item row that has a price (Walmart prints codes
+    without the check digit), or it's a valid UPC/EAN after an item name ("PAL ORI 828
+    006200000123": a size, then the code)."""
+    groups = line[start:end].split()
+    if not groups or not all(g.isdigit() for g in groups):
+        return False
+    before = line[:start]
+    if _PRIVATE_CONTEXT.search(before):
+        return False
+    code = groups[-1]
+    return code in rows.replace(" ", "") or (_valid_upc(code) and bool(_ITEM_NAME.search(before)))
 
 
 def parse_expense(responses: list[dict[str, Any]]) -> ExpenseResult:
@@ -150,8 +231,33 @@ def parse_expense(responses: list[dict[str, Any]]) -> ExpenseResult:
                     result.line_items.append(_line_item(row, item))
             line_blocks.extend(b for b in doc.get("Blocks", []) if b.get("BlockType") == "LINE")
     line_blocks.sort(key=_reading_order)
-    result.lines = [b["Text"] for b in line_blocks if b.get("Text")]
+    line_blocks = [b for b in line_blocks if b.get("Text")]
+    result.lines = [b["Text"] for b in line_blocks]
+    result.line_confidences = [float(b.get("Confidence", 0.0)) for b in line_blocks]
+    result.line_boxes = [_box(b) for b in line_blocks if b.get("Page", 1) == 1]
     return result
+
+
+TILT_RATIO = 0.18  # rise over run of a line's top edge; ≈ 10°
+
+
+def _box(block: dict[str, Any]) -> Box:
+    geometry = block.get("Geometry") or {}
+    box = geometry.get("BoundingBox") or {}
+    polygon = geometry.get("Polygon") or []
+    tilted = False
+    if len(polygon) >= 2:  # top-left → top-right corner of the line
+        dx = float(polygon[1].get("X", 0.0)) - float(polygon[0].get("X", 0.0))
+        dy = float(polygon[1].get("Y", 0.0)) - float(polygon[0].get("Y", 0.0))
+        tilted = abs(dy) > TILT_RATIO * abs(dx)
+    return Box(
+        float(box.get("Left", 0.0)),
+        float(box.get("Top", 0.0)),
+        float(box.get("Width", 0.0)),
+        float(box.get("Height", 0.0)),
+        block["Text"],
+        tilted,
+    )
 
 
 def _summary_field(raw: dict[str, Any]) -> SummaryField | None:

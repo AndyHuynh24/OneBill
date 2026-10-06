@@ -14,7 +14,7 @@ import pytest
 from botocore.stub import ANY, Stubber
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
-BUCKET = "onetally-docs-test"
+BUCKET = "onebill-docs-test"
 USER = "6f1c2a9e-1111-2222-3333-444455556666"
 DOC = "1790000000000aaaaaaaa"
 KEY = f"uploads/{USER}/{DOC}"
@@ -134,7 +134,7 @@ def expect_bedrock(env, name):
 # --- photos (sync Textract) ---------------------------------------------------------------------
 
 
-def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
+def test_photo_upload_becomes_a_ready_document_without_reminders(env):
     version = upload(env)
     expect_analyze_sync(env, version)  # OCR reads exactly the claimed upload
     expect_bedrock(env, "grocery_correct.json")
@@ -153,7 +153,7 @@ def test_photo_upload_becomes_a_ready_document_with_a_deadline(env):
         KeyConditionExpression="GSI1PK = :d",
         ExpressionAttributeValues={":d": "DUE#2026-10-28"},
     )["Items"]
-    assert [o["kind"] for o in obligations] == ["return_by"]
+    assert obligations == []  # receipts make no reminders (return windows aren't tracked)
 
 
 def test_duplicate_event_makes_no_paid_calls(env):
@@ -365,4 +365,66 @@ def test_page_budget_is_skipped_when_daily_limits_are_off(env, monkeypatch):
 
     run(env, s3_event(version=version))
 
+    assert doc(env)["status"] == "ready"
+
+
+# --- photo tiles next to the OCR text (phase 2c) ------------------------------------------------
+
+
+def jpeg_bytes():
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (600, 800), "white").save(out, "JPEG")
+    return out.getvalue()
+
+
+def spy_on_extract(env, monkeypatch):
+    seen = []
+    real = env["handler"].extract
+
+    def spy(client, model_id, expense, images=()):
+        seen.append(list(images))
+        return real(client, model_id, expense, images)
+
+    monkeypatch.setattr(env["handler"], "extract", spy)
+    return seen
+
+
+def test_photo_tiles_are_off_by_default(env, monkeypatch):
+    seen = spy_on_extract(env, monkeypatch)
+    version = upload(env, body=jpeg_bytes())
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version))
+
+    assert seen == [[]]
+
+
+def test_with_photo_tiles_on_the_photo_goes_with_the_text(env, monkeypatch):
+    monkeypatch.setattr(env["handler"], "PHOTO_TILES", True)
+    seen = spy_on_extract(env, monkeypatch)
+    version = upload(env, body=jpeg_bytes())
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version))
+
+    assert len(seen[0]) == 1
+    assert doc(env)["status"] == "ready"
+
+
+def test_a_photo_that_cant_be_prepared_is_read_from_text_alone(env, monkeypatch):
+    monkeypatch.setattr(env["handler"], "PHOTO_TILES", True)
+    seen = spy_on_extract(env, monkeypatch)
+    version = upload(env)  # not a real JPEG
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version))
+
+    assert seen == [[]]
     assert doc(env)["status"] == "ready"

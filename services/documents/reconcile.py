@@ -8,7 +8,7 @@ into the total.
 
 import re
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Any, Literal
 
 from shared.money import format_cents
 
@@ -85,7 +85,13 @@ class Reconciliation:
     notes: list[str] = field(default_factory=list)
     suspect_rows: list[int] = field(default_factory=list)
     total_ok: bool | None = None  # None when there is no total to check
+    # Prices already include tax (common outside the US): items add up to the total, and the
+    # printed tax is the part of it that's tax. Splitting must not add the tax again.
+    tax_included: bool = False
     overage_cents: int = 0  # computed − printed total, when the total check fails
+    # The two checks as numbers, for showing the user (phase 2d): items → subtotal, and
+    # subtotal + charges → total. Plain ints/bools/None.
+    math: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -96,6 +102,7 @@ def reconcile(
     lines: list[Line],
     textract_summary: dict[str, int] | None = None,
     total_required: bool = True,
+    savings: set[int] | None = None,
 ) -> Reconciliation:
     """Check a labelled receipt, correcting mislabelled summary lines when the math proves it.
 
@@ -107,7 +114,44 @@ def reconcile(
     """
     textract_values = set((textract_summary or {}).values())
     normalized = [_normalize_discount(line) for line in lines]
+    normalized, originals = _crossed_out_originals(normalized, savings or set())
+    result = _reconcile(normalized, textract_values, total_required)
+    result.corrections = originals + result.corrections
+    return result
 
+
+def _crossed_out_originals(
+    lines: list[Line], savings: set[int]
+) -> tuple[list[Line], list[Correction]]:
+    """Online orders print a sale price, the crossed-out original, and "$1.60 from savings". If
+    the same product appears twice and the two prices differ by exactly a printed saving, the
+    higher one is the crossed-out original: relabel it info. (The only rule that touches items,
+    and only with that printed evidence.)"""
+    if not savings:
+        return lines, []
+    groups: dict[str, list[Line]] = {}
+    for line in lines:
+        if line.kind == "item":
+            groups.setdefault(_normalize(line.description), []).append(line)
+    relabel: dict[int, LineKind] = {}
+    for group in groups.values():
+        used: set[int] = set()
+        for high in sorted(group, key=lambda line: line.amount_cents, reverse=True):
+            for low in group:
+                if {high.row, low.row} & used or low.amount_cents >= high.amount_cents:
+                    continue
+                if any(_close(high.amount_cents - low.amount_cents, s) for s in savings):
+                    relabel[high.row] = "info"
+                    used |= {high.row, low.row}
+                    break
+    if not relabel:
+        return lines, []
+    return _apply(lines, relabel, "crossed-out original price (its saving is printed)")
+
+
+def _reconcile(
+    normalized: list[Line], textract_values: set[int], total_required: bool
+) -> Reconciliation:
     as_given = _check(normalized, total_required)
     if as_given.ok:
         return as_given
@@ -149,6 +193,10 @@ def _with_overage_rule(
     """
     result = _check(lines, total_required)
     result.corrections = list(corrections)
+    if result.total_ok is False:
+        repeated = _without_repeated_discounts(lines, corrections, total_required)
+        if repeated is not None:
+            return repeated
     if result.total_ok is not False or result.overage_cents <= 0:
         return result
     candidates = [line for line in lines if line.kind in _RECAP_KINDS]
@@ -174,6 +222,38 @@ def _with_overage_rule(
     fixed = _check(fixed_lines, total_required)
     if fixed.total_ok is not True:
         return result
+    fixed.corrections = list(corrections) + extra
+    return fixed
+
+
+def _without_repeated_discounts(
+    lines: list[Line], corrections: list[Correction], total_required: bool
+) -> Reconciliation | None:
+    """A discount shown under its item and again, same amount, in the summary below the
+    subtotal is one discount printed twice. If counting it once makes the total add up, the
+    summary copy is relabelled info (the copy under the item stays, so splitting keeps it with
+    that item)."""
+    subtotal_rows = [line.row for line in lines if line.kind == "subtotal"]
+    if not subtotal_rows:
+        return None
+    first_subtotal = min(subtotal_rows)
+    above = [line for line in lines if line.kind == "discount" and line.row < first_subtotal]
+    below = [line for line in lines if line.kind == "discount" and line.row > first_subtotal]
+    relabel: dict[int, LineKind] = {}
+    used: set[int] = set()
+    for repeat in below:
+        match = next(
+            (d for d in above if d.row not in used and d.amount_cents == repeat.amount_cents), None
+        )
+        if match is not None:
+            used.add(match.row)
+            relabel[repeat.row] = "info"
+    if not relabel:
+        return None
+    fixed_lines, extra = _apply(lines, relabel, "repeats a discount already shown under its item")
+    fixed = _check(fixed_lines, total_required)
+    if fixed.total_ok is not True:
+        return None
     fixed.corrections = list(corrections) + extra
     return fixed
 
@@ -285,34 +365,66 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         change_cents=_sum(lines, "change"),
     )
     goods = r.items_cents + r.discounts_cents
-
-    # 1. items (+ discounts, maybe + fees) ≈ printed subtotal
+    totals = [line.amount_cents for line in lines if line.kind == "total"]
+    if not totals:
+        totals = [line.amount_cents for line in lines if line.kind == "balance_due"]
     subtotals = _distinct([line.amount_cents for line in lines if line.kind == "subtotal"])
+
+    # Tax-inclusive pricing: the items already add up to the total, and (when a pre-tax
+    # subtotal is printed) subtotal + tax gives the same total.
+    if r.tax_cents and totals:
+        extras = r.tip_cents + r.fees_cents
+        r.tax_included = _close(goods + extras, totals[-1]) and (
+            not subtotals or _close(subtotals[-1] + r.tax_cents + extras, totals[-1])
+        )
+
+    # 1. items (+ discounts, maybe + fees) ≈ printed subtotal. Some receipts print the subtotal
+    # before discounts and take them off after it (and before tax): then the items alone match
+    # the subtotal, and the discounts reduce what tax and the total are based on.
     fees_in_subtotal = False
+    discounts_after = False
     if len(subtotals) > 1:
         shown = ", ".join(format_cents(v) for v in subtotals)
         r.issues.append(f"The document shows different subtotals ({shown}).")
     if subtotals:
         printed = subtotals[-1]
         r.printed_subtotal_cents = printed
-        if _close(goods, printed):
+        if _close(goods, printed) or r.tax_included:  # tax-inclusive: subtotal is pre-tax
             pass
         elif r.fees_cents and _close(goods + r.fees_cents, printed):
             fees_in_subtotal = True
         else:
-            r.issues.append(
-                f"Items add up to {format_cents(goods)} but the receipt's subtotal is "
-                f"{format_cents(printed)} (off by {format_cents(abs(goods - printed))})."
+            # Before discounts: the items alone match, or (a receipt a few cents off) only
+            # taking the discounts off after the subtotal makes the total add up.
+            discounts_after = bool(r.discounts_cents) and (
+                _close(r.items_cents, printed)
+                or (
+                    bool(totals)
+                    and _close(
+                        printed + r.discounts_cents + r.tax_cents + r.tip_cents + r.fees_cents,
+                        totals[-1],
+                    )
+                )
             )
+            compared = r.items_cents if discounts_after else goods
+            if not _close(compared, printed):
+                r.issues.append(
+                    f"Items add up to {format_cents(compared)} but the receipt's subtotal is "
+                    f"{format_cents(printed)} (off by {format_cents(abs(compared - printed))})."
+                )
         basis = printed
     else:
         basis = goods
 
     # 2. subtotal + tax + tip + fees ≈ printed total (or amount due on bills)
-    totals = [line.amount_cents for line in lines if line.kind == "total"]
-    if not totals:
-        totals = [line.amount_cents for line in lines if line.kind == "balance_due"]
-    expected = basis + r.tax_cents + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
+    if r.tax_included:  # the tax is already inside the item prices
+        basis, tax_added = goods, 0
+    else:
+        tax_added = r.tax_cents
+    discount_after = r.discounts_cents if discounts_after else 0
+    expected = (
+        basis + discount_after + tax_added + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
+    )
     if not totals:
         if total_required:
             r.issues.append("No total or amount due was found on the document.")
@@ -323,6 +435,8 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         r.overage_cents = expected - final
         if not r.total_ok:
             parts = [f"subtotal {format_cents(basis)}"]
+            if discount_after:
+                parts.append(f"discount {format_cents(discount_after)}")
             if r.tax_cents:
                 parts.append(f"tax {format_cents(r.tax_cents)}")
             if r.tip_cents:
@@ -341,6 +455,30 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
                 continue
             shown = f"{format_cents(other)} and {format_cents(final)}"
             r.issues.append(f"The document shows conflicting totals ({shown}).")
+
+    r.math = {
+        # calculated: items + discounts as read (items alone when discounts come after the
+        # subtotal, since that's what the subtotal is)
+        "itemsCents": r.items_cents if discounts_after else goods,
+        "subtotalCents": r.printed_subtotal_cents,  # printed
+        "itemsMatch": None
+        if r.printed_subtotal_cents is None
+        else (
+            _close(r.items_cents if discounts_after else goods, r.printed_subtotal_cents)
+            or r.tax_included
+            or fees_in_subtotal
+        ),
+        "discountAfterCents": discount_after,  # negative: taken off after the subtotal
+        "feesInSubtotal": fees_in_subtotal,
+        "basisCents": basis,
+        "taxCents": tax_added,
+        "tipCents": r.tip_cents,
+        "feesCents": 0 if fees_in_subtotal else r.fees_cents,
+        "expectedCents": expected,  # calculated
+        "totalCents": r.total_cents,  # printed
+        "totalMatch": r.total_ok,
+        "taxIncluded": r.tax_included,
+    }
 
     # 3. what was paid − change ≈ total. Receipts print payments in several ways: the amount
     # applied ("CASH 58.40"), the amount handed over ("TENDER 60.00", then "CHANGE 1.60"), or

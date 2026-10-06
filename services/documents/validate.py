@@ -11,16 +11,13 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+from documents.confidence import assess
 from documents.extraction import Deadline, ExtractionOutcome
 from documents.grounding import ungrounded
 from documents.textract import ExpenseResult
 from shared.dates import parse_iso_date
 from shared.money import format_cents
 from shared.pii import redact
-
-# Receipts are for splitting; the only reminder a receipt earns is a printed return policy.
-# Other kinds (warranty, renewal, payment due) belong to bills and subscriptions.
-RECEIPT_DEADLINE_TYPES = frozenset({"return_by"})
 
 MIN_TOTAL_CONFIDENCE = 80.0
 MAX_YEARS_AHEAD = 10
@@ -52,6 +49,10 @@ class ValidationResult:
     corrections: list[dict[str, Any]]
     obligations: list[Obligation] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # oddities that don't need a review
+    tax_included: bool = False  # item prices already include the tax
+    # {"level": "confident" | "mostly" | "check", "checks": [{"row", "reason"}]} (phase 2d)
+    confidence: dict[str, Any] = field(default_factory=dict)
+    math: dict[str, Any] = field(default_factory=dict)  # see Reconciliation.math
 
 
 def validate(
@@ -76,9 +77,9 @@ def validate(
     printed_text = _searchable(expense.lines)
     purchase_date = parse_iso_date(doc.document_date)
     obligations: list[Obligation] = []
-    for deadline in doc.deadlines:
-        if doc.doc_type == "receipt" and deadline.type not in RECEIPT_DEADLINE_TYPES:
-            continue  # out of scope for receipts: dropped quietly, not an error
+    # Receipts are for splitting and make no reminders; deadlines belong to bills and
+    # subscriptions. Any the model finds on a receipt are dropped quietly, not an error.
+    for deadline in doc.deadlines if doc.doc_type != "receipt" else ():
         if not _is_printed(deadline.evidence, printed_text):
             issues.append(
                 f'A deadline ("{deadline.evidence}") isn\'t printed on the document, '
@@ -102,8 +103,20 @@ def validate(
             continue
         obligations.append(Obligation(deadline.type, due, deadline.evidence, rec.total_cents))
 
+    assessment = assess(
+        rec.lines,
+        expense.lines,
+        expense.line_confidences or None,
+        suspect_rows=rec.suspect_rows,
+        attempts=outcome.attempts,
+        adds_up=rec.ok,
+    )
+    if issues:
+        assessment["level"] = "check"  # anything sent to review is never "confident"
     return ValidationResult(
         status="needs_review" if issues else "ready",
+        confidence=assessment,
+        math=rec.math,
         issues=issues,
         doc_type=doc.doc_type,
         vendor=doc.vendor,
@@ -136,6 +149,7 @@ def validate(
         ],
         obligations=obligations,
         notes=list(rec.notes),
+        tax_included=rec.tax_included,
     )
 
 

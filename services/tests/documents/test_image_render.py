@@ -1,0 +1,167 @@
+import io
+
+from PIL import Image
+
+from documents.image_render import model_images
+from documents.image_tiles import MAX_EDGE, MAX_PIXELS, Box
+from documents.textract import ExpenseResult, LineItemRow
+
+
+def photo(width: int, height: int, orientation: int | None = None) -> bytes:
+    image = Image.new("RGB", (width, height), "white")
+    exif = Image.Exif()
+    if orientation:
+        exif[0x0112] = orientation
+    out = io.BytesIO()
+    image.save(out, "JPEG", exif=exif)
+    return out.getvalue()
+
+
+def opened(data: bytes) -> Image.Image:
+    return Image.open(io.BytesIO(data)).convert("RGB")
+
+
+def receipt(lines: list[tuple[str, Box]]) -> ExpenseResult:
+    return ExpenseResult(pages=1, lines=[t for t, _ in lines], line_boxes=[b for _, b in lines])
+
+
+ROWS = [
+    (f"ITEM {i} 4.97", Box(0.1, 0.03 + 0.05 * i, 0.8, 0.03, f"ITEM {i} 4.97")) for i in range(18)
+]
+# Lines in the photo's corners: the text area is then the whole photo, so a test can check pixels
+# at the boxes' own positions.
+CORNERS = [
+    ("STORE", Box(0.0, 0.0, 0.2, 0.02, "STORE")),
+    ("THANK YOU", Box(0.8, 0.98, 0.2, 0.02, "THANK YOU")),
+]
+
+
+def test_a_readable_photo_is_sent_as_one_image_cropped_to_its_text():
+    images = model_images(photo(800, 1000), receipt(ROWS))
+
+    assert len(images) == 1
+    # ROWS span x 0.1–0.9 and y 0.03–0.91; with a 2% margin, nothing else of the photo is sent
+    # (barcodes and background the OCR didn't read never reach the model).
+    assert opened(images[0]).size == (672, 922)
+
+
+def test_with_text_in_the_corners_the_whole_photo_is_kept():
+    (image,) = model_images(photo(800, 1000), receipt(ROWS + CORNERS))
+
+    assert opened(image).size == (800, 1000)
+
+
+def test_the_customers_address_and_card_are_blacked_out():
+    card = Box(0.1, 0.5, 0.5, 0.05, "VISA Ending in 6262")
+    street = Box(0.1, 0.6, 0.5, 0.05, "12 Elm St")
+    city = Box(0.1, 0.7, 0.5, 0.05, "Ottawa ON K1S 5B7")
+    lines = [
+        *CORNERS,
+        ROWS[0],
+        ("VISA Ending in 6262", card),
+        ("12 Elm St", street),
+        ("Ottawa ON K1S 5B7", city),
+    ]
+
+    (image,) = model_images(photo(1000, 1000), receipt(lines))
+
+    pixels = opened(image)
+
+    def at(box: Box, fraction: float) -> tuple[int, int, int]:
+        x = int((box.left + box.width * fraction) * 1000)
+        return pixels.getpixel((x, int((box.top + box.height / 2) * 1000)))
+
+    for box in (street, city):
+        assert max(at(box, 0.5)) < 40, box.text  # address lines go whole
+    assert max(at(card, 0.9)) < 40  # the card digits
+    assert min(at(card, 0.1)) > 215  # "VISA" stays
+    assert min(pixels.getpixel((500, 300))) > 215  # elsewhere untouched
+
+
+def test_an_account_number_is_blacked_out_but_the_rest_of_the_line_stays():
+    text = "Account number 004412345678"
+    line = Box(0.1, 0.5, 0.8, 0.05, text)
+
+    (image,) = model_images(photo(1000, 1000), receipt([ROWS[0], (text, line)]))
+
+    pixels = opened(image)
+    y = int(0.525 * 1000)
+    assert min(pixels.getpixel((int((0.1 + 0.8 * 0.1) * 1000), y))) > 215  # "Account"
+    assert max(pixels.getpixel((int((0.1 + 0.8 * 0.8) * 1000), y))) < 40  # the number
+
+
+def test_a_product_code_textract_lists_in_an_item_row_isnt_blacked_out():
+    """Paper Walmart receipts print a UPC on each item line, often with the price on its own
+    line: it's part of an item row, not an account number."""
+    text = "GV MILK 007874235186"
+    line = Box(0.1, 0.5, 0.6, 0.05, text)
+    expense = receipt([ROWS[0], (text, line)])
+    expense.line_items = [LineItemRow(1, "GV MILK", 348, None, "GV MILK 007874235186 3.48", 99.0)]
+
+    (image,) = model_images(photo(1000, 1000), expense)
+
+    assert min(opened(image).getpixel((int((0.1 + 0.6 * 0.8) * 1000), 525))) > 215
+
+
+def test_small_print_in_a_tall_screenshot_is_sent_as_tiles_within_the_models_limits():
+    rows = [
+        (f"ITEM {i} 3.96", Box(0.1, 0.004 + 0.0035 * i, 0.8, 0.0028, f"ITEM {i} 3.96"))
+        for i in range(280)
+    ]
+
+    images = model_images(photo(1152, 4096), receipt(rows))
+
+    assert len(images) > 1
+    for data in images:
+        w, h = opened(data).size
+        assert max(w, h) <= MAX_EDGE
+        assert w * h <= MAX_PIXELS
+
+
+def test_without_line_positions_no_image_is_sent():
+    """PII can't be masked without knowing where lines are: text only."""
+    expense = ExpenseResult(pages=1, lines=["12 Elm St", "Ottawa ON K1S 5B7"])
+
+    assert model_images(photo(800, 1000), expense) == []
+
+
+def test_an_unreadable_file_means_text_only():
+    assert model_images(b"not an image", receipt(ROWS)) == []
+
+
+def test_masks_land_on_the_text_of_a_photo_stored_sideways():
+    """iPhone portrait: pixels stored sideways + EXIF orientation 6. Textract's boxes are on the
+    photo as viewed (verified with a real Textract call), so masks go on after the rotation."""
+    card = Box(0.1, 0.8, 0.6, 0.05, "Account 004412345678")  # bottom of the upright receipt
+
+    lines = [*CORNERS, ROWS[0], (card.text, card)]
+    (image,) = model_images(photo(1000, 800, orientation=6), receipt(lines))
+
+    upright = opened(image)
+    assert upright.size == (800, 1000)
+    w, h = upright.size
+    assert max(upright.getpixel((int(0.65 * w), int(0.825 * h)))) < 40  # the digits: masked
+    assert min(upright.getpixel((int(0.15 * w), int(0.825 * h)))) > 215  # "Account": kept
+
+
+def test_a_huge_image_is_refused_before_decoding():
+    big = io.BytesIO()
+    Image.new("RGB", (8000, 7000), "white").save(big, "PNG")  # 56 MP
+
+    assert model_images(big.getvalue(), receipt(ROWS)) == []
+
+
+def test_only_jpeg_and_png_are_opened():
+    gif = io.BytesIO()
+    Image.new("RGB", (800, 1000), "white").save(gif, "GIF")
+
+    assert model_images(gif.getvalue(), receipt(ROWS)) == []
+
+
+def test_a_slanted_line_is_masked_whole_not_just_its_digits():
+    text = "VISA Ending in 6262"
+    card = Box(0.1, 0.5, 0.6, 0.05, text, tilted=True)
+
+    (image,) = model_images(photo(1000, 1000), receipt([ROWS[0], (text, card)]))
+
+    assert max(opened(image).getpixel((int(0.15 * 1000), 525))) < 40  # even "VISA" is covered

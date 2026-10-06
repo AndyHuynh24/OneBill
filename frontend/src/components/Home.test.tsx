@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, type OneTallyApi } from "../api";
-import { fakeApi } from "../test/fakeApi";
+import { ApiError, type OneBillApi } from "../api";
+import { NETFLIX, fakeApi } from "../test/fakeApi";
 import { type AuthStatus, Home } from "./Home";
 
-function renderHome(status: AuthStatus, api: OneTallyApi = fakeApi()) {
+function renderHome(status: AuthStatus, api: OneBillApi = fakeApi()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const props = { status, api, onSignIn: vi.fn(), onSignOut: vi.fn() };
   render(
@@ -56,27 +56,28 @@ describe("Home — signed in", () => {
     expect(await screen.findByText("Target")).toBeInTheDocument();
     expect(screen.getByText("Reading…")).toBeInTheDocument();
     expect(screen.getByText("Check this")).toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument(); // the normal state needs no label
     expect(screen.getByText(/\$84\.10/)).toBeInTheDocument();
   });
 
   it("lists upcoming deadlines", async () => {
     const api = fakeApi({
       listObligations: vi.fn().mockResolvedValue({
-        obligations: [{ oblId: "o1", docId: "d1", kind: "return_by", dueDate: "2026-10-28", vendor: "Target" }],
+        obligations: [{ oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E" }],
       }),
     });
     renderHome("signedIn", api);
 
-    expect(await screen.findByText(/Return by: Target/)).toBeInTheDocument();
+    expect(await screen.findByText("PG&E")).toBeInTheDocument();
+    expect(screen.getByText(/payment due in \d+ days/i)).toBeInTheDocument();
     expect(api.listObligations).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
   });
 
   it("shows friendly empty states", async () => {
     renderHome("signedIn");
 
-    expect(await screen.findByText(/tap scan to add your first/i)).toBeInTheDocument();
-    expect(screen.getByText(/no deadlines/i)).toBeInTheDocument();
+    expect(await screen.findByText(/tap scan receipt to add your first/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing coming up/i)).toBeInTheDocument();
   });
 
   it("uploads the scanned file", async () => {
@@ -89,9 +90,9 @@ describe("Home — signed in", () => {
     expect(api.uploadDocument).toHaveBeenCalledWith(file);
   });
 
-  it("explains when uploads are invite-only", async () => {
+  it("explains when today's uploads are used up", async () => {
     const api = fakeApi({
-      uploadDocument: vi.fn().mockRejectedValue(new ApiError("Uploads are invite-only for now.", 403)),
+      uploadDocument: vi.fn().mockRejectedValue(new ApiError("You've used today's 3 uploads. Try again tomorrow.", 429)),
     });
     renderHome("signedIn", api);
 
@@ -100,7 +101,7 @@ describe("Home — signed in", () => {
       new File(["x"], "a.jpg", { type: "image/jpeg" }),
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Uploads are invite-only for now.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You've used today's 3 uploads. Try again tomorrow.");
   });
 
   it("opens a document's details", async () => {
@@ -164,6 +165,150 @@ describe("Home — signed in", () => {
 
     expect(await screen.findByText("Target")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows subscriptions with next month's total, and opens one", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: true, createdAt: "x", lastUsedAt: null },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    expect(await screen.findByRole("heading", { name: /subscriptions/i })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /netflix/i }));
+
+    expect(await screen.findByRole("dialog", { name: "Netflix" })).toBeInTheDocument();
+  });
+
+  it("Connect Gmail opens the setup sheet", async () => {
+    renderHome("signedIn");
+
+    await userEvent.click(await screen.findByRole("button", { name: /connect gmail/i }));
+
+    expect(await screen.findByRole("dialog", { name: /connect gmail/i })).toBeInTheDocument();
+  });
+
+  it("Recent shows the 5 newest; View all opens every document, and Back returns", async () => {
+    const many = {
+      ...DOCS,
+      documents: Array.from({ length: 8 }, (_, i) => ({
+        docId: `d${i}`,
+        status: "ready",
+        vendor: `Shop ${i}`,
+        totalCents: 100 * (i + 1),
+        createdAt: "x",
+      })),
+    };
+    renderHome("signedIn", fakeApi({ listDocuments: vi.fn().mockResolvedValue(many) }));
+
+    expect(await screen.findByText("Shop 4")).toBeInTheDocument();
+    expect(screen.queryByText("Shop 5")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /view all receipts/i }));
+    expect(screen.getByRole("heading", { name: /all receipts/i })).toBeInTheDocument();
+    expect(screen.getByText("Shop 7")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /back/i }));
+    expect(screen.getByRole("heading", { name: /subscriptions & bills/i, level: 2 })).toBeInTheDocument();
+  });
+
+  it("the subscriptions page shows them all", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /^view all$/i }));
+
+    expect(screen.getByRole("heading", { name: /subscriptions & bills/i, level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: /subscriptions/i })).toHaveTextContent("Netflix");
+  });
+
+  it("subscriptions and bill due dates share one list: the 3 soonest, each once", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [
+          NETFLIX, // renews Nov 1
+          { ...NETFLIX, serviceKey: "spotify", service: "Spotify", nextRenewal: "2026-10-20" },
+          { ...NETFLIX, serviceKey: "gym", service: "Gym", nextRenewal: "2026-12-01" },
+        ],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+      listObligations: vi.fn().mockResolvedValue({
+        obligations: [
+          { oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E", amountCents: 8734 },
+          { oblId: "o2", docId: "x", kind: "renewal", dueDate: "2026-10-20", vendor: "Spotify" }, // Spotify's own reminder
+        ],
+      }),
+    });
+    renderHome("signedIn", api);
+
+    const rows = await screen.findAllByRole("button", { name: /renews|due/i });
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Spotify"),
+      expect.stringContaining("PG&E"),
+      expect.stringContaining("Netflix"),
+    ]);
+    expect(screen.queryByText("Gym")).not.toBeInTheDocument(); // 4th: on the full page
+  });
+
+  it("tapping a bill's due date opens that bill; a subscription opens its sheet", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+      listObligations: vi.fn().mockResolvedValue({
+        obligations: [{ oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E" }],
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /PG&E/ }));
+    expect(api.getDocument).toHaveBeenCalledWith("d1");
+
+    await userEvent.click(screen.getByRole("button", { name: /close/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Netflix/ }));
+    expect(await screen.findByRole("dialog", { name: /netflix/i })).toBeInTheDocument();
+  });
+
+  it("the full page lists bill due dates (not subscription reminders) and can remove one", async () => {
+    const api = fakeApi({
+      listSubscriptions: vi.fn().mockResolvedValue({
+        subscriptions: [NETFLIX],
+        connection: { connected: false, createdAt: null, lastUsedAt: null },
+      }),
+      listObligations: vi.fn().mockResolvedValue({
+        obligations: [
+          { oblId: "o1", docId: "d1", kind: "payment_due", dueDate: "2026-10-28", vendor: "PG&E" },
+          { oblId: "o2", docId: "x", kind: "renewal", dueDate: "2026-11-01", vendor: "Netflix" },
+        ],
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /^view all$/i }));
+
+    const due = screen.getByRole("region", { name: /bill due dates/i });
+    expect(due).toHaveTextContent("Payment due: PG&E");
+    expect(due).not.toHaveTextContent("Netflix");
+  });
+
+  it("reminder emails are on by default and can be turned off", async () => {
+    const api = fakeApi();
+    renderHome("signedIn", api);
+
+    const toggle = await screen.findByRole("switch", { name: /email reminders/i });
+    expect(toggle).toBeChecked();
+    await userEvent.click(toggle);
+
+    expect(api.setEmailReminders).toHaveBeenCalledWith(false);
+    expect(await screen.findByRole("switch", { name: /email reminders/i })).not.toBeChecked();
   });
 
   it("signs out", async () => {

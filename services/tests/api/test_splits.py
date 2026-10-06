@@ -96,11 +96,38 @@ def test_resaving_needs_the_current_version(table):
     assert resaved["version"] == 2
 
 
-def test_a_bill_that_doesnt_add_up_must_be_fixed_first(table):
-    put_doc(table, status="needs_review", total=5000)
+def test_a_bill_that_doesnt_add_up_is_split_on_the_recorded_items(table):
+    put_doc(table, status="needs_review", total=5000)  # printed total is a misread
 
-    with pytest.raises(BadRequest, match="add up"):
-        save_split(table, "user-a", DOC, body(), NOW)
+    split = save_split(table, "user-a", DOC, body(), NOW)
+
+    assert split["totalCents"] == 4556  # what the recorded lines add up to
+    assert split["receiptTotalCents"] == 5000
+    assert split["matchesReceipt"] is False
+    assert sum(s["totalCents"] for s in split["shares"]) == 4556
+
+
+def test_a_tax_inclusive_bill_doesnt_need_a_choice_for_its_tax(table):
+    lines = [
+        {"row": 1, "description": "COMBO", "kind": "item", "amountCents": 8700000},
+        {"row": 2, "description": "TEA", "kind": "item", "amountCents": 1200000},
+        {"row": 3, "description": "SUBTOTAL", "kind": "subtotal", "amountCents": 9166667},
+        {"row": 4, "description": "VAT", "kind": "tax", "amountCents": 733333},
+        {"row": 5, "description": "TOTAL", "kind": "total", "amountCents": 9900000},
+    ]
+    put_doc(table, lines=lines, total=9900000)
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{DOC}"},
+        UpdateExpression="SET taxIncluded = :t",
+        ExpressionAttributeValues={":t": True},
+    )
+
+    split = save_split(
+        table, "user-a", DOC, body(assignments={"1": [1], "2": [2]}, charges={}), NOW
+    )
+
+    assert split["matchesReceipt"] is True
+    assert [s["totalCents"] for s in split["shares"]] == [0, 8700000, 1200000]
 
 
 def test_someone_elses_document_is_not_found(table):
@@ -191,3 +218,20 @@ def test_correcting_only_the_total_also_clears_the_split(table):
     )
 
     assert "split" not in doc
+
+
+def test_a_charge_can_be_shared_by_some_people_like_an_item(table):
+    put_doc(table)
+
+    split = save_split(
+        table,
+        "user-a",
+        DOC,
+        body(charges={"5": {"mode": "proportional"}, "6": {"mode": "people", "members": [1, 2]}}),
+        NOW,
+    )
+
+    ids = [m["id"] for m in split["members"]]
+    assert split["charges"]["6"] == {"mode": "people", "members": [ids[1], ids[2]]}
+    me = next(s for s in split["shares"] if s["member"] == ids[0])
+    assert me["extrasCents"] < 710  # Me doesn't share the tip

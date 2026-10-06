@@ -1,4 +1,4 @@
-"""Documents API Lambda: POST/GET /documents, GET/PATCH /documents/{docId}, GET /obligations.
+"""Documents API Lambda: documents, obligations, splits, subscriptions, and the Gmail ingest key.
 
 Thin: read the verified user ID and groups from the JWT claims, validate the request shape,
 call logic, map errors to HTTP status codes.
@@ -8,6 +8,7 @@ import os
 import re
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import unquote
 
 import boto3
 from aws_lambda_powertools import Logger, Tracer
@@ -18,6 +19,8 @@ from botocore.config import Config
 
 from api.documents import logic, splits
 from shared.dates import app_today, parse_iso_date
+from subscriptions import ingest as ingest_keys
+from subscriptions import store as subscriptions
 
 logger = Logger()
 tracer = Tracer()
@@ -108,6 +111,21 @@ def review_document(doc_id: str) -> dict[str, Any]:
     return document
 
 
+@app.delete("/obligations/<obl_id>")
+@tracer.capture_method
+def remove_obligation(obl_id: str) -> Response:
+    logic.remove_obligation(table, _user_id(), obl_id, datetime.now(UTC))
+    return Response(status_code=204)
+
+
+@app.delete("/documents/<doc_id>")
+@tracer.capture_method
+def delete_document(doc_id: str) -> Response:
+    logic.delete_document(table, s3, BUCKET, _user_id(), doc_id, datetime.now(UTC))
+    logger.info("document_deleted", extra={"docId": doc_id})
+    return Response(status_code=204)
+
+
 @app.get("/obligations")
 @tracer.capture_method
 def list_obligations() -> dict[str, Any]:
@@ -134,6 +152,77 @@ def save_split(doc_id: str) -> dict[str, Any]:
         extra={"docId": doc_id, "people": len(split["members"]), "version": split["version"]},
     )
     return split
+
+
+@app.get("/subscriptions")
+@tracer.capture_method
+def list_subscriptions() -> dict[str, Any]:
+    user_id = _user_id()
+    return {
+        "subscriptions": subscriptions.list_subscriptions(table, user_id),
+        "connection": ingest_keys.key_status(table, user_id),
+    }
+
+
+@app.post("/subscriptions")
+@tracer.capture_method
+def add_subscription() -> tuple[dict[str, Any], int]:
+    body = app.current_event.json_body or {}
+    try:
+        return subscriptions.add_subscription(table, _user_id(), body, datetime.now(UTC)), 201
+    except subscriptions.InvalidEdit as err:
+        raise logic.BadRequest(str(err)) from err
+    except subscriptions.AlreadyTracked as err:
+        raise logic.Conflict(f"{err} is already in your list.") from err
+
+
+@app.patch("/subscriptions/<key>")
+@tracer.capture_method
+def edit_subscription(key: str) -> dict[str, Any]:
+    body = app.current_event.json_body or {}
+    try:
+        if isinstance(body, dict) and body.get("action") == "reminders":
+            if not isinstance(body.get("on"), bool):
+                raise logic.BadRequest('"on" must be true or false.')
+            return subscriptions.set_reminders(
+                table, _user_id(), unquote(key), on=body["on"], now=datetime.now(UTC)
+            )
+        return subscriptions.edit_subscription(
+            table, _user_id(), unquote(key), body, datetime.now(UTC)
+        )
+    except subscriptions.SubscriptionNotFound as err:
+        raise logic.NotFound("Subscription not found.") from err
+    except subscriptions.InvalidEdit as err:
+        raise logic.BadRequest(str(err)) from err
+
+
+@app.delete("/subscriptions/<key>")
+@tracer.capture_method
+def delete_subscription(key: str) -> Response:
+    try:
+        subscriptions.delete_subscription(table, _user_id(), unquote(key))
+    except subscriptions.SubscriptionNotFound as err:
+        raise logic.NotFound("Subscription not found.") from err
+    return Response(status_code=204)
+
+
+@app.post("/ingest/keys")
+@tracer.capture_method
+def create_ingest_key() -> tuple[dict[str, Any], int]:
+    groups = logic.parse_groups(_claims().get("cognito:groups"))
+    try:
+        key = ingest_keys.create_key(table, _user_id(), groups, datetime.now(UTC))
+    except ingest_keys.NotAllowed as err:
+        raise logic.Forbidden(str(err)) from err
+    logger.info("ingest_key_created")  # never the key itself
+    return {"key": key}, 201
+
+
+@app.delete("/ingest/keys")
+@tracer.capture_method
+def revoke_ingest_key() -> Response:
+    ingest_keys.revoke_key(table, _user_id())
+    return Response(status_code=204)
 
 
 @logger.inject_lambda_context(correlation_id_path=correlation_paths.API_GATEWAY_HTTP)

@@ -13,10 +13,10 @@ output() {
 }
 
 cat > "$OUT_FILE" <<EOF
-VITE_USER_POOL_ID=$(output OneTally-Auth UserPoolId)
-VITE_USER_POOL_CLIENT_ID=$(output OneTally-Auth UserPoolClientId)
-VITE_COGNITO_DOMAIN=$(output OneTally-Auth HostedDomain)
-VITE_API_URL=$(output OneTally-Api ApiUrl)
+VITE_USER_POOL_ID=$(output OneBill-Auth UserPoolId)
+VITE_USER_POOL_CLIENT_ID=$(output OneBill-Auth UserPoolClientId)
+VITE_COGNITO_DOMAIN=$(output OneBill-Auth HostedDomain)
+VITE_API_URL=$(output OneBill-Api ApiUrl)
 EOF
 
 echo "Wrote $OUT_FILE"

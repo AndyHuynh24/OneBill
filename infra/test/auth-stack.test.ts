@@ -8,8 +8,8 @@ let template: Template;
 beforeAll(() => {
   const app = new App();
   const stack = new AuthStack(app, "TestAuth", {
-    domainPrefix: "onetally-test",
-    frontendUrl: "http://localhost:5173",
+    domainPrefix: "onebill-test",
+    frontendUrls: ["http://localhost:5173"],
   });
   template = Template.fromStack(stack);
 });
@@ -61,25 +61,71 @@ describe("AuthStack — app client", () => {
 });
 
 describe("AuthStack — upload access", () => {
-  it("has an 'uploaders' group that gates paid document processing", () => {
-    template.hasResourceProperties("AWS::Cognito::UserPoolGroup", {
-      GroupName: "uploaders",
-      UserPoolId: Match.anyValue(),
-    });
+  it("has an 'owners' group for the app owner's own upload cap and Connect Gmail", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolGroup", { GroupName: "owners" });
+    template.resourceCountIs("AWS::Cognito::UserPoolGroup", 1);
   });
 });
 
 describe("AuthStack — hosted login", () => {
   it("creates a Cognito prefix domain using managed login", () => {
     template.hasResourceProperties("AWS::Cognito::UserPoolDomain", {
-      Domain: "onetally-test",
+      Domain: "onebill-test",
       ManagedLoginVersion: 2,
     });
   });
 
-  it("gives the app client default managed-login branding", () => {
+});
+
+describe("AuthStack — sign in with Google (phase 2e)", () => {
+  const withGoogle = () => {
+    const app = new App();
+    const stack = new AuthStack(app, "TestAuthGoogle", {
+      domainPrefix: "x",
+      frontendUrls: ["http://localhost:5173"],
+      googleClientId: "123.apps.googleusercontent.com",
+    });
+    return Template.fromStack(stack);
+  };
+
+  it("adds Google with its email marked verified, the secret from Secrets Manager", () => {
+    const t = withGoogle();
+    t.hasResourceProperties("AWS::Cognito::UserPoolIdentityProvider", {
+      ProviderName: "Google",
+      ProviderType: "Google",
+      ProviderDetails: Match.objectLike({
+        client_id: "123.apps.googleusercontent.com",
+        client_secret: Match.stringLikeRegexp("resolve:secretsmanager:onebill/google-oauth:SecretString:client_secret"),
+        authorize_scopes: "openid email profile",
+      }),
+      AttributeMapping: Match.objectLike({ email: "email", email_verified: "email_verified" }),
+    });
+  });
+
+  it("offers Google next to email on the web client", () => {
+    withGoogle().hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      SupportedIdentityProviders: ["COGNITO", "Google"],
+    });
+  });
+
+  it("without a client ID, sign-in stays email only", () => {
+    template.resourceCountIs("AWS::Cognito::UserPoolIdentityProvider", 0);
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", { SupportedIdentityProviders: ["COGNITO"] });
+  });
+});
+
+describe("AuthStack — login page branding", () => {
+  it("shows OneBill's colors and logo on Cognito's login page", () => {
     template.hasResourceProperties("AWS::Cognito::ManagedLoginBranding", {
-      UseCognitoProvidedValues: true,
+      UseCognitoProvidedValues: false,
+      Settings: Match.objectLike({
+        components: Match.objectLike({
+          primaryButton: { lightMode: Match.objectLike({ defaults: { backgroundColor: "2b7a69ff", textColor: "ffffffff" } }) },
+          form: Match.objectLike({ logo: Match.objectLike({ enabled: true }) }),
+        }),
+      }),
+      Assets: [Match.objectLike({ Category: "FORM_LOGO", ColorMode: "LIGHT", Extension: "SVG" })],
     });
   });
 });
+

@@ -27,6 +27,8 @@ from split.allocate import (
     SplitLine,
     allocate,
     one_person,
+    some_people,
+    split_target,
 )
 from split.names import MAX_NAME
 
@@ -63,17 +65,21 @@ def save_split(
     ]
     if doc.get("totalCents") is None:
         raise BadRequest("This document has no total to split.")
+    tax_included = bool(doc.get("taxIncluded"))
     try:
-        shares = allocate(ids, lines, assignments, charges, int(doc["totalCents"]))
+        shares = allocate(ids, lines, assignments, charges, int(doc["totalCents"]), tax_included)
     except SplitError as err:
         raise BadRequest(str(err)) from err
+    target, matches = split_target(lines, int(doc["totalCents"]), tax_included)
 
     split = {
         "version": current + 1,
         "members": members,
         "assignments": {str(row): people for row, people in sorted(assignments.items())},
         "charges": {
-            str(row): {"mode": mode.mode} | ({"member": mode.member} if mode.member else {})
+            str(row): {"mode": mode.mode}
+            | ({"member": mode.member} if mode.member else {})
+            | ({"members": list(mode.members)} if mode.members else {})
             for row, mode in sorted(charges.items())
         },
         "shares": [
@@ -86,7 +92,11 @@ def save_split(
             }
             for s in shares
         ],
-        "totalCents": int(doc["totalCents"]),
+        "totalCents": target,
+        # When a misread total doesn't match the lines, the split uses the recorded lines.
+        "receiptTotalCents": int(doc["totalCents"]),
+        "matchesReceipt": matches,
+        "taxIncluded": tax_included,
         "updatedAt": now.isoformat(),
     }
     _store(table, user_id, doc_id, split, expected, seen)
@@ -149,8 +159,13 @@ def _charges(raw: Any, ids: list[str]) -> dict[int, ChargeMode]:
             out[_row(key)] = EVEN
         elif mode == "person":
             out[_row(key)] = one_person(_seat(choice.get("member"), ids))
+        elif mode == "people":
+            members = choice.get("members")
+            if not isinstance(members, list) or not members:
+                raise BadRequest("A shared charge needs the people who share it.")
+            out[_row(key)] = some_people([_seat(m, ids) for m in members])
         else:
-            raise BadRequest("Choose proportional, even, or one person for each charge.")
+            raise BadRequest("Choose proportional, even, one person, or people for each charge.")
     return out
 
 

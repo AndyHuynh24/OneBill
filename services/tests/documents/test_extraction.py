@@ -119,19 +119,19 @@ def test_parse_output_converts_amounts_to_cents_in_code():
     assert doc.document_date == "2026-09-28"
     assert doc.lines[5].amount_cents == -200  # "2.00-" parsed by code, not the model
     assert [line.row for line in doc.lines] == list(range(1, 12))
-    assert doc.deadlines[0].days_after_purchase == 30
+    assert doc.deadlines == []  # the fixture's return window isn't tracked: dropped quietly
 
 
 @pytest.mark.parametrize(
-    "bad_line",
+    ("bad_line", "kept"),
     [
-        {"description": "X", "amount": "abc", "kind": "item"},
-        {"description": "X", "amount": "1.00", "kind": "produce"},
-        "not an object",
+        ({"description": "X", "amount": "abc", "kind": "item"}, ("X", "info", 0)),
+        ({"description": "X", "amount": "1.00", "kind": "produce"}, ("X", "info", 100)),
+        ({"description": "X", "amount": "3.96 from savings", "kind": "item"}, ("X", "item", 396)),
     ],
 )
-def test_unreadable_line_is_skipped_with_a_warning_not_a_failure(bad_line):
-    """One bad line must not lose the whole scan: keep the rest, flag it for review."""
+def test_a_line_with_an_unclear_amount_or_kind_is_kept_and_flagged_never_dropped(bad_line, kept):
+    """Andy: "only flag, never remove a field from the bill"."""
     good = {"description": "MILK", "amount": "4.19", "kind": "item"}
     tool_input = {
         "doc_type": "receipt",
@@ -144,9 +144,19 @@ def test_unreadable_line_is_skipped_with_a_warning_not_a_failure(bad_line):
 
     doc = parse_output(tool_input)
 
-    assert [line.description for line in doc.lines] == ["MILK"]
-    assert len(doc.warnings) == 1
-    assert "Skipped line 2" in doc.warnings[0]
+    assert [(line.description, line.kind, line.amount_cents) for line in doc.lines] == [
+        ("MILK", "item", 419),
+        kept,
+    ]
+    assert len(doc.warnings) == 1  # flagged: the bill goes to review
+    assert "Line 2" in doc.warnings[0]
+
+
+def test_only_a_line_with_nothing_readable_is_left_out_and_said():
+    doc = parse_output({"lines": ["not an object"], "deadlines": []})
+
+    assert doc.lines == []
+    assert doc.warnings == ["Line 1 couldn't be read at all."]
 
 
 def test_lines_that_are_not_a_list_are_still_invalid():
@@ -414,13 +424,53 @@ def test_repair_feedback_forbids_forcing_the_math():
 
 
 def test_prompt_version_is_current():
-    assert extraction.PROMPT_VERSION == "2026-10-01.2"
+    assert extraction.PROMPT_VERSION == "2026-10-03.1"
 
 
-def test_prompt_limits_receipt_deadlines_to_printed_return_policies():
-    assert "receipt" in extraction.SYSTEM_PROMPT
-    assert "only a return window" in extraction.SYSTEM_PROMPT
-    assert extraction.PROMPT_VERSION == "2026-10-01.2"
+def test_receipts_have_no_deadlines_and_return_windows_arent_tracked():
+    assert "A receipt has no deadlines" in extraction.SYSTEM_PROMPT
+    assert "return_by" not in extraction.DEADLINE_TYPES
+    assert extraction.PROMPT_VERSION == "2026-10-03.1"
+
+
+def test_prompt_says_a_sale_item_is_recorded_at_the_price_paid():
+    """Online orders (e.g. Walmart) print a sale price, the crossed-out original price, and
+    "$1.02 from savings" for one item. Only the sale price is part of the bill's arithmetic."""
+    prompt = extraction.SYSTEM_PROMPT
+    assert "price actually paid" in prompt
+    assert "crossed-out" in prompt
+    assert "from savings" in prompt
+    assert "already included" in prompt
+    # the model only sees OCR text, so the rule can't rely on size or color
+    assert "lower of the two" in prompt
+    assert "larger" not in prompt
+    assert "highlighted" not in prompt
+    # the same product bought in separate listings stays separate items
+    assert "can appear more than once" in prompt
+
+
+def test_sale_items_labelled_at_the_price_paid_reconcile():
+    """The labelling the prompt asks for (sale price = item, original price and per-item savings
+    = info) adds up to the printed subtotal; counting the original price or the savings would
+    not."""
+    from documents.reconcile import Line, reconcile
+
+    lines = [
+        Line(1, "AXE Aluminum-Free Deodorant Body Spray", "item", 396),
+        Line(2, "AXE Aluminum-Free Deodorant Body Spray (was)", "info", 498),
+        Line(3, "from savings", "info", 102),
+        Line(4, "Quaker Quick Oats", "item", 697),
+        Line(5, "Ziploc Sandwich Bags", "item", 448),
+        Line(6, "Ziploc Sandwich Bags (was)", "info", 598),
+        Line(7, "from savings", "info", 150),
+        Line(8, "Subtotal", "subtotal", 1541),
+        Line(9, "Free Delivery From Store", "fee", 0),
+        Line(10, "Free Delivery From Store (was)", "info", 897),
+        Line(11, "Taxes", "tax", 120),
+        Line(12, "Total", "total", 1661),
+    ]
+
+    assert reconcile(lines).ok
 
 
 def test_each_model_call_is_timed(bedrock, expense):
@@ -432,3 +482,73 @@ def test_each_model_call_is_timed(bedrock, expense):
 
     assert len(outcome.model_ms) == outcome.attempts == 2
     assert all(isinstance(ms, int) and ms >= 0 for ms in outcome.model_ms)
+
+
+def test_photo_tiles_go_before_the_text_with_the_image_prompt():
+    request = build_request("m", "TOTAL 1.29", images=[b"tile-1", b"tile-2"])
+
+    content = request["messages"][0]["content"]
+    assert [c["image"]["source"]["bytes"] for c in content[:2]] == [b"tile-1", b"tile-2"]
+    assert content[2]["text"].startswith("<document>")
+    assert request["system"][0]["text"] == extraction.IMAGE_SYSTEM_PROMPT
+    assert "Use the OCR lines for the exact digits" in extraction.IMAGE_SYSTEM_PROMPT
+
+
+def test_without_images_the_request_is_text_only():
+    request = build_request("m", "TOTAL 1.29")
+
+    assert request["messages"][0]["content"] == [{"text": "<document>\nTOTAL 1.29\n</document>"}]
+    assert request["system"][0]["text"] == extraction.SYSTEM_PROMPT
+
+
+def test_a_note_with_words_in_its_amount_is_kept_quietly():
+    """'1.02 from savings' as an info amount: kept (never removed); info doesn't count."""
+    doc = parse_output(
+        {
+            "lines": [
+                {"description": "AXE", "amount": "3.96", "kind": "item"},
+                {"description": "AXE", "amount": "1.02 from savings", "kind": "info"},
+                {"description": "Total", "amount": "3.96", "kind": "total"},
+            ],
+            "deadlines": [],
+        }
+    )
+
+    assert [(line.kind, line.amount_cents) for line in doc.lines] == [
+        ("item", 396),
+        ("info", 102),
+        ("total", 396),
+    ]
+    assert doc.warnings == []
+
+
+def test_an_unreadable_item_amount_is_kept_and_flagged():
+    doc = parse_output(
+        {"lines": [{"description": "AXE", "amount": "3.96 from savings", "kind": "item"}]}
+    )
+
+    assert [(line.kind, line.amount_cents) for line in doc.lines] == [("item", 396)]
+    assert doc.warnings
+
+
+def test_prompt_says_a_bag_listed_with_the_items_is_an_item():
+    assert "listed with the items (above the subtotal" in extraction.SYSTEM_PROMPT
+    assert "fee = bag fee" not in extraction.SYSTEM_PROMPT  # no longer contradicts itself
+
+
+def test_without_repair_one_call_is_made_and_a_mismatch_goes_to_review(monkeypatch, expense):
+    """Email bills (cost review): a short answer, no second call."""
+    calls = []
+
+    def converse(client, request, model_ms):
+        calls.append(request)
+        return bedrock_fixture("grocery_needs_repair.json")
+
+    monkeypatch.setattr(extraction, "_converse", converse)
+
+    outcome = extract(None, MODEL, expense, max_output_tokens=1500, repair=False)
+
+    assert len(calls) == 1
+    assert calls[0]["inferenceConfig"]["maxTokens"] == 1500
+    assert outcome.attempts == 1
+    assert not outcome.reconciliation.ok  # kept as read; validate sends it to review

@@ -10,8 +10,8 @@ OCR_LINES = [
     "09/28/2026 14:05",
     "BANANAS 1.29",
     "TOTAL 1.29",
-    "RETURNS ACCEPTED WITHIN 30 DAYS",
-    "WITH RECEIPT",
+    "PAYMENT DUE WITHIN 30 DAYS",
+    "OF INVOICE DATE",
 ]
 
 
@@ -48,11 +48,11 @@ def outcome(
     )
 
 
-RETURN_30 = {
-    "type": "return_by",
+DUE_30 = {
+    "type": "payment_due",
     "date": None,
     "days_after_purchase": 30,
-    "evidence": "RETURNS ACCEPTED WITHIN 30 DAYS",
+    "evidence": "PAYMENT DUE WITHIN 30 DAYS",
 }
 
 
@@ -66,16 +66,18 @@ def test_clean_receipt_is_ready():
 
 
 def test_return_window_becomes_a_date_computed_by_code():
-    result = validate(outcome([RETURN_30]), expense())
+    result = validate(outcome([DUE_30], doc_type="bill"), expense())
 
-    assert [(o.type, o.due_date) for o in result.obligations] == [("return_by", date(2026, 10, 28))]
+    assert [(o.type, o.due_date) for o in result.obligations] == [
+        ("payment_due", date(2026, 10, 28))
+    ]
     assert result.obligations[0].amount_cents == 129
 
 
 def test_code_arithmetic_wins_over_a_model_supplied_date():
-    wrong = RETURN_30 | {"date": "2026-10-30"}  # model miscounted the window
+    wrong = DUE_30 | {"date": "2026-10-30"}  # model miscounted the window
 
-    result = validate(outcome([wrong]), expense())
+    result = validate(outcome([wrong], doc_type="bill"), expense())
 
     assert result.obligations[0].due_date == date(2026, 10, 28)
 
@@ -94,9 +96,9 @@ def test_printed_due_date_is_used_as_is():
 
 
 def test_evidence_matching_ignores_case_spacing_and_line_breaks():
-    across_lines = RETURN_30 | {"evidence": "returns accepted within 30 days with receipt"}
+    across_lines = DUE_30 | {"evidence": "payment due within 30 days of invoice date"}
 
-    result = validate(outcome([across_lines]), expense())
+    result = validate(outcome([across_lines], doc_type="bill"), expense())
 
     assert result.status == "ready"
     assert len(result.obligations) == 1
@@ -118,7 +120,7 @@ def test_invented_deadline_is_dropped_and_flagged():
 
 
 def test_window_without_purchase_date_cannot_be_dated():
-    result = validate(outcome([RETURN_30], document_date=None), expense())
+    result = validate(outcome([DUE_30], document_date=None, doc_type="bill"), expense())
 
     assert result.obligations == []
     assert result.status == "needs_review"
@@ -205,25 +207,17 @@ WARRANTY_1Y = {
     "type": "warranty_expires",
     "date": None,
     "days_after_purchase": 365,
-    "evidence": "RETURNS ACCEPTED WITHIN 30 DAYS",  # printed, so only the scope rule applies
+    "evidence": "PAYMENT DUE WITHIN 30 DAYS",  # printed, so only the scope rule applies
 }
 
 
-def test_receipt_keeps_a_printed_return_window():
-    result = validate(outcome([RETURN_30]), expense())
+def test_receipts_make_no_reminders_not_even_for_a_printed_return_policy():
+    """Receipts are for splitting; a deadline the model finds on one is dropped quietly."""
+    returns = DUE_30 | {"type": "warranty_expires"}
 
-    assert [o.type for o in result.obligations] == ["return_by"]
-    assert result.obligations[0].due_date == date(2026, 10, 28)
+    result = validate(outcome([returns, WARRANTY_1Y]), expense())
 
-
-def test_receipt_ignores_other_deadline_kinds_without_flagging_it():
-    """Receipts are for splitting; only a printed return policy becomes a reminder.
-
-    A warranty or "renewal" line on a grocery receipt is dropped quietly: it isn't an error.
-    """
-    result = validate(outcome([WARRANTY_1Y, RETURN_30]), expense())
-
-    assert [o.type for o in result.obligations] == ["return_by"]
+    assert result.obligations == []
     assert result.status == "ready"
     assert result.issues == []
 
@@ -234,3 +228,11 @@ def test_bills_keep_their_deadline_kinds():
     result = validate(outcome([due], doc_type="bill"), expense())
 
     assert [o.type for o in result.obligations] == ["payment_due"]
+
+
+def test_a_clean_reading_is_confident_and_a_reviewed_one_asks_for_a_check():
+    clean = validate(outcome(), expense())
+    vague = validate(outcome(), expense(total_confidence=50.0))
+
+    assert clean.confidence == {"level": "confident", "checks": []}
+    assert vague.confidence["level"] == "check"

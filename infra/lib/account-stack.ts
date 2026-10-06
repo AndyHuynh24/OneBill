@@ -1,6 +1,9 @@
 import { CfnOutput, Duration, Stack, StackProps, Tags } from "aws-cdk-lib";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import { ALERTS_TOPIC_NAME } from "./alerts";
 import { Construct } from "constructs";
 
 export interface AccountStackProps extends StackProps {
@@ -13,6 +16,12 @@ export interface AccountStackProps extends StackProps {
    * `gh api repos/<owner>/<repo>/actions/oidc/customization/sub` (sub_claim_prefix).
    */
   readonly githubSubject: string;
+  /**
+   * Create the GitHub Actions role for `cdk diff` on pull requests. Off by default (2026-10-04):
+   * with no customer-managed key, a read-only role could read the table, so CI isn't connected
+   * to AWS. Turn on only together with a customer-managed key (`-c ciRole=on`).
+   */
+  readonly ciRole?: boolean;
 }
 
 const GITHUB_OIDC_HOST = "token.actions.githubusercontent.com";
@@ -20,12 +29,13 @@ const GITHUB_OIDC_HOST = "token.actions.githubusercontent.com";
 /**
  * Account-wide safety nets, deployed once from a laptop:
  * - a $10/month budget alarm (alerts only; it does not stop spending)
- * - a GitHub Actions role (via OIDC, no stored keys) that can preview infra changes read-only
+ * - an alerts topic, emailing the same address, that the app stacks' alarms publish to
+ * - optionally, a GitHub Actions role (via OIDC, no stored keys) to preview infra changes
  */
 export class AccountStack extends Stack {
   constructor(scope: Construct, id: string, props: AccountStackProps) {
     super(scope, id, props);
-    Tags.of(this).add("project", "onetally");
+    Tags.of(this).add("project", "onebill");
 
     const alert = (type: "ACTUAL" | "FORECASTED", threshold: number) => ({
       notification: {
@@ -54,13 +64,23 @@ export class AccountStack extends Stack {
       ],
     });
 
+    // Alarm notifications carry only metric names and numbers: no document data.
+    const alerts = new sns.Topic(this, "AlertsTopic", {
+      topicName: ALERTS_TOPIC_NAME,
+      displayName: "OneBill alerts",
+      enforceSSL: true,
+    });
+    alerts.addSubscription(new subscriptions.EmailSubscription(props.budgetEmail));
+
+    if (!props.ciRole) return;
+
     const github = new iam.OidcProviderNative(this, "GitHubOidc", {
       url: `https://${GITHUB_OIDC_HOST}`,
       clientIds: ["sts.amazonaws.com"],
     });
 
     const ciRole = new iam.Role(this, "CiDiffRole", {
-      roleName: "onetally-ci-diff",
+      roleName: "onebill-ci-diff",
       description: "GitHub Actions (pull requests only) runs cdk diff with read-only access",
       maxSessionDuration: Duration.hours(1),
       assumedBy: new iam.OpenIdConnectPrincipal(github, {

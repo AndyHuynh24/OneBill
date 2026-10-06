@@ -1,35 +1,44 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forgetFriend, loadFriends, rememberFriends } from "../friends";
 import { useState } from "react";
-import type { DocumentDetail, OneTallyApi, Split } from "../api";
+import { useBackLayer } from "../backButton";
+import type { ChargeChoice, DocumentDetail, OneBillApi, Split } from "../api";
 import type { Person } from "../split";
-import { AssignCircle, type Assignments } from "./AssignCircle";
-import { ChargeStep, type Charges } from "./ChargeStep";
+import { type Assignments, type Picks, SplitList } from "./SplitList";
 import { PeoplePicker } from "./PeoplePicker";
 import { SplitSummary } from "./SplitSummary";
 
-type Step = "people" | "assign" | "charges" | "summary";
+type Step = "people" | "assign" | "summary";
+type Charges = Record<string, ChargeChoice>;
 const CHARGE_KINDS = new Set(["tax", "fee", "tip"]);
 
 interface SplitFlowProps {
-  api: OneTallyApi;
+  api: OneBillApi;
   doc: DocumentDetail;
   onCancel: () => void;
   onClose: () => void;
 }
 
-/** Split a bill: who's here → assign items → tax/fees/tip → summary (saved on the server). */
+/** Split a bill: who's here → who had what (one list) → summary (saved). */
 export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const queryClient = useQueryClient();
   const restored = restore(doc.split);
-  const [step, setStep] = useState<Step>(doc.split ? "summary" : "people");
+  // The steps taken, so the phone's Back retraces them (going to an earlier step trims back to it).
+  const [trail, setTrail] = useState<Step[]>([doc.split ? "summary" : "people"]);
+  const step = trail[trail.length - 1];
+  const setStep = (next: Step) =>
+    setTrail((t) => (t.includes(next) ? t.slice(0, t.indexOf(next) + 1) : [...t, next]));
+  useBackLayer(trail.length > 1, () => setTrail((t) => t.slice(0, -1)), trail.length);
   const [people, setPeople] = useState<Person[]>(restored.people);
-  const [assignments, setAssignments] = useState<Assignments>(restored.assignments);
-  const [charges, setCharges] = useState<Charges>(restored.charges);
+  const [picks, setPicks] = useState<Picks>(restored.picks);
   const [saved, setSaved] = useState<Split | undefined>(doc.split);
+  // The bill's version as loaded (not the split's save time): edits to the bill after a split
+  // was saved (e.g. Looks right) must not make every later save look like a conflict.
+  const [docVersion, setDocVersion] = useState(doc.updatedAt ?? "");
 
   const lines = doc.lines ?? [];
-  const chargeLines = lines.filter((l) => CHARGE_KINDS.has(l.kind));
+  // Tax-inclusive prices: the tax is already inside each item, so there's nothing to assign.
+  const chargeLines = lines.filter((l) => CHARGE_KINDS.has(l.kind) && !(doc.taxIncluded && l.kind === "tax"));
   // Recent friends live only in this browser, per account.
   const profile = useQuery({ queryKey: ["me"], queryFn: api.getProfile });
   const userId = profile.data?.userId;
@@ -42,10 +51,11 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
         assignments: request.assignments,
         charges: request.charges,
         expectedVersion: saved?.version ?? 0,
-        expectedUpdatedAt: saved?.updatedAt ?? doc.updatedAt ?? "",
+        expectedUpdatedAt: docVersion,
       }),
     onSuccess: (split) => {
       setSaved(split);
+      if (split.updatedAt) setDocVersion(split.updatedAt);
       setStep("summary");
       queryClient.invalidateQueries({ queryKey: ["document", doc.docId] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -54,25 +64,32 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   });
 
   function choosePeople(chosen: Person[]) {
-    // Seats changed: earlier choices may point at the wrong people.
-    if (JSON.stringify(chosen) !== JSON.stringify(people)) {
-      setAssignments({});
-      setCharges({});
-    }
+    // Only people added at the end: everyone keeps their seat, so earlier choices still hold.
+    // Anything else (removed or reordered): earlier choices may point at the wrong people.
+    const kept = people.every((p, i) => chosen[i]?.name === p.name);
+    if (!kept) setPicks({});
     setPeople(chosen);
     setStep("assign");
   }
 
-  function itemsDone(done: Assignments) {
-    setAssignments(done);
-    if (chargeLines.length) setStep("charges");
-    else save.mutate({ assignments: done, charges: {} });
+  /** Every line chosen: items become assignments, tax/tip/fee picks become charge choices. */
+  function allChosen(done: Picks) {
+    setPicks(done);
+    const chargeRows = new Set(chargeLines.map((l) => String(l.row)));
+    const assignments: Assignments = {};
+    const charges: Charges = {};
+    for (const [row, pick] of Object.entries(done)) {
+      if (chargeRows.has(row)) charges[row] = toCharge(pick, people.length);
+      else if (Array.isArray(pick)) assignments[row] = pick;
+    }
+    save.mutate({ assignments, charges });
   }
 
   return (
     <div className="split-flow">
       {step === "people" && (
         <PeoplePicker
+          currency={doc.currency ?? "USD"}
           friends={friends}
           people={people}
           onChange={setPeople}
@@ -84,28 +101,24 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
         />
       )}
       {step === "assign" && (
-        <AssignCircle
+        <SplitList
           people={people}
           lines={lines}
+          chargeLines={chargeLines}
           currency={doc.currency ?? "USD"}
-          initial={assignments}
-          onDone={itemsDone}
-        />
-      )}
-      {step === "charges" && (
-        <ChargeStep
-          people={people}
-          lines={chargeLines}
-          currency={doc.currency ?? "USD"}
-          initial={charges}
-          onDone={(done) => {
-            setCharges(done);
-            save.mutate({ assignments, charges: done });
-          }}
+          initial={picks}
+          onDone={allChosen}
+          onEditPeople={() => setStep("people")}
         />
       )}
       {step === "summary" && saved && (
-        <SplitSummary split={saved} doc={doc} onEdit={() => setStep("assign")} onDone={onClose} />
+        <SplitSummary
+          split={saved}
+          doc={doc}
+          onEdit={() => setStep("assign")}
+          onAddPeople={() => setStep("people")}
+          onDone={onClose}
+        />
       )}
 
       {save.isPending && <p className="muted">Saving…</p>}
@@ -114,35 +127,41 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
           {save.error.message}
         </p>
       )}
-      {step !== "summary" && (
-        <div className="sheet-actions">
-          {step !== "people" && (
-            <button type="button" onClick={() => setStep(step === "charges" ? "assign" : "people")}>
-              Back
-            </button>
-          )}
-          <button type="button" className="link-button" onClick={onCancel}>
-            Cancel split
-          </button>
-        </div>
+      {step === "people" && (
+        <button type="button" className="link-button split-cancel" onClick={onCancel}>
+          Cancel split
+        </button>
       )}
     </div>
   );
 }
 
-/** A saved split back into screen state: people by seat, choices by seat index. */
-function restore(split: Split | undefined): { people: Person[]; assignments: Assignments; charges: Charges } {
-  if (!split) return { people: [{ name: "Me", self: true }], assignments: {}, charges: {} };
+/** A saved split back into screen state: people by seat, one pick per line by seat index. */
+function restore(split: Split | undefined): { people: Person[]; picks: Picks } {
+  if (!split) return { people: [{ name: "Me", self: true }], picks: {} };
   const seat = new Map(split.members.map((m, i) => [m.id, i]));
   const people = split.members.map((m) => (m.self ? { name: m.name, self: true } : { name: m.name }));
-  const assignments = Object.fromEntries(
+  const all = split.members.map((_, i) => i);
+  const picks: Picks = Object.fromEntries(
     Object.entries(split.assignments).map(([row, ids]) => [row, ids.map((id) => seat.get(id) ?? 0)]),
   );
-  const charges = Object.fromEntries(
-    Object.entries(split.charges).map(([row, c]) => [
-      row,
-      c.mode === "person" ? { mode: "person" as const, member: seat.get(c.member ?? "") ?? 0 } : { mode: c.mode as "even" | "proportional" },
-    ]),
-  );
-  return { people, assignments, charges };
+  for (const [row, c] of Object.entries(split.charges)) {
+    picks[row] =
+      c.mode === "proportional"
+        ? "byOrder"
+        : c.mode === "even"
+          ? all
+          : c.mode === "person"
+            ? [seat.get(c.member ?? "") ?? 0]
+            : (c.members ?? []).map((id) => seat.get(id) ?? 0);
+  }
+  return { people, picks };
+}
+
+/** A tax/tip/fee pick as the API's charge choice. */
+function toCharge(pick: Picks[string], count: number): ChargeChoice {
+  if (pick === "byOrder") return { mode: "proportional" };
+  if (pick.length === count) return { mode: "even" };
+  if (pick.length === 1) return { mode: "person", member: pick[0] };
+  return { mode: "people", members: pick };
 }

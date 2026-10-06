@@ -39,7 +39,7 @@ describe("local recent friends", () => {
   });
 
   it("survives broken or unavailable storage", () => {
-    localStorage.setItem("onetally.friends.u1", "{not json");
+    localStorage.setItem("onebill.friends.u1", "{not json");
     expect(loadFriends("u1")).toEqual([]);
 
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {

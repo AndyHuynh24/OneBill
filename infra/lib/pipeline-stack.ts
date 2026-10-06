@@ -4,7 +4,8 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
-import * as kms from "aws-cdk-lib/aws-kms";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as schedulerTargets from "aws-cdk-lib/aws-scheduler-targets";
@@ -14,12 +15,14 @@ import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
-import { newServiceFunction } from "./python-code";
+import { grantInvokeModel } from "./bedrock";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import { alarmOver, HOURLY } from "./alerts";
+import { newServiceFunction, pillowLayer } from "./python-code";
 
 export interface PipelineStackProps extends StackProps {
   readonly table: dynamodb.ITable;
   readonly docsBucket: s3.IBucket;
-  readonly dataKey: kms.IKey;
   /** Bedrock cross-region inference profile ID, e.g. "us.anthropic.claude-haiku-4-5-…". */
   readonly bedrockModelId: string;
   /** Reminder emails look up the recipient's verified email here (not stored in DynamoDB). */
@@ -28,8 +31,8 @@ export interface PipelineStackProps extends StackProps {
   readonly appUrl: string;
   /**
    * SSM parameter holding the reminder sender address, so it never appears in code or CI.
-   * Create once: aws ssm put-parameter --name /onetally/sender-email --type String --value you@example.com
-   * @default "/onetally/sender-email"
+   * Create once: aws ssm put-parameter --name /onebill/sender-email --type String --value you@example.com
+   * @default "/onebill/sender-email"
    */
   readonly senderEmailParameter?: string;
   readonly enableTracing?: boolean;
@@ -39,6 +42,15 @@ export interface PipelineStackProps extends StackProps {
    * @default true
    */
   readonly dailyLimits?: boolean;
+  /**
+   * Send photo tiles next to the OCR text (phase 2c). The Pillow layer is always attached;
+   * this only sets PHOTO_TILES, so turning it off is a config-only rollback.
+   * @default false
+   */
+  readonly photoTiles?: boolean;
+  /** SSM SecureString parameter holding the sender's Gmail app password, for sending reminders
+   *  through Gmail. Unset: reminders go through SES. */
+  readonly gmailPasswordParameter?: string;
 }
 
 /**
@@ -54,10 +66,8 @@ export interface PipelineStackProps extends StackProps {
 export class PipelineStack extends Stack {
   constructor(scope: Construct, id: string, props: PipelineStackProps) {
     super(scope, id, props);
-    Tags.of(this).add("project", "onetally");
+    Tags.of(this).add("project", "onebill");
 
-    const viaDynamo = `dynamodb.${this.region}.amazonaws.com`;
-    const viaS3 = `s3.${this.region}.amazonaws.com`;
 
     // Events that fail delivery or keep failing in the Lambda wait here for inspection/replay.
     const deadLetters = new sqs.Queue(this, "ExtractDeadLetters", {
@@ -69,7 +79,7 @@ export class PipelineStack extends Stack {
     // Textract announces async job completion here; the message has job and object IDs only.
     const textractDone = new sns.Topic(this, "TextractDoneTopic", { enforceSSL: true });
     const textractPublishRole = new iam.Role(this, "TextractPublishRole", {
-      description: "Lets Textract announce async job completion on the OneTally topic",
+      description: "Lets Textract announce async job completion on the OneBill topic",
       assumedBy: new iam.ServicePrincipal("textract.amazonaws.com", {
         // Confused-deputy guard: only Textract jobs started from this account.
         conditions: {
@@ -93,22 +103,47 @@ export class PipelineStack extends Stack {
     const extractFn = newServiceFunction(this, "ExtractFunction", {
       handler: "documents.handler.handler",
       description: "Upload → Textract → Bedrock extraction → reconcile → validate → save DOC/OBL",
-      serviceName: "onetally-documents",
-      logKey: props.dataKey,
+      serviceName: "onebill-documents",
       memorySize: 512,
       // Fits Textract plus the Bedrock budget (2 calls × 2 attempts × 45 s read timeout).
       timeout: Duration.seconds(300),
       deadLetterQueue: deadLetters,
       enableTracing: props.enableTracing,
+      layers: [pillowLayer(this)],
       environment: {
         TABLE_NAME: props.table.tableName,
         BUCKET_NAME: props.docsBucket.bucketName,
         BEDROCK_MODEL_ID: props.bedrockModelId,
+        PHOTO_TILES: props.photoTiles ? "on" : "off",
         TEXTRACT_TOPIC_ARN: textractDone.topicArn,
         TEXTRACT_ROLE_ARN: textractPublishRole.roleArn,
         ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),
       },
     });
+    // Uploads are capped at 15 a day for everyone (with limits on); each makes 1–2 calls.
+    alarmOver(
+      this,
+      "ExtractCallsAlarm",
+      extractFn.metricInvocations(HOURLY),
+      30,
+      "Receipt reading ran more than 30 times in an hour: are the daily limits off, or is something looping?",
+    );
+    alarmOver(
+      this,
+      "ExtractDeadLettersAlarm",
+      deadLetters.metricApproximateNumberOfMessagesVisible({ period: Duration.minutes(5), statistic: "Maximum" }),
+      0,
+      "A receipt upload failed repeatedly and landed in the dead-letter queue.",
+    );
+    // All Bedrock output tokens in the account (the metric without dimensions covers every
+    // model). A scan is ~2–4k, an email bill at most 1.5k: 60k in an hour is ~$0.33 and unusual.
+    alarmOver(
+      this,
+      "BedrockTokensAlarm",
+      new cloudwatch.Metric({ namespace: "AWS/Bedrock", metricName: "OutputTokenCount", ...HOURLY }),
+      60_000,
+      "Bedrock produced more than 60,000 output tokens in an hour: much more than normal use.",
+    );
 
     new events.Rule(this, "UploadCreatedRule", {
       description: "New uploads (uploads/ prefix) trigger extraction",
@@ -148,21 +183,6 @@ export class PipelineStack extends Stack {
     );
     extractFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
-        resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
-      }),
-    );
-    extractFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        // Reading uploads only: decrypt, never encrypt, through S3.
-        actions: ["kms:Decrypt"],
-        resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": viaS3 } },
-      }),
-    );
-    extractFn.addToRolePolicy(
-      new iam.PolicyStatement({
         // Textract doesn't support resource-level permissions for these APIs.
         actions: ["textract:AnalyzeExpense", "textract:StartExpenseAnalysis", "textract:GetExpenseAnalysis"],
         resources: ["*"],
@@ -175,34 +195,24 @@ export class PipelineStack extends Stack {
         conditions: { StringEquals: { "iam:PassedToService": "textract.amazonaws.com" } },
       }),
     );
-    // A cross-region inference profile routes to the model in several US regions: allow the
-    // profile itself, and the model only when invoked through that profile.
-    const profileArn = `arn:${this.partition}:bedrock:${this.region}:${this.account}:inference-profile/${props.bedrockModelId}`;
-    const foundationModelId = props.bedrockModelId.replace(/^[a-z]{2,4}\./, "");
-    extractFn.addToRolePolicy(
-      new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: [profileArn] }),
-    );
-    extractFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["bedrock:InvokeModel"],
-        resources: [`arn:${this.partition}:bedrock:*::foundation-model/${foundationModelId}`],
-        conditions: { StringEquals: { "bedrock:InferenceProfileArn": profileArn } },
-      }),
-    );
+    grantInvokeModel(extractFn, props.bedrockModelId);
 
     // --- reminders ---------------------------------------------------------------------------
     const senderEmail = ssm.StringParameter.valueForStringParameter(
       this,
-      props.senderEmailParameter ?? "/onetally/sender-email",
+      props.senderEmailParameter ?? "/onebill/sender-email",
     );
-    // SES emails a verification link to this address on first deploy; click it once.
-    const sender = new ses.EmailIdentity(this, "ReminderSender", { identity: ses.Identity.email(senderEmail) });
+    // Sending through SES (no Gmail app password configured): SES emails a verification link to
+    // this address on first deploy; click it once.
+    const viaSes = !props.gmailPasswordParameter;
+    if (viaSes) {
+      new ses.EmailIdentity(this, "ReminderSender", { identity: ses.Identity.email(senderEmail) });
+    }
 
     const remindersFn = newServiceFunction(this, "RemindersFunction", {
       handler: "reminders.handler.handler",
       description: "Daily digest of deadlines due in 7, 3, and 1 days",
-      serviceName: "onetally-reminders",
-      logKey: props.dataKey,
+      serviceName: "onebill-reminders",
       timeout: Duration.seconds(120),
       enableTracing: props.enableTracing,
       environment: {
@@ -221,24 +231,54 @@ export class PipelineStack extends Stack {
     remindersFn.addToRolePolicy(
       new iam.PolicyStatement({
         // Get/Update: claim and un-claim each reminder offset on the OBL# item.
-        actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+        // Put/Delete: roll a passed bill/subscription date forward (SUB# + its OBL#, in a transaction).
+        actions: ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:PutItem", "dynamodb:DeleteItem"],
         resources: [props.table.tableArn],
-      }),
-    );
-    remindersFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
-        resources: [props.dataKey.keyArn],
-        conditions: { StringEquals: { "kms:ViaService": viaDynamo } },
       }),
     );
     remindersFn.addToRolePolicy(
       new iam.PolicyStatement({ actions: ["cognito-idp:ListUsers"], resources: [props.userPool.userPoolArn] }),
     );
-    remindersFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: ["ses:SendEmail"],
-        resources: [`arn:${this.partition}:ses:${this.region}:${this.account}:identity/${sender.emailIdentityName}`],
+    if (viaSes) {
+      remindersFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          // SES checks permission on every verified identity involved: the sender, and (while the
+          // account is in the SES sandbox) each recipient's verified address too. So: any identity
+          // in this account, but only ever *from* the verified sender address.
+          actions: ["ses:SendEmail"],
+          resources: [`arn:${this.partition}:ses:${this.region}:${this.account}:identity/*`],
+          conditions: { StringEquals: { "ses:FromAddress": senderEmail } },
+        }),
+      );
+    }
+
+    // Reminders through Gmail (as the sender address), when its app password is stored. Encrypted
+    // with SSM's AWS-managed key: free, and readable only through SSM by this function.
+    if (props.gmailPasswordParameter) {
+      remindersFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [
+            `arn:${this.partition}:ssm:${this.region}:${this.account}:parameter/${props.gmailPasswordParameter.replace(/^\//, "")}`,
+          ],
+        }),
+      );
+      remindersFn.addEnvironment("SMTP_PASSWORD_PARAM", props.gmailPasswordParameter);
+    }
+
+    // A new reminder already inside the 7-day window is emailed right away (not at the next
+    // daily run). The filter means the Lambda only wakes for OBL# inserts, not every table write.
+    remindersFn.addEventSource(
+      new DynamoEventSource(props.table, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 10,
+        retryAttempts: 2,
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: lambda.FilterRule.isEqual("INSERT"),
+            dynamodb: { NewImage: { SK: { S: lambda.FilterRule.beginsWith("OBL#") } } },
+          }),
+        ],
       }),
     );
 

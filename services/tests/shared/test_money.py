@@ -45,3 +45,31 @@ def test_to_cents_returns_int_never_float():
 )
 def test_format_cents(cents, expected):
     assert format_cents(cents) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "cents"),
+    [
+        ("$15.49", 1549),
+        ("$15", 1500),  # whole dollars
+        ("$1,299", 129900),  # thousands, no cents
+        ("€10,99", 1099),  # comma decimals (Europe)
+        ("1.234,56 €", 123456),
+        ("1,234.56", 123456),
+        ("99.000 ₫", 9900000),  # dot thousands (Vietnam)
+        ("15.49 USD", 1549),
+        ("US$9.99", 999),
+        ("-$2.00", -200),
+    ],
+)
+def test_loose_amounts_from_emails(raw, cents):
+    from shared.money import to_cents_loose
+
+    assert to_cents_loose(raw) == cents
+
+
+@pytest.mark.parametrize("raw", [None, "", "free", "1,2,3", "$", "12.3.4"])
+def test_loose_amounts_reject_non_amounts(raw):
+    from shared.money import to_cents_loose
+
+    assert to_cents_loose(raw) is None

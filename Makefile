@@ -1,8 +1,9 @@
-# OneTally developer commands. Run from the repo root.
-# AWS commands use the "onetally" SSO profile unless AWS_PROFILE is already set.
-export AWS_PROFILE ?= onetally
+# OneBill developer commands. Run from the repo root.
+# AWS commands use the "onebill-iam" profile (the IAM user in account 097021214533, no SSO)
+# unless AWS_PROFILE is already set. See docs/runbooks/new-aws-account.md.
+export AWS_PROFILE ?= onebill-iam
 
-.PHONY: install test lint synth diff dev frontend-env eval \
+.PHONY: install test lint synth diff dev deploy-web frontend-env eval layer-requirements \
 	test-services test-infra test-frontend lint-services lint-infra lint-frontend
 
 install:
@@ -45,6 +46,16 @@ frontend-env:
 dev:
 	cd frontend && npm run dev
 
+# Build the frontend with the deployed stacks' settings and publish it to the public site.
+deploy-web: frontend-env
+	cd frontend && npm run build
+	cd infra && npx cdk deploy OneBill-Web
+	@if [ -f .firebaserc ]; then npx --yes firebase-tools deploy --only hosting; fi
+
 # Extraction accuracy on your labelled receipts (eval/receipts/, local only). Dry run unless ARGS="--yes".
 eval:
 	cd services && uv run python ../eval/run_eval.py --profile $(AWS_PROFILE) $(ARGS)
+
+# Re-export the Pillow layer's hash-pinned requirements after changing the lambda-layer group.
+layer-requirements:
+	cd services && uv export --only-group lambda-layer --format requirements-txt --no-emit-project --no-header > ../infra/layers/pillow/requirements.txt

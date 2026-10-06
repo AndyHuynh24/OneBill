@@ -1,13 +1,16 @@
 [project]
-name = "onetally-services"
+name = "onebill-services"
 version = "0.1.0"
-description = "OneTally Lambda functions"
+description = "OneBill Lambda functions"
 requires-python = ">=3.12,<3.13"
 # Runtime deps are provided by Lambda itself (boto3) and the Powertools layer,
 # so function assets ship only our source code. Everything here is for local dev/test.
 dependencies = []
 
 [dependency-groups]
+# Shipped as a Lambda layer for the extract function (photo tiles). Exported with hashes to
+# infra/layers/pillow/requirements.txt: `make layer-requirements`.
+lambda-layer = ["pillow==12.3.0"]
 dev = [
     "aws-lambda-powertools[tracer]>=3.30,<4",
     "boto3>=1.40",
@@ -15,6 +18,7 @@ dev = [
     "moto[dynamodb]>=5.2",
     "pytest>=9.1",
     "ruff>=0.16",
+    { include-group = "lambda-layer" },
 ]
 
 [tool.pytest.ini_options]

@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { DocumentDetail, OneTallyApi } from "../api";
+import type { DocumentDetail, OneBillApi, Subscription } from "../api";
 
 export const RECEIPT: DocumentDetail = {
   docId: "1790000000000aaaaaaaa",
@@ -20,7 +20,7 @@ export const RECEIPT: DocumentDetail = {
     { row: 6, description: "CASH", kind: "payment", amountCents: 3000 },
     { row: 7, description: "CHANGE", kind: "change", amountCents: 382 },
   ],
-  obligations: [{ kind: "return_by", dueDate: "2026-10-28", evidence: "RETURNS WITHIN 30 DAYS" }],
+  obligations: [{ kind: "payment_due", dueDate: "2026-10-28", evidence: "PAY BY 10/28/2026" }],
 };
 
 /** A dinner whose lines add up (can be split). */
@@ -44,10 +44,26 @@ export const DINNER: DocumentDetail = {
   obligations: [],
 };
 
-/** An OneTallyApi whose every method is a vi.fn() with an empty, successful default. */
-export function fakeApi(overrides: Partial<OneTallyApi> = {}): OneTallyApi {
+export const NETFLIX: Subscription = {
+  serviceKey: "netflix",
+  service: "Netflix",
+  plan: "Standard",
+  amountCents: 1549,
+  currency: "USD",
+  cycle: "monthly",
+  status: "charged",
+  nextRenewal: "2026-11-01",
+  renewalComputed: false,
+  lastChargedAt: "2026-10-01",
+  history: [{ date: "2026-10-01", amountCents: 1549, status: "charged" }],
+  issues: [],
+};
+
+/** An OneBillApi whose every method is a vi.fn() with an empty, successful default. */
+export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
   return {
-    getProfile: vi.fn().mockResolvedValue({ userId: "u", baseCurrency: "USD", createdAt: "x" }),
+    getProfile: vi.fn().mockResolvedValue({ userId: "u", baseCurrency: "USD", createdAt: "x", emailReminders: true }),
+    setEmailReminders: vi.fn().mockImplementation(async (on: boolean) => ({ userId: "u", baseCurrency: "USD", createdAt: "x", emailReminders: on })),
     listDocuments: vi.fn().mockResolvedValue({
       documents: [],
       review: { reviewed: 0, acceptedUnchanged: 0, acceptanceRate: null },
@@ -56,6 +72,20 @@ export function fakeApi(overrides: Partial<OneTallyApi> = {}): OneTallyApi {
     reviewDocument: vi.fn().mockResolvedValue({ ...RECEIPT, status: "ready" }),
     listObligations: vi.fn().mockResolvedValue({ obligations: [] }),
     uploadDocument: vi.fn().mockResolvedValue("new-doc"),
+    baseUrl: "https://api.example.com/",
+    listSubscriptions: vi.fn().mockResolvedValue({
+      subscriptions: [],
+      connection: { connected: false, createdAt: null, lastUsedAt: null },
+    }),
+    cancelSubscription: vi.fn().mockResolvedValue({ ...NETFLIX, status: "cancelled", nextRenewal: null }),
+    editSubscription: vi.fn().mockResolvedValue(NETFLIX),
+    createIngestKey: vi.fn().mockResolvedValue({ key: "obk_" + "k".repeat(43) }),
+    revokeIngestKey: vi.fn().mockResolvedValue(undefined),
+    deleteSubscription: vi.fn().mockResolvedValue(undefined),
+    addSubscription: vi.fn().mockResolvedValue({ ...NETFLIX, source: "manual" }),
+    setSubscriptionReminders: vi.fn().mockResolvedValue({ ...NETFLIX, remindersOff: true }),
+    deleteObligation: vi.fn().mockResolvedValue(undefined),
+    deleteDocument: vi.fn().mockResolvedValue(undefined),
     saveSplit: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0 }),
     ...overrides,
   };

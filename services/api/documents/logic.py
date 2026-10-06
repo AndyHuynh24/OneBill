@@ -11,20 +11,30 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from documents.confidence import after_edit
 from documents.extraction import DEADLINE_TYPES, LINE_KINDS, NO_TOTAL_TYPES
 from documents.reconcile import Line, check
 from documents.store import obligation_item
 from documents.validate import Obligation
 from shared.dates import parse_iso_date
 from shared.ids import is_valid_id, new_id
+from subscriptions import store as subscriptions
 
-UPLOADERS_GROUP = "uploaders"
+# The app owner (a Cognito group, added by hand): a higher cap of their own, outside the shared one.
+OWNERS_GROUP = "owners"
 ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
 MAX_BYTES = 10 * 1024 * 1024
 MAX_FILENAME = 120
-# Decision R2: low enough that the worst case (every limit hit, every day) stays ~$16/month.
-USER_DAILY_LIMIT = 10
+# Uploads per day (2026-10-04, Andy): anyone signed in gets 3, and all non-owners together get
+# 15 (~2.7¢ a scan, so ~$12/month if strangers max it daily). The owner gets 25, outside the
+# shared cap, so strangers can never use up the owner's uploads.
+USER_DAILY_LIMIT = 3
 GLOBAL_DAILY_LIMIT = 15
+OWNER_DAILY_LIMIT = 25
+# Scans per month for the whole app, the owner's included (2026-10-06, Andy): keeps the worst
+# month near the $10 budget even if every daily limit is used every day.
+MONTHLY_APP_LIMIT = 200
+MONTHLY_USAGE_TTL_DAYS = 40
 UPLOAD_URL_TTL_SECONDS = 300
 USAGE_TTL_DAYS = 7
 MAX_OBLIGATION_WINDOW_DAYS = 366
@@ -97,11 +107,10 @@ def create_upload(
 ) -> dict[str, Any]:
     """Reserve quota, record a pending DOC item, and return a presigned POST for the browser.
 
-    `enforce_limits=False` skips the daily counts (a temporary testing switch); the uploaders
-    group and the per-file checks always apply.
+    `enforce_limits=False` skips the daily counts (a temporary testing switch); the per-file
+    checks always apply.
     """
-    if UPLOADERS_GROUP not in groups:
-        raise Forbidden("Uploads are invite-only for now.")
+    owner = OWNERS_GROUP in groups
     if content_type not in ALLOWED_TYPES:
         raise BadRequest("Upload a JPEG, PNG, or PDF.")
     if not 0 < size_bytes <= MAX_BYTES:
@@ -112,11 +121,29 @@ def create_upload(
 
     day = now.date().isoformat()
     if enforce_limits:
-        _consume_quota(table, f"USER#{user_id}", day, USER_DAILY_LIMIT, now)
+        limit = OWNER_DAILY_LIMIT if owner else USER_DAILY_LIMIT
+        _consume_quota(table, f"USER#{user_id}", day, limit, now, mine=True)
+        if not owner:
+            try:
+                _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
+            except QuotaExceeded:
+                _refund_quota(table, f"USER#{user_id}", day)
+                raise
+        month = now.strftime("%Y-%m")
         try:
-            _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
+            _consume_quota(
+                table,
+                "GLOBAL",
+                month,
+                MONTHLY_APP_LIMIT,
+                now,
+                message="OneBill has reached this month's scan limit. Try again on the 1st.",
+                ttl_days=MONTHLY_USAGE_TTL_DAYS,
+            )
         except QuotaExceeded:
             _refund_quota(table, f"USER#{user_id}", day)
+            if not owner:
+                _refund_quota(table, "GLOBAL", day)
             raise
 
     doc_id = new_id(int(now.timestamp() * 1000))
@@ -135,6 +162,8 @@ def create_upload(
             "sizeBytes": size_bytes,
             "createdAt": timestamp,
             "updatedAt": timestamp,
+            # The owner's PDFs skip the shared daily page budget (their own cap still applies).
+            **({"owner": True} if owner else {}),
         },
         ConditionExpression="attribute_not_exists(PK)",
     )
@@ -225,8 +254,17 @@ def _display_name(filename: str) -> str:
     return name
 
 
-def _consume_quota(table: Any, pk: str, day: str, limit: int, now: datetime) -> None:
-    expires = int((now + timedelta(days=USAGE_TTL_DAYS)).timestamp())
+def _consume_quota(
+    table: Any,
+    pk: str,
+    day: str,
+    limit: int,
+    now: datetime,
+    mine: bool = False,
+    message: str | None = None,
+    ttl_days: int = USAGE_TTL_DAYS,
+) -> None:
+    expires = int((now + timedelta(days=ttl_days)).timestamp())
     try:
         table.update_item(
             Key={"PK": pk, "SK": f"USAGE#{day}"},
@@ -236,7 +274,14 @@ def _consume_quota(table: Any, pk: str, day: str, limit: int, now: datetime) -> 
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            raise QuotaExceeded("Daily upload limit reached. Try again tomorrow.") from err
+            raise QuotaExceeded(
+                message
+                or (
+                    f"You've used today's {limit} uploads. Try again tomorrow."
+                    if mine
+                    else "OneBill has reached today's upload limit. Try again tomorrow."
+                )
+            ) from err
         raise
 
 
@@ -276,6 +321,8 @@ _SUMMARY_ATTRS = (
     "currency",
     "reviewOutcome",
     "failureReason",
+    "source",  # "email" for labelled emails read like a scan
+    "confidence",  # {"level", "checks"}: the list shows a ✓ or "Check" badge (phase 2d)
 )
 
 
@@ -292,11 +339,13 @@ def review_document(
     Corrected deadlines replace the document's obligations and their GSI1 entries atomically.
     """
     action = body.get("action")
-    if action not in {"accept", "correct"}:
-        raise BadRequest('action must be "accept" or "correct".')
+    if action not in {"accept", "correct", "confirm"}:
+        raise BadRequest('action must be "accept", "correct", or "confirm".')
     current = get_document(table, user_id, doc_id)  # NotFound for other users' documents
     if current.get("status") not in REVIEWABLE_STATUSES:
         raise BadRequest("Only processed documents can be reviewed.")
+    if action == "confirm":
+        return _confirm_lines(table, user_id, doc_id, current, body.get("rows"), now)
 
     updates: dict[str, Any] = {
         "status": "ready",
@@ -311,6 +360,7 @@ def review_document(
     expected_keys = _current_keys(table, user_id, doc_id)
     if action == "accept":
         updates["reviewOutcome"] = "accepted"
+        updates["confidence"] = {"level": "confirmed", "checks": []}  # the user checked it all
     else:
         fields = _validated_corrections(body.get("fields"))
         updates["reviewOutcome"] = "corrected"
@@ -342,11 +392,117 @@ def review_document(
                 {"kind": item["kind"], "dueDate": item["dueDate"], "evidence": item["evidence"]}
                 for item in puts
             ]
+        if lines is not None:
+            # Edited lines are trusted; flags on untouched lines stay; if it still doesn't add
+            # up, fresh one-digit suggestions are offered. Pure math: no OCR, no model.
+            updates["confidence"] = after_edit(
+                _plain(current.get("confidence") or {}),
+                _stored_lines(current),
+                lines,
+                total_required=current.get("docType") not in NO_TOTAL_TYPES,
+            )
 
     _write_review(
         table, user_id, doc_id, updates, deletes, puts, expected_keys=expected_keys, removes=removes
     )
     return get_document(table, user_id, doc_id, now)
+
+
+def remove_obligation(table: Any, user_id: str, obl_id: str, now: datetime) -> None:
+    """× on a reminder. A document's deadline is removed from the document too; a
+    subscription's renewal turns that subscription's reminders off (so the next email doesn't
+    bring it back)."""
+    if not is_valid_id(obl_id):
+        raise NotFound("Reminder not found.")
+    pk = f"USER#{user_id}"
+    found = table.query(
+        KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
+        FilterExpression="oblId = :id",
+        ExpressionAttributeValues={":pk": pk, ":prefix": "OBL#", ":id": obl_id},
+    )["Items"]
+    if not found:
+        raise NotFound("Reminder not found.")
+    item = found[0]
+    if item.get("subKey"):
+        subscriptions.set_reminders(table, user_id, item["subKey"], on=False, now=now)
+        return
+    if not item.get("docId"):
+        table.delete_item(Key={"PK": pk, "SK": item["SK"]})
+        return
+    doc = table.get_item(Key={"PK": pk, "SK": f"DOC#{item['docId']}"}).get("Item") or {}
+    keys = list(doc.get("obligationKeys", []))
+    listed = list(doc.get("obligations", []))
+    kept = [(k, o) for k, o in zip(keys, listed, strict=False) if k != item["SK"]]
+    ops: list[dict[str, Any]] = [
+        {"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": item["SK"]}}}
+    ]
+    if doc:
+        ops.append(
+            {
+                "Update": {
+                    "TableName": table.name,
+                    "Key": {"PK": pk, "SK": f"DOC#{item['docId']}"},
+                    "UpdateExpression": (
+                        "SET obligationKeys = :keys, obligations = :listed, updatedAt = :now"
+                    ),
+                    # Only if no other save changed the deadlines since they were read.
+                    "ConditionExpression": "obligationKeys = :expected",
+                    "ExpressionAttributeValues": {
+                        ":keys": [k for k, _ in kept],
+                        ":listed": [o for _, o in kept],
+                        ":now": now.isoformat(),
+                        ":expected": keys,
+                    },
+                }
+            }
+        )
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            raise BadRequest("This document changed. Reload and try again.") from err
+        raise
+
+
+def delete_document(
+    table: Any, s3: Any, bucket: str, user_id: str, doc_id: str, now: datetime
+) -> None:
+    """Delete a receipt or bill: its item, its deadlines, and its photo or PDF."""
+    if not is_valid_id(doc_id):
+        raise NotFound("Document not found.")
+    pk = f"USER#{user_id}"
+    item = table.get_item(Key={"PK": pk, "SK": f"DOC#{doc_id}"}).get("Item")
+    if not item:
+        raise NotFound("Document not found.")
+    if _effective(item, now).get("status") == "processing":
+        raise BadRequest("We're still reading this document. Try again in a minute.")
+    keys = list(item.get("obligationKeys", []))
+    # Only if its deadlines are still the ones read here: a concurrent edit can't leave
+    # reminders behind that keep emailing about a deleted bill.
+    unchanged = (
+        "obligationKeys = :keys"
+        if keys
+        else "attribute_not_exists(obligationKeys) OR obligationKeys = :keys"
+    )
+    ops = [
+        {
+            "Delete": {
+                "TableName": table.name,
+                "Key": {"PK": pk, "SK": f"DOC#{doc_id}"},
+                "ConditionExpression": unchanged,
+                "ExpressionAttributeValues": {":keys": keys},
+            }
+        }
+    ]
+    ops += [{"Delete": {"TableName": table.name, "Key": {"PK": pk, "SK": sk}}} for sk in keys]
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "TransactionCanceledException":
+            raise BadRequest("This bill changed. Reload and try again.") from err
+        raise
+    # Versioned bucket: this adds a delete marker; the old version expires after 30 days.
+    s3.delete_object(Bucket=bucket, Key=item.get("s3Key") or f"uploads/{user_id}/{doc_id}")
 
 
 def review_stats(documents: list[dict[str, Any]]) -> dict[str, Any]:
@@ -379,9 +535,18 @@ def _rechecked(lines: list[Line], doc_type: str | None) -> dict[str, Any]:
         "corrections": [],  # the person's labels replace any automatic relabelling
         "issues": rec.issues,
         "notes": rec.notes,
+        "taxIncluded": rec.tax_included,
+        "math": rec.math,
         # Ready only when the corrected bill adds up; otherwise the issues say what's off.
         "status": "ready" if rec.ok else "needs_review",
     }
+
+
+def _stored_lines(item: dict[str, Any]) -> list[Line]:
+    return [
+        Line(int(x["row"]), x["description"], x["kind"], int(x["amountCents"]))
+        for x in item.get("lines", [])
+    ]
 
 
 def _validated_lines(raw: Any) -> list[Line]:
@@ -462,6 +627,52 @@ def _validated_corrections(fields: Any) -> dict[str, Any]:
             deadlines.append((kind, due))
         out["deadlines"] = deadlines
     return out
+
+
+MAX_CONFIRM_ROWS = 200
+
+
+def _confirm_lines(
+    table: Any,
+    user_id: str,
+    doc_id: str,
+    current: dict[str, Any],
+    rows: Any,
+    now: datetime,
+) -> dict[str, Any]:
+    """'Looks right' on flagged lines: clears those flags. With none left, a bill whose totals
+    add up counts as checked by the user. The status never changes here."""
+    valid = (
+        isinstance(rows, list)
+        and 0 < len(rows) <= MAX_CONFIRM_ROWS
+        and all(isinstance(r, int) and not isinstance(r, bool) for r in rows)
+    )
+    if not valid:
+        raise BadRequest(f"rows must be a list of 1–{MAX_CONFIRM_ROWS} line numbers.")
+    before = _plain(current.get("confidence") or {"level": "check", "checks": []})
+    remaining = [c for c in before.get("checks", []) if int(c["row"]) not in set(rows)]
+    if remaining or current.get("status") != "ready":
+        level = before.get("level", "check") if remaining else "check"
+    else:
+        level = "confirmed"
+    try:
+        table.update_item(
+            Key={"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"},
+            UpdateExpression="SET confidence = :new, updatedAt = :now",
+            # Only if nothing else changed the flags since they were read (no lost confirms).
+            ConditionExpression="attribute_exists(PK) AND "
+            "(attribute_not_exists(confidence) OR confidence = :old)",
+            ExpressionAttributeValues={
+                ":new": {"level": level, "checks": remaining},
+                ":old": current.get("confidence") or {},
+                ":now": now.isoformat(),
+            },
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise BadRequest("This bill changed. Reload and try again.") from err
+        raise
+    return get_document(table, user_id, doc_id)
 
 
 def _write_review(
