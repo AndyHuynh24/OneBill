@@ -11,94 +11,54 @@ export function Welcome({
 }) {
   return (
     <main className="welcome">
-      <header className="welcome-top">
-        <Logo />
-      </header>
-
-      <section className="welcome-hero">
-        <div className="welcome-copy">
-          <h1>
-            Every bill, <span className="accent-text">sorted.</span>
-          </h1>
-          <ul className="welcome-points">
-            <li>
-              <span className="point-icon" aria-hidden="true">
-                <PeopleIcon />
-              </span>
-              <span>
-                <strong>Scan and split.</strong> Snap a receipt and split it with friends to the cent.
-              </span>
-            </li>
-            <li>
-              <span className="point-icon" aria-hidden="true">
-                <BellIcon />
-              </span>
-              <span>
-                <strong>Bills and subscriptions.</strong> Track what renews and get a heads-up before anything is due.
-              </span>
-            </li>
-            <li>
-              <span className="point-icon" aria-hidden="true">
-                <ChatIcon />
-              </span>
-              <span>
-                <strong>Ask your money anything.</strong> A chat assistant that remembers your bills and answers
-                questions about your spending. <span className="soon-tag">Coming soon</span>
-              </span>
-            </li>
-          </ul>
-
-          {loading ? (
-            <p className="welcome-loading" role="status">
-              <span className="spinner" aria-hidden="true" /> Checking your
-              session…
-            </p>
-          ) : (
-            <div className="welcome-actions">
-              <button
-                type="button"
-                className="btn-google"
-                onClick={() => onSignIn("google")}
-              >
-                <GoogleMark />
-                Continue with Google
-              </button>
-              <button
-                type="button"
-                className="btn-email"
-                onClick={() => onSignIn("email")}
-              >
-                Sign in with email
-              </button>
-              <InstallButton className="install-welcome" />
-            </div>
-          )}
-          <p className="welcome-private">
-            <LockIcon /> Private by design: names, addresses, and card numbers
-            are masked before AI reads anything.
-          </p>
+      {/* One centered column: the picture, what OneBill is, and the two ways in. */}
+      <section className="welcome-center">
+        <div className="welcome-brand">
+          <Logo />
         </div>
-
         <ReceiptPreview />
+        <h1>
+          Every bill, <span className="accent-text">sorted.</span>
+        </h1>
+        <p className="welcome-sub">
+          Keep track of your subscriptions and bills, scan receipts, and split them with friends.
+        </p>
+
+        {loading ? (
+          <p className="welcome-loading" role="status">
+            <span className="spinner" aria-hidden="true" /> Checking your session…
+          </p>
+        ) : (
+          <div className="welcome-actions">
+            <button type="button" className="btn-google" onClick={() => onSignIn("google")}>
+              <GoogleMark />
+              Continue with Google
+            </button>
+            <button type="button" className="btn-email" onClick={() => onSignIn("email")}>
+              Sign in with email
+            </button>
+            <InstallButton className="install-welcome" />
+          </div>
+        )}
+        <p className="welcome-private">
+          <LockIcon /> Names, addresses, and card numbers are masked before AI reads anything.
+        </p>
       </section>
 
       <section className="welcome-features" aria-label="What OneBill does">
-        <Feature icon={<CameraIcon />} title="Scan and read">
-          Snap a receipt or forward a bill. OneBill reads every line and checks
-          that the totals add up.
+        <Feature icon={<PeopleIcon />} title="Scan and split">
+          Snap a receipt; OneBill reads every line and splits it to the cent.
         </Feature>
-        <Feature icon={<PeopleIcon />} title="Split to the cent">
-          Drag items to friends, share tax and tip fairly, and send everyone
-          their share in one message.
+        <Feature icon={<BellIcon />} title="Bills and subscriptions">
+          See what renews, and get a reminder before anything is due.
         </Feature>
-        <Feature icon={<BellIcon />} title="Never miss a renewal">
-          Subscriptions and bills from your inbox, with reminders before they
-          renew or fall due.
+        <Feature icon={<ChatIcon />} title="Ask your money anything">
+          A chat assistant for your bills and spending. <span className="soon-tag">Coming soon</span>
         </Feature>
       </section>
 
       <footer className="welcome-footer">
-        © {new Date().getFullYear()} OneBill
+        <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a> · © {new Date().getFullYear()} OneBill
       </footer>
     </main>
   );
@@ -243,15 +203,6 @@ const icon = {
   strokeLinecap: "round",
   strokeLinejoin: "round",
 } as const;
-
-function CameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" {...icon}>
-      <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" />
-      <circle cx="12" cy="13" r="3.5" />
-    </svg>
-  );
-}
 
 function PeopleIcon() {
   return (

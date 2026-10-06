@@ -16,7 +16,9 @@ const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
 // redirects, API CORS, and upload CORS allow each; emails link to the public site.
 const devUrl: string = app.node.getContext("devUrl");
 const publicUrl: string | undefined = app.node.tryGetContext("publicUrl") || undefined;
-const frontendUrls = publicUrl ? [publicUrl, devUrl] : [devUrl];
+// Other addresses that also serve the app (e.g. CloudFront behind a nicer main address).
+const otherUrls: string[] = app.node.tryGetContext("otherUrls") ?? [];
+const frontendUrls = [...(publicUrl ? [publicUrl] : []), ...otherUrls, devUrl];
 const appUrl = publicUrl ?? devUrl;
 
 // Testing only: `cdk deploy -c dailyLimits=off` skips the daily upload limits. Any deploy
@@ -57,6 +59,7 @@ new PipelineStack(app, "OneBill-Pipeline", {
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
   photoTiles,
+  gmailPasswordParameter: app.node.tryGetContext("gmailPasswordParameter") || undefined,
 });
 
 // The public website (phase 2f). `make deploy-web` builds the frontend first; without a build,

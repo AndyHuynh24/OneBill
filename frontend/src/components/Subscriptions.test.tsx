@@ -31,11 +31,11 @@ const stat = (label: RegExp) => screen.getByText(label).closest(".stat") as HTML
 const rows = () => within(screen.getByRole("table", { name: /subscriptions/i })).getAllByRole("row");
 
 describe("Subscriptions summary", () => {
-  it("shows how many are active, next month's total, and what renews in the next 30 days", () => {
+  it("shows how many are active, what renews in the next 30 days, and the cost per month", () => {
     setup();
 
     expect(stat(/^active$/i)).toHaveTextContent("4");
-    expect(stat(/next month/i)).toHaveTextContent("$30.47"); // 15.49 + 11.99 + 2.99
+    expect(stat(/per month/i)).toHaveTextContent("$35.89"); // 15.49 + 11.99 + 2.99 + 65.00 ÷ 12
     expect(stat(/next 30 days/i)).toHaveTextContent("$14.98"); // Spotify Oct 20 + iCloud Oct 8
   });
 

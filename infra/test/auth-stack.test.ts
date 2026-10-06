@@ -120,7 +120,7 @@ describe("AuthStack — login page branding", () => {
       UseCognitoProvidedValues: false,
       Settings: Match.objectLike({
         components: Match.objectLike({
-          primaryButton: { lightMode: Match.objectLike({ defaults: { backgroundColor: "d9774fff", textColor: "ffffffff" } }) },
+          primaryButton: { lightMode: Match.objectLike({ defaults: { backgroundColor: "2b7a69ff", textColor: "ffffffff" } }) },
           form: Match.objectLike({ logo: Match.objectLike({ enabled: true }) }),
         }),
       }),

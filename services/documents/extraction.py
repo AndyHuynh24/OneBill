@@ -150,7 +150,8 @@ per listing: the same product can appear more than once, each with its own price
 applies to fees shown with a crossed-out price (e.g. delivery "$8.97 $0.00": the fee is 0.00, \
 the 8.97 is info). A saving printed as its own line \
 that the bill subtracts (a coupon or markdown line under the item, at full price) is still a \
-discount.
+discount. A discount shown under its item and repeated with the same amount in the summary \
+(below the subtotal) is one discount: label the summary repeat info.
 - Never invent a line or an amount. If the printed amounts don't add up, still record them \
 exactly as printed.
 - deadlines: payment due dates, warranty expiry, and renewal dates on bills and invoices. A \

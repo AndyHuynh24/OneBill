@@ -287,13 +287,20 @@ describe("PipelineStack — reminders", () => {
     // OBL# reminder in one transaction. Still no Scan, and Query only on the GSI1 index.
     expect(actionsOf(statements, "dynamodb:")).toEqual([
       "dynamodb:DeleteItem",
+      "dynamodb:DescribeStream", // the four stream reads: new reminders, emailed right away
       "dynamodb:GetItem",
+      "dynamodb:GetRecords",
+      "dynamodb:GetShardIterator",
+      "dynamodb:ListStreams",
       "dynamodb:PutItem",
       "dynamodb:Query",
       "dynamodb:UpdateItem",
     ]);
     const query = statements.find((st) => [st.Action].flat().includes("dynamodb:Query"));
     expect(JSON.stringify(query?.Resource)).toContain("/index/GSI1");
+    // Stream reads only on the table's stream, never on the table itself.
+    const stream = statements.find((st) => [st.Action].flat().includes("dynamodb:GetRecords"));
+    expect(JSON.stringify(stream?.Resource)).toContain("StreamArn");
   });
 
   it("can only look up users in the OneBill pool and send from the verified sender", () => {
@@ -302,6 +309,8 @@ describe("PipelineStack — reminders", () => {
     expect(actionsOf(statements, "ses:")).toEqual(["ses:SendEmail"]);
     const ses = statements.find((st) => actionsOf([st], "ses:").length);
     expect(JSON.stringify(ses?.Resource)).toContain(":identity/");
+    // Any verified recipient (the SES sandbox checks those too), but only from the sender.
+    expect(JSON.stringify(ses?.Condition)).toContain("ses:FromAddress");
     for (const st of statements) {
       expect([st.Action].flat()).not.toContain("*");
     }
@@ -330,3 +339,37 @@ describe("PipelineStack — alarms (cost review)", () => {
     }
   });
 });
+
+describe("PipelineStack — reminders right away", () => {
+  it("wakes the reminders Lambda only for new OBL# items on the table's stream", () => {
+    const mappings = Object.values(template.findResources("AWS::Lambda::EventSourceMapping"));
+    const stream = mappings.find((m) => JSON.stringify(m.Properties.EventSourceArn ?? "").includes("StreamArn"));
+    expect(stream).toBeDefined();
+    const pattern = JSON.parse(stream!.Properties.FilterCriteria.Filters[0].Pattern);
+    expect(pattern).toEqual({ eventName: ["INSERT"], dynamodb: { NewImage: { SK: { S: [{ prefix: "OBL#" }] } } } });
+  });
+});
+
+describe("PipelineStack — reminders through Gmail", () => {
+  it("can read only the Gmail password parameter, and only when it's configured", () => {
+    const app = new App({ context: { "aws:cdk:bundling-stacks": [] } });
+    const env = { account: "123456789012", region: "us-east-1" };
+    const data = new DataStack(app, "GD", { env, frontendUrls: ["http://localhost:5173"] });
+    const auth = new AuthStack(app, "GA", { env, domainPrefix: "x", frontendUrls: ["http://localhost:5173"] });
+    const stack = new PipelineStack(app, "GP", {
+      env,
+      table: data.table,
+      docsBucket: data.docsBucket,
+      bedrockModelId: "test-model",
+      userPool: auth.userPool,
+      appUrl: "http://localhost:5173",
+      gmailPasswordParameter: "/onebill/gmail-app-password",
+    });
+    const gmail = Template.fromStack(stack);
+    const policies = JSON.stringify(gmail.findResources("AWS::IAM::Policy"));
+    expect(policies).toContain("ssm:GetParameter");
+    expect(policies).toContain("parameter/onebill/gmail-app-password");
+    expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).not.toContain("gmail-app-password"); // default: none
+  });
+});
+

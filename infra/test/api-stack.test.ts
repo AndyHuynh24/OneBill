@@ -138,9 +138,9 @@ describe("ApiStack — /me Lambda", () => {
     }
   });
 
-  it("grants /me only GetItem and PutItem on the table itself (no Scan, no indexes)", () => {
+  it("grants /me only GetItem, PutItem, and UpdateItem on the table itself (no Scan, no indexes)", () => {
     const statements = statementsFor("api.me.handler.handler");
-    expect(actionsOf(statements, "dynamodb:")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem"]);
+    expect(actionsOf(statements, "dynamodb:")).toEqual(["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]);
     const dynamo = statements.find((st) => actionsOf([st], "dynamodb:").length);
     expect(JSON.stringify(dynamo?.Resource)).not.toContain("index");
     expect(actionsOf(statements, "s3:")).toEqual([]);

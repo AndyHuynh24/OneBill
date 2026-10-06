@@ -104,7 +104,6 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
   // A left-out line that doesn't make sense (a "$52.97" shopping bag that's flagged) sits in
   // the items, where it belongs, asking to be fixed; only unflagged notes go to the bottom.
   const inItems = (l: { kind: string; row: number }) => ITEM_KINDS.has(l.kind) || (l.kind === "info" && checks.has(l.row));
-  const notCounted = (doc?.lines ?? []).filter((l) => l.kind === "info" && !checks.has(l.row));
   const splittable = !!doc && canSplit(doc.lines);
 
   return (
@@ -232,19 +231,6 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   showKind
                   {...lineProps}
                 />
-                {!!notCounted.length && (
-                  <BillLines
-                    label="Not counted in the total"
-                    lines={notCounted}
-                    showKind
-                    {...lineProps}
-                    footer={
-                      <p className="muted not-counted-note">
-                        Notes and crossed-out prices. If one is really part of the bill, tap it and change it to an item.
-                      </p>
-                    }
-                  />
-                )}
                 {doc.taxIncluded && (
                   <p className="muted tax-note">
                     Prices include tax
@@ -292,8 +278,8 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
               </>
             )}
             {mode === "view" && (
-              <button type="button" className="btn-block btn-delete" onClick={() => setMode("confirm-delete")}>
-                Delete
+              <button type="button" className="link-button delete-link" onClick={() => setMode("confirm-delete")}>
+                Delete bill
               </button>
             )}
             {mode === "confirm-delete" && (

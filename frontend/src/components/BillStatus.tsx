@@ -43,12 +43,13 @@ export function BillStatus({
       !i.startsWith("Items add up to") &&
       !i.includes("but the receipt's total is"),
   );
+  const discount = math.discountAfterCents ? ` − discount ${money(-math.discountAfterCents)}` : "";
   const charges = [
     math.taxCents ? `tax ${money(math.taxCents)}` : null,
     math.tipCents ? `tip ${money(math.tipCents)}` : null,
     math.feesCents ? `fees ${money(math.feesCents)}` : null,
   ].filter(Boolean);
-  const totalSum = `${math.subtotalCents != null ? "Subtotal" : "Items"} ${money(math.basisCents)}${charges.map((c) => ` + ${c}`).join("")}`;
+  const totalSum = `${math.subtotalCents != null ? "Subtotal" : "Items"} ${money(math.basisCents)}${discount}${charges.map((c) => ` + ${c}`).join("")}`;
 
   let tone: "ok" | "warn";
   let headline: string;
@@ -125,6 +126,15 @@ export function ItemsTotal({
   if (!math) return null;
   const money = (cents: number) => formatCents(cents, currency);
   const printed = math.subtotalCents;
+  // Adds up: one quiet line. Off: the full comparison.
+  if (math.itemsMatch !== false) {
+    return (
+      <p className="items-total-ok">
+        Items add up to <strong>{money(math.itemsCents)}</strong>
+        {printed != null && <span className="items-ok-mark"> ✓ matches the receipt</span>}
+      </p>
+    );
+  }
   return (
     <div className={`items-total ${math.itemsMatch === false ? "off" : ""}`}>
       <span>

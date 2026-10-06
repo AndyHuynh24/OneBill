@@ -1,4 +1,4 @@
-/* OneBill — warm, calm, light. One accent (terracotta), soft shadows, generous spacing. */
+/* OneBill — warm, calm, light. One accent (evergreen), soft shadows, generous spacing. */
 :root {
   --bg: #fbf6ef;
   --surface: #ffffff;
@@ -6,9 +6,9 @@
   --text: #2d2520;
   --muted: #8a7d72;
   --border: #ecdfd2;
-  --accent: #d9774f;
-  --accent-strong: #c2603a;
-  --accent-soft: #fbe8dd;
+  --accent: #2b7a69;
+  --accent-strong: #1d5e50;
+  --accent-soft: #dcefe8;
   --accent-text: #ffffff;
   --success: #4e8a5b;
   --success-soft: #e6f2e8;
@@ -158,9 +158,11 @@ button {
     border-color 0.15s var(--ease);
 }
 
-button:hover:not(:disabled) {
-  border-color: #dccbbb;
-  background: #fffaf5;
+@media (hover: hover) {
+  button:hover:not(:disabled) {
+    border-color: #dccbbb;
+    background: #fffaf5;
+  }
 }
 
 button:active:not(:disabled) {
@@ -186,9 +188,11 @@ button.primary {
   font-weight: 600;
 }
 
-button.primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+@media (hover: hover) {
+  button.primary:hover:not(:disabled) {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+  }
 }
 
 button.danger {
@@ -204,8 +208,10 @@ button.danger {
   font-weight: 600;
 }
 
-.link-button:hover:not(:disabled) {
-  background: var(--accent-soft);
+@media (hover: hover) {
+  .link-button:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
 }
 
 .icon-button {
@@ -254,9 +260,11 @@ button.danger {
   animation: fade-in 0.3s var(--ease) both;
 }
 
-.doc-card:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-lift);
+@media (hover: hover) {
+  .doc-card:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lift);
+  }
 }
 
 .doc-card:disabled {
@@ -396,8 +404,10 @@ button.danger {
   transition: background 0.15s var(--ease);
 }
 
-.sub-row:hover {
-  background: #fffaf5;
+@media (hover: hover) {
+  .sub-row:hover {
+    background: #fffaf5;
+  }
 }
 
 .sub-row button {
@@ -471,11 +481,13 @@ button.danger {
   color: var(--accent-text);
   background: var(--accent);
   border: none;
-  box-shadow: 0 10px 28px rgba(217, 119, 79, 0.38);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
-.scan-button:hover:not(:disabled) {
-  background: var(--accent-strong);
+@media (hover: hover) {
+  .scan-button:hover:not(:disabled) {
+    background: var(--accent-strong);
+  }
 }
 
 /* ---------- notices ---------- */
@@ -894,8 +906,10 @@ select {
   transition: transform 0.2s var(--ease);
 }
 
-.circle-seat:hover:not(:disabled) {
-  background: transparent;
+@media (hover: hover) {
+  .circle-seat:hover:not(:disabled) {
+    background: transparent;
+  }
 }
 
 /* Seats are positioned with transform: the generic button "press" scale must not replace it
@@ -1077,7 +1091,7 @@ select {
 
 .assign-cta button {
   animation: rise 0.25s var(--ease) both;
-  box-shadow: 0 8px 20px rgba(217, 119, 79, 0.3);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .assign-actions {
@@ -1286,11 +1300,13 @@ button.soft {
 
 .btn-split {
   background: var(--accent);
-  box-shadow: 0 8px 22px rgba(217, 119, 79, 0.3);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.btn-split:hover:not(:disabled) {
-  background: var(--accent-strong);
+@media (hover: hover) {
+  .btn-split:hover:not(:disabled) {
+    background: var(--accent-strong);
+  }
 }
 
 .btn-split:disabled {
@@ -1307,9 +1323,11 @@ button.btn-delete {
   font-weight: 700;
 }
 
-button.btn-delete:hover:not(:disabled) {
-  background: #b0432f;
-  border-color: #b0432f;
+@media (hover: hover) {
+  button.btn-delete:hover:not(:disabled) {
+    background: #b0432f;
+    border-color: #b0432f;
+  }
 }
 
 /* ---------- scan progress ---------- */
@@ -1543,8 +1561,10 @@ button.check-ok {
   color: var(--success);
   box-shadow: none;
 }
-button.check-ok:hover:not(:disabled) {
-  background: var(--success-soft);
+@media (hover: hover) {
+  button.check-ok:hover:not(:disabled) {
+    background: var(--success-soft);
+  }
 }
 .tag-sure {
   margin-left: 0.35rem;
@@ -1574,10 +1594,12 @@ button.line-tap {
   margin: -0.05rem -0.2rem;
   border-bottom: 1px dashed transparent;
 }
-button.line-tap:hover,
+@media (hover: hover) {
+  button.line-tap:hover,
 button.line-tap:focus-visible {
-  background: var(--surface-2);
-  border-bottom-color: var(--muted);
+    background: var(--surface-2);
+    border-bottom-color: var(--muted);
+  }
 }
 button.amount-tap {
   font-variant-numeric: tabular-nums;
@@ -1880,9 +1902,11 @@ button.check-use {
   border: 1px solid #dadce0;
   box-shadow: var(--shadow);
 }
-.btn-google:hover {
-  box-shadow: var(--shadow-lift);
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .btn-google:hover {
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-1px);
+  }
 }
 .google-mark {
   width: 20px;
@@ -1893,8 +1917,10 @@ button.check-use {
   color: var(--accent-strong);
   border: 1px solid var(--accent-soft);
 }
-.btn-email:hover {
-  background: var(--accent-soft);
+@media (hover: hover) {
+  .btn-email:hover {
+    background: var(--accent-soft);
+  }
 }
 .welcome-loading {
   display: inline-flex;
@@ -2495,7 +2521,7 @@ button.nav-arrow {
 /* "By what's ordered": the suggested choice for tax/tip/fee, softly highlighted */
 .assign-actions button.chip-suggested {
   background: var(--accent-soft);
-  border: 1px solid rgba(217, 119, 79, 0.45);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent-strong);
   font-weight: 600;
 }
@@ -2572,7 +2598,7 @@ button.nav-arrow {
     opacity 0.2s var(--ease);
 }
 .circle.is-dragging .avatar-wrap::after {
-  border-color: rgba(217, 119, 79, 0.75);
+  border-color: color-mix(in srgb, var(--accent) 75%, transparent);
 }
 /* The selected / hovered ring replaces the dashed one */
 .circle-seat[aria-pressed="true"] .avatar-wrap::after,
@@ -2652,8 +2678,10 @@ button.nav-arrow {
   font-weight: 600;
   font-size: 0.92rem;
 }
-.add-people:hover:not(:disabled) {
-  background: var(--accent-soft);
+@media (hover: hover) {
+  .add-people:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
 }
 /* ===== Fit title → "Everything and who has it" on one screen (2026-10-04) ===== */
 /* The circle shrinks a little on short windows (never below 17.5rem, where it still looks
@@ -3155,9 +3183,11 @@ button.nav-arrow {
   text-align: left;
   min-height: 0;
 }
-.coming-row:hover:not(:disabled) {
-  background: var(--surface-2);
-  transform: none;
+@media (hover: hover) {
+  .coming-row:hover:not(:disabled) {
+    background: var(--surface-2);
+    transform: none;
+  }
 }
 .coming-date {
   display: flex;
@@ -3249,7 +3279,693 @@ button.nav-arrow {
   padding: 0.7rem 0.65rem;
   min-height: 3.3rem;
 }
-.doc-list .doc-card:hover:not(:disabled) {
-  transform: none;
+@media (hover: hover) {
+  .doc-list .doc-card:hover:not(:disabled) {
+    transform: none;
+    background: var(--surface-2);
+  }
+}
+
+/* ===== Split: one list for any group size (2026-10-05) ===== */
+.split-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+/* People: a row that scrolls sideways for big groups; tap one to paint their items */
+.people-bar {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding: 0.2rem 0.1rem 0.35rem;
+  margin: 0 -0.1rem;
+  scrollbar-width: none;
+}
+.people-bar::-webkit-scrollbar {
+  display: none;
+}
+.person {
+  flex: none;
+  width: 4.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.45rem 0.2rem;
+  border: 1.5px solid transparent;
+  border-radius: 16px;
+  background: transparent;
+  min-height: 0;
+}
+@media (hover: hover) {
+  .person:hover:not(:disabled) {
+    background: var(--surface-2);
+    transform: none;
+  }
+}
+.person .avatar-md {
+  width: 2.6rem;
+  height: 2.6rem;
+  font-size: 0.95rem;
+}
+.person-name {
+  font-size: 0.8rem;
+  font-weight: 650;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.person-total {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.person.painting,
+.person.turn {
+  border-color: var(--seat-color);
+  background: color-mix(in srgb, var(--seat-color) 10%, transparent);
+}
+.person-edit .person-plus {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  border: 1.5px dashed var(--border-strong, #d8c9b8);
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
+  color: var(--muted);
+}
+.person-edit .person-name {
+  color: var(--muted);
+  font-weight: 600;
+}
+.split-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+.split-hint {
+  color: var(--muted);
+}
+.split-tools .link-button {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+/* Painting / someone's turn: a banner in their color */
+.split-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.55rem 0.5rem 0.6rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--seat-color) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--seat-color) 35%, transparent);
+  font-size: 0.92rem;
+}
+.split-banner .avatar-sm {
+  width: 1.8rem;
+  height: 1.8rem;
+  font-size: 0.7rem;
+  flex: none;
+}
+.split-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+.split-banner-count {
+  color: var(--muted);
+}
+.split-banner-next {
+  flex: none;
+  min-height: 0;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  background: var(--seat-color);
+  border-color: var(--seat-color);
+  color: #fff;
+  font-weight: 650;
+  font-size: 0.85rem;
+}
+/* The lines: one card, a row each */
+.split-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.split-lines li + li .split-line {
+  border-top: 1px solid var(--border);
+}
+.split-line {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.3rem 0.75rem;
+  padding: 0.65rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  min-height: 0;
+}
+@media (hover: hover) {
+  .split-line:hover:not(:disabled) {
+    background: var(--surface-2);
+    transform: none;
+  }
+}
+.split-line:disabled {
+  opacity: 0.55;
+}
+.split-line-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.split-line-tag {
+  margin-right: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
   background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  vertical-align: 0.1em;
+}
+.split-line-price {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.split-line-who {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.6rem;
+}
+.faces {
+  display: flex;
+}
+.faces .avatar-sm {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.62rem;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.faces .avatar-sm + .avatar-sm {
+  margin-left: -0.3rem;
+}
+.split-line-each,
+.split-line-mode {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.who-empty {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+/* Nobody yet: a soft tint, so what's left stands out */
+.split-line.open {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+/* Painting: the active person's lines light up in their color */
+.split-line.mine {
+  background: color-mix(in srgb, var(--seat-color) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--seat-color);
+}
+.split-line.charge .split-line-name {
+  font-weight: 500;
+  color: var(--muted);
+}
+/* Footer: what's left, then the actions, always visible at the bottom of the sheet */
+.split-footer {
+  position: sticky;
+  bottom: calc(-1.5rem - env(safe-area-inset-bottom));
+  margin: 0.2rem -1.1rem calc(-1.5rem - env(safe-area-inset-bottom));
+  padding: 0.7rem 1.1rem calc(0.8rem + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 3;
+}
+.split-left {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.split-left strong {
+  color: var(--text);
+}
+.split-left.done {
+  color: var(--ok, #4f8a5b);
+  font-weight: 650;
+}
+.split-footer-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.split-footer-actions button {
+  flex: 1;
+}
+.split-cancel {
+  display: block;
+  margin: 0.75rem auto 0;
+}
+/* Who had this? A small sheet over the split */
+.picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(45, 37, 32, 0.3);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fade-in 0.15s ease both;
+}
+.picker {
+  width: 100%;
+  max-width: 34rem;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 22px 22px 0 0;
+  padding: 1rem 1.1rem calc(1rem + env(safe-area-inset-bottom));
+  animation: slide-up 0.25s var(--ease) both;
+}
+.picker-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.05rem;
+}
+.picker-line {
+  font-weight: 600;
+}
+.picker-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.6rem, 1fr));
+  gap: 0.4rem;
+}
+.picker-person {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.55rem 0.2rem;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  background: var(--surface);
+  min-height: 0;
+}
+.picker-person .avatar-md {
+  width: 2.8rem;
+  height: 2.8rem;
+}
+.picker-person[aria-pressed="true"] {
+  border-color: var(--seat-color);
+  background: color-mix(in srgb, var(--seat-color) 12%, var(--surface));
+}
+.picker-name {
+  font-size: 0.82rem;
+  font-weight: 650;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.picker-actions button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.picker-done {
+  margin-left: auto;
+  min-width: 6rem;
+}
+
+.split-line {
+  padding: 0.55rem 0.65rem;
+  gap: 0.2rem 0.75rem;
+}
+.split-line-who {
+  min-height: 1.45rem;
+}
+.split-footer-actions button {
+  white-space: nowrap;
+  font-size: 0.92rem;
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+}
+
+/* ===== Bill screen: quieter (2026-10-05) ===== */
+.bill-status.ok {
+  background: transparent;
+  border: none;
+  padding: 0.1rem 0 0.2rem;
+}
+.bill-status.ok p {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.items-total-ok {
+  margin: 0.45rem 0.25rem 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.items-total-ok strong {
+  color: var(--text);
+}
+.items-ok-mark {
+  color: var(--ok, #4f8a5b);
+}
+.delete-link {
+  display: block;
+  margin: 1.1rem auto 0;
+  color: #b4432f;
+  font-size: 0.9rem;
+}
+
+/* Done (stop selecting) sits beside Next (hand over) */
+.split-banner-done {
+  flex: none;
+  min-height: 0;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--seat-color) 45%, transparent);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+/* Tax, tips, fees: a soft gold, so they read as charges rather than items */
+.split-line.charge {
+  background: #fbf3dd;
+}
+@media (hover: hover) {
+  .split-line.charge:hover:not(:disabled) {
+    background: #f7ecd0;
+  }
+}
+.split-lines li:has(.split-line.charge) + li .split-line.charge {
+  border-top-color: #efe2bf;
+}
+/* "By what's ordered · Tap to change ›": says the charge can be adjusted */
+.split-line-change {
+  margin-left: -0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+
+.welcome-legal {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.welcome-legal a {
+  color: var(--muted);
+}
+
+
+/* ===== Receipt touch: a torn-receipt edge along the bottom of the bill's lines and the split list ===== */
+.lines,
+.split-lines {
+  --tear: 7px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tear)) no-repeat,
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom /
+      calc(2 * var(--tear)) var(--tear) repeat-x;
+  mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--tear)) no-repeat,
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom /
+      calc(2 * var(--tear)) var(--tear) repeat-x;
+  box-shadow: none;
+  border: none;
+}
+.lines tr:last-child td {
+  padding-bottom: calc(0.5rem + 7px);
+}
+.split-lines {
+  padding-bottom: calc(0.3rem + 7px);
+}
+
+.coming-more {
+  margin: 0 0.65rem 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Email reminders: one switch, on by default */
+.reminder-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.4rem 0.65rem 0;
+  padding: 0.55rem 0 0.1rem;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.reminder-switch-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.reminder-switch-hint {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+.reminder-switch input {
+  appearance: none;
+  flex: none;
+  width: 2.6rem;
+  height: 1.5rem;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s var(--ease);
+}
+.reminder-switch input::after {
+  content: "";
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s var(--ease);
+}
+.reminder-switch input:checked {
+  background: var(--accent);
+}
+.reminder-switch input:checked::after {
+  transform: translateX(1.1rem);
+}
+.reminder-switch input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Top line of the card: the 30-day total on the left, the reminder switch on the right */
+.coming-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.45rem 0.65rem 0.35rem;
+}
+.coming-top .coming-total {
+  margin: 0;
+  min-width: 0;
+}
+.coming-top .reminder-switch {
+  margin: 0;
+  padding: 0;
+  border-top: none;
+  gap: 0.45rem;
+  flex: none;
+}
+.coming-top .reminder-switch-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.coming-top .reminder-switch input {
+  width: 2.2rem;
+  height: 1.3rem;
+}
+.coming-top .reminder-switch input::after {
+  width: 1rem;
+  height: 1rem;
+}
+.coming-top .reminder-switch input:checked::after {
+  transform: translateX(0.9rem);
+}
+
+/* Split list: a quiet "ITEMS" label with the count, and white items unless selected */
+.split-lines-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.1rem 0.15rem -0.25rem;
+}
+.split-lines-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.split-lines-count {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.split-line.open {
+  background: transparent;
+}
+
+/* Phones: no blue flash on tap (each control has its own pressed/selected look) */
+button,
+a,
+label,
+.split-line,
+.doc-card {
+  -webkit-tap-highlight-color: transparent;
+}
+.picker-share {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.picker-person[aria-pressed="true"] .picker-share {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ===== Welcome: one centered column (2026-10-05) ===== */
+.welcome {
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 0 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+  display: block;
+}
+.welcome-center {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 0 1.5rem;
+  margin: 0;
+}
+.welcome-brand .logo {
+  justify-content: center;
+}
+.welcome-center .preview {
+  width: min(70%, 14rem);
+  margin: 1.25rem 0 0.5rem;
+}
+.welcome-center h1 {
+  margin: 0.5rem 0 0.4rem;
+  font-size: clamp(2rem, 8vw, 2.6rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.welcome-sub {
+  margin: 0 0 1.5rem;
+  max-width: 22rem;
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.5;
+}
+.welcome-center .welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0;
+}
+.welcome-center .welcome-actions button {
+  width: 100%;
+}
+.welcome-center .welcome-private {
+  justify-content: center;
+  max-width: 22rem;
+  margin: 1rem 0 0;
+  font-size: 0.82rem;
+  text-align: left;
+}
+.welcome-features {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+.welcome-features .feature {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.75rem;
+  align-items: start;
+  padding: 0.9rem 1rem;
+  text-align: left;
+}
+.welcome-features .feature-icon {
+  grid-row: 1 / span 2;
+}
+.welcome-features .feature h2,
+.welcome-features .feature h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+.welcome-features .feature p {
+  margin: 0.15rem 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.welcome-footer {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 0.5rem 0 1rem;
+}
+.welcome-footer a {
+  color: var(--muted);
+}
+/* The centered welcome column keeps one feature per row at every width */
+@media (min-width: 760px) {
+  .welcome {
+    padding: 0 1.25rem 2rem;
+  }
+  .welcome .welcome-features {
+    grid-template-columns: 1fr;
+  }
 }

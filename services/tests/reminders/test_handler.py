@@ -103,3 +103,36 @@ def test_handler_with_nothing_due_sends_nothing(env):
     summary = env["handler"].handler({}, FakeLambdaContext())
 
     assert summary["emails"] == 0
+
+
+def test_gmail_sends_from_onebill_with_both_bodies(env, monkeypatch):
+    sent = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, context, timeout):
+            sent["server"] = (host, port)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def login(self, user, password):
+            sent["login"] = user  # the password is never recorded anywhere
+
+        def send_message(self, message):
+            sent["message"] = message
+
+    handler = env["handler"]
+    monkeypatch.setattr(handler, "_smtp_login", ("onebill.help@gmail.com", "app-password"))
+    monkeypatch.setattr(handler.smtplib, "SMTP_SSL", FakeSMTP)
+
+    handler.send_gmail("a@example.com", "OneBill: 1 thing due soon", "plain", "<p>html</p>")
+
+    message = sent["message"]
+    assert sent["server"] == ("smtp.gmail.com", 465)
+    assert sent["login"] == "onebill.help@gmail.com"
+    assert message["From"] == "OneBill <onebill.help@gmail.com>"
+    assert message["To"] == "a@example.com"
+    assert [part.get_content_type() for part in message.iter_parts()] == ["text/plain", "text/html"]

@@ -41,3 +41,6 @@ START_HERE.md
 eval/receipts/
 eval/cache/
 eval/out/
+
+# Firebase Hosting deploy cache
+.firebase/

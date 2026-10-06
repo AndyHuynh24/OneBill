@@ -76,3 +76,14 @@ function totalBetween(subs: Subscription[], first: Ymd, last: Ymd): { totalCents
   }
   return { totalCents, count };
 }
+
+/** Per month: what the active ones cost in a typical month (yearly ÷ 12, weekly × 52 ÷ 12, ...).
+ *  Ones without an amount or a known cycle are left out. */
+export function monthlyCost(subs: Subscription[]): number {
+  const perMonth: Record<string, number> = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 };
+  return Math.round(
+    subs
+      .filter((s) => s.status !== "cancelled" && s.amountCents != null && s.cycle && perMonth[s.cycle])
+      .reduce((sum, s) => sum + s.amountCents! * perMonth[s.cycle!], 0),
+  );
+}

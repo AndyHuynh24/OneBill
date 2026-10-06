@@ -35,7 +35,6 @@ export function Home({ status, api, onSignIn, onSignOut }: HomeProps) {
 }
 
 const HOME_DOCUMENTS = 5;
-const HOME_UPCOMING = 3;
 
 function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => void }) {
   const queryClient = useQueryClient();
@@ -46,7 +45,11 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const [scanning, setScanning] = useState(false);
 
   // Creates the PROFILE item on first sign-in (GET /me); nothing to show yet.
-  useQuery({ queryKey: ["me"], queryFn: api.getProfile });
+  const profile = useQuery({ queryKey: ["me"], queryFn: api.getProfile });
+  const reminders = useMutation({
+    mutationFn: (on: boolean) => api.setEmailReminders(on),
+    onSuccess: (updated) => queryClient.setQueryData(["me"], updated),
+  });
   const documents = useQuery({
     queryKey: ["documents"],
     queryFn: api.listDocuments,
@@ -152,11 +155,12 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
                 subscriptions={subscriptions.data.subscriptions}
                 connection={subscriptions.data.connection}
                 today={todayIso()}
-                limit={HOME_UPCOMING}
                 onOpen={(item) => ("subscription" in item.open ? setOpenSub(item.open.subscription) : setOpenDoc(item.open.document))}
                 onViewAll={() => setView("subscriptions")}
                 onAdd={() => setAdding(true)}
                 onConnect={() => setConnecting(true)}
+                emailReminders={profile.data ? (reminders.isPending ? reminders.variables : profile.data.emailReminders !== false) : undefined}
+                onEmailReminders={(on) => reminders.mutate(on)}
               />
             ) : (
               <p className="muted">{subscriptions.error || obligations.error ? "Couldn't load this." : "Loading…"}</p>

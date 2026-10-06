@@ -4,9 +4,9 @@
  * (the format was read from `describe-managed-login-branding-by-client --return-merged-resources`).
  * Colors are RRGGBBAA hex, matching the app's theme in frontend/src/index.css.
  */
-const accent = "d9774fff";
-const accentStrong = "c2603aff";
-const accentSoft = "fbe8ddff";
+const accent = "2b7a69ff";
+const accentStrong = "1d5e50ff";
+const accentSoft = "dcefe8ff";
 
 export const loginBrandingSettings = {
   components: {
@@ -50,7 +50,7 @@ export const loginBrandingSettings = {
 /** The OneBill logo (mark + name), shown at the top of the login form. Cognito requires a
  * width:height ratio between 1:1 and 4:1 (this is 3.75:1). */
 const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 40" width="150" height="40">
-<rect x="2" y="3" width="34" height="34" rx="10" fill="#d9774f"/>
+<rect x="2" y="3" width="34" height="34" rx="10" fill="#2b7a69"/>
 <path d="M12 12h14v16l-2.3-1.6-2.4 1.6-2.3-1.6-2.4 1.6-2.3-1.6L12 28z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
 <path d="M15.5 17.5h7M15.5 21.5h7" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
 <text x="46" y="28" font-family="-apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="800" letter-spacing="-0.5" fill="#2d2520">OneBill</text>

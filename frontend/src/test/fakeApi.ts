@@ -62,7 +62,8 @@ export const NETFLIX: Subscription = {
 /** An OneBillApi whose every method is a vi.fn() with an empty, successful default. */
 export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
   return {
-    getProfile: vi.fn().mockResolvedValue({ userId: "u", baseCurrency: "USD", createdAt: "x" }),
+    getProfile: vi.fn().mockResolvedValue({ userId: "u", baseCurrency: "USD", createdAt: "x", emailReminders: true }),
+    setEmailReminders: vi.fn().mockImplementation(async (on: boolean) => ({ userId: "u", baseCurrency: "USD", createdAt: "x", emailReminders: on })),
     listDocuments: vi.fn().mockResolvedValue({
       documents: [],
       review: { reviewed: 0, acceptedUnchanged: 0, acceptanceRate: null },

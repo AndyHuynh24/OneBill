@@ -34,6 +34,9 @@ export class DataStack extends Stack {
       deletionProtection: true,
       // Items with an `expiresAt` epoch-seconds attribute (e.g. daily usage counters) delete themselves.
       timeToLiveAttribute: "expiresAt",
+      // New items flow to a stream: the reminders Lambda emails right away when a new reminder
+      // is already due within 7 days (it only wakes for OBL# inserts).
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
       removalPolicy: RemovalPolicy.RETAIN,
     });
 

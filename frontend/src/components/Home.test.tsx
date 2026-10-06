@@ -299,6 +299,18 @@ describe("Home — signed in", () => {
     expect(due).not.toHaveTextContent("Netflix");
   });
 
+  it("reminder emails are on by default and can be turned off", async () => {
+    const api = fakeApi();
+    renderHome("signedIn", api);
+
+    const toggle = await screen.findByRole("switch", { name: /email reminders/i });
+    expect(toggle).toBeChecked();
+    await userEvent.click(toggle);
+
+    expect(api.setEmailReminders).toHaveBeenCalledWith(false);
+    expect(await screen.findByRole("switch", { name: /email reminders/i })).not.toBeChecked();
+  });
+
   it("signs out", async () => {
     const props = renderHome("signedIn");
 

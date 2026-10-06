@@ -96,7 +96,7 @@ export function PeoplePicker({
           <input
             id="add-names"
             value={text}
-            placeholder="Add people: Tam Vy Khoa"
+            placeholder="Type names, e.g. Andy, Jack, Ronaldo"
             autoComplete="off"
             enterKeyHint="done"
             disabled={full}

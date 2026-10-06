@@ -4,6 +4,8 @@ export interface Profile {
   userId: string;
   baseCurrency: string;
   createdAt: string;
+  /** Reminder emails (7, 3, and 1 day before): on unless turned off. */
+  emailReminders?: boolean;
 }
 
 export type DocStatus = "pending_upload" | "processing" | "ready" | "needs_review" | "failed";
@@ -29,6 +31,8 @@ export interface BillMath {
   subtotalCents: number | null;
   itemsMatch: boolean | null;
   feesInSubtotal: boolean;
+  /** Negative: a discount taken off after the subtotal (and before tax); 0 when none. */
+  discountAfterCents?: number;
   basisCents: number;
   taxCents: number;
   tipCents: number;
@@ -245,6 +249,7 @@ export interface OneBillApi {
   /** The API's address (shown in Connect Gmail, for the Apps Script). */
   readonly baseUrl: string;
   getProfile(): Promise<Profile>;
+  setEmailReminders(on: boolean): Promise<Profile>;
   listDocuments(): Promise<{ documents: DocumentSummary[]; review: ReviewStats }>;
   getDocument(docId: string): Promise<DocumentDetail>;
   reviewDocument(docId: string, request: ReviewRequest): Promise<DocumentDetail>;
@@ -290,6 +295,7 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
   return {
     baseUrl: apiUrl,
     getProfile: () => call<Profile>("GET", "me"),
+    setEmailReminders: (on) => call<Profile>("PATCH", "me", { emailReminders: on }),
     listDocuments: () => call("GET", "documents"),
     getDocument: (docId) => call<DocumentDetail>("GET", `documents/${encodeURIComponent(docId)}`),
     reviewDocument: (docId, request) =>

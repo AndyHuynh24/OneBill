@@ -1,6 +1,6 @@
 import type { GmailConnection, Subscription } from "../api";
-import { formatCents, relativeDay } from "../format";
-import { renewingWithin } from "../subscriptions";
+import { daysUntil, formatCents, relativeDay } from "../format";
+import { activeCount, renewingWithin } from "../subscriptions";
 import type { UpcomingItem } from "../upcoming";
 
 interface ComingUpProps {
@@ -9,25 +9,52 @@ interface ComingUpProps {
   connection: GmailConnection;
   today: string;
   now?: Date;
-  limit: number;
   onOpen: (item: UpcomingItem) => void;
   onViewAll: () => void;
   onAdd: () => void;
   onConnect: () => void;
+  /** Reminder emails on or off (undefined while loading: no switch yet). */
+  emailReminders?: boolean;
+  onEmailReminders?: (on: boolean) => void;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** Home: what's due soonest across subscriptions and bills, with a one-line total. */
-export function ComingUp({ items, subscriptions, connection, today, now = new Date(), limit, onOpen, onViewAll, onAdd, onConnect }: ComingUpProps) {
+/** Home: everything due in the next 30 days across subscriptions and bills, with a one-line total. */
+export function ComingUp({ items, subscriptions, connection, today, now = new Date(), onOpen, onViewAll, onAdd, onConnect, emailReminders, onEmailReminders }: ComingUpProps) {
   const soon = renewingWithin(subscriptions, today, 30);
-  const shown = items.slice(0, limit);
+  // Everything due in the next 30 days, nothing later (that's on View all).
+  const shown = items.filter((item) => daysUntil(item.date, now) <= 30);
+  const hidden = items.length - shown.length;
+  const active = activeCount(subscriptions);
 
   return (
     <div className="card coming">
-      {soon.totalCents > 0 && (
+      {/* Top line: what's due soon, and the reminder-email switch beside it */}
+      <div className="coming-top">
         <p className="coming-total">
-          <strong>{formatCents(soon.totalCents)}</strong> due in the next 30 days
+          {soon.totalCents > 0 && (
+            <>
+              <strong>{formatCents(soon.totalCents)}</strong> due in the next 30 days
+            </>
+          )}
+        </p>
+        {emailReminders !== undefined && onEmailReminders && (
+          <label className="reminder-switch">
+            <span className="reminder-switch-text">Email reminders</span>
+            <input
+              type="checkbox"
+              role="switch"
+              title="Emails 7, 3, and 1 day before"
+              checked={emailReminders}
+              onChange={(e) => onEmailReminders(e.target.checked)}
+            />
+          </label>
+        )}
+      </div>
+      {hidden > 0 && (
+        <p className="coming-more">
+          {active} active subscription{active === 1 ? "" : "s"} · showing what's due in the next 30 days
         </p>
       )}
       {shown.length ? (
@@ -58,7 +85,9 @@ export function ComingUp({ items, subscriptions, connection, today, now = new Da
         </ul>
       ) : (
         <p className="muted coming-empty">
-          Nothing coming up. Add rent and bills, or connect Gmail and OneBill finds your subscriptions.
+          {items.length
+            ? "Nothing due in the next 30 days."
+            : "Nothing coming up. Add rent and bills, or connect Gmail and OneBill finds your subscriptions."}
         </p>
       )}
       <div className="coming-actions">
@@ -72,7 +101,7 @@ export function ComingUp({ items, subscriptions, connection, today, now = new Da
         )}
         {items.length > 0 && (
           <button type="button" className="link-button coming-all" onClick={onViewAll}>
-            View all
+            {hidden > 0 ? `View all ${active} →` : "View all"}
           </button>
         )}
       </div>

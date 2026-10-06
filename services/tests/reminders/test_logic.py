@@ -2,11 +2,13 @@ from datetime import date
 
 import pytest
 
+from api.me.logic import set_email_reminders
 from reminders.logic import (
     collect_due,
     mark_sent,
     render_digest,
     run_reminders,
+    send_now,
     unmark_sent,
 )
 
@@ -250,3 +252,49 @@ def test_past_due_subscriptions_and_bills_roll_forward_each_morning(table):
     assert moved == 1
     rent = table.get_item(Key={"PK": "USER#u1", "SK": "SUB#rent"})["Item"]
     assert rent["nextRenewal"] == "2026-10-29"
+
+
+# --- turning reminder emails off, and emailing right away when a reminder starts late --------
+
+
+def test_people_who_turned_emails_off_get_none_and_nothing_is_claimed(table):
+    put_obligation(table, "a", "2026-10-07", "o7")
+    set_email_reminders(table, "a", False)
+    mailer = FakeMailer()
+
+    summary = run_reminders(table, TODAY, DIRECTORY.get, mailer, app_url="x")
+
+    assert mailer.sent == []
+    assert summary["skipped"] == 1
+    assert get(table, "a", "2026-10-07", "o7")["remindersSent"] == []  # turning it on resumes
+
+
+def test_a_reminder_5_days_out_is_emailed_now_and_counts_as_the_7_day_one(table):
+    item = put_obligation(table, "a", "2026-10-05", "o5")  # 5 days after TODAY
+    mailer = FakeMailer()
+
+    assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "sent"
+    assert [to for to, _ in mailer.sent] == ["a@example.com"]
+    assert get(table, "a", "2026-10-05", "o5")["remindersSent"] == [7]
+    # The daily run still sends the 3-day and 1-day emails later, never the 7-day one again.
+    assert (
+        send_now(table, get(table, "a", "2026-10-05", "o5"), TODAY, DIRECTORY.get, mailer, "x")
+        == "already_sent"
+    )
+
+
+def test_far_off_reminders_wait_for_the_daily_run(table):
+    item = put_obligation(table, "a", "2026-10-20", "o20")
+    mailer = FakeMailer()
+
+    assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "not_soon"
+    assert mailer.sent == []
+
+
+def test_no_immediate_email_when_turned_off(table):
+    item = put_obligation(table, "a", "2026-10-02", "o2")
+    set_email_reminders(table, "a", False)
+    mailer = FakeMailer()
+
+    assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "turned_off"
+    assert mailer.sent == []

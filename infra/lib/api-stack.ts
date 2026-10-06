@@ -54,16 +54,17 @@ export class ApiStack extends Stack {
 
     const meFn = newServiceFunction(this, "MeFunction", {
       handler: "api.me.handler.handler",
-      description: "GET /me: return the caller's PROFILE item, creating it on first call",
+      description: "GET /me: the caller's PROFILE (created on first call); PATCH /me: settings",
       serviceName: "onebill-api",
       environment: { TABLE_NAME: props.table.tableName },
       enableTracing: props.enableTracing,
     });
-    // Least privilege: exactly the two calls logic.py makes, on the table only (no Scan, no
-    // indexes). (grantReadWriteData would add Scan/Delete/BatchWrite.)
+    // Least privilege: exactly the calls logic.py makes, on the table only (no Scan, no
+    // indexes). UpdateItem: the reminder-email setting. (grantReadWriteData would add
+    // Scan/Delete/BatchWrite.)
     meFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["dynamodb:GetItem", "dynamodb:PutItem"],
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
         resources: [props.table.tableArn],
       }),
     );
@@ -159,7 +160,7 @@ export class ApiStack extends Stack {
 
     this.api.addRoutes({
       path: "/me",
-      methods: [apigwv2.HttpMethod.GET],
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH],
       integration: new HttpLambdaIntegration("MeIntegration", meFn),
     });
     const documents = new HttpLambdaIntegration("DocumentsIntegration", documentsFn);

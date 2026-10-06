@@ -50,6 +50,7 @@ dev:
 deploy-web: frontend-env
 	cd frontend && npm run build
 	cd infra && npx cdk deploy OneBill-Web
+	@if [ -f .firebaserc ]; then npx --yes firebase-tools deploy --only hosting; fi
 
 # Extraction accuracy on your labelled receipts (eval/receipts/, local only). Dry run unless ARGS="--yes".
 eval:

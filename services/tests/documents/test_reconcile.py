@@ -497,3 +497,48 @@ def test_the_math_is_returned_as_numbers_for_the_bill_screen():
     assert r.math["itemsMatch"] is True
     assert (r.math["basisCents"], r.math["taxCents"], r.math["expectedCents"]) == (548, 54, 602)
     assert (r.math["totalCents"], r.math["totalMatch"]) == (592, False)
+
+
+# A discount printed under its item and again in the summary, taken off after the subtotal and
+# before tax (sales-receipt.jpg): $100.23 − $5.95 = $94.28, + 12% tax $11.32 = $105.60.
+DISCOUNT_SHOWN_TWICE = lines(
+    ("Red Banana is in business x3", "item", 6696),
+    ("Apple x 5.55", "item", 3324),
+    ("Discount Sale", "discount", -595),
+    ("Subtotal", "subtotal", 10023),
+    ("Discount", "discount", -595),
+    ("12 %", "tax", 1132),
+    ("Total", "total", 10560),
+    ("Cash Tendered", "payment", 10560),
+    ("CHANGE DUE", "change", 0),
+)
+
+
+def test_a_discount_shown_twice_is_counted_once_and_taken_off_before_tax():
+    r = reconcile(DISCOUNT_SHOWN_TWICE)
+
+    assert r.total_ok is True
+    assert r.discounts_cents == -595  # once
+    assert [(c.row, c.to_kind) for c in r.corrections] == [(5, "info")]  # the summary repeat
+    assert r.math["discountAfterCents"] == -595
+    assert r.math["expectedCents"] == 10560
+    # The receipt itself is 3¢ off (66.96 + 33.24 = 100.20, printed 100.23): flagged, not hidden.
+    assert any("subtotal is $100.23" in issue for issue in r.issues)
+
+
+def test_a_discount_below_the_subtotal_comes_off_before_tax():
+    r = reconcile(
+        lines(
+            ("PIZZA", "item", 2000),
+            ("WINGS", "item", 1000),
+            ("SUBTOTAL", "subtotal", 3000),
+            ("10% OFF", "discount", -300),
+            ("TAX 13%", "tax", 351),
+            ("TOTAL", "total", 3051),
+        )
+    )
+
+    assert r.ok
+    assert r.math["itemsCents"] == 3000
+    assert r.math["itemsMatch"] is True
+    assert r.math["discountAfterCents"] == -300

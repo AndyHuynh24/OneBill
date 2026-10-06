@@ -4,6 +4,8 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as schedulerTargets from "aws-cdk-lib/aws-scheduler-targets";
@@ -46,6 +48,9 @@ export interface PipelineStackProps extends StackProps {
    * @default false
    */
   readonly photoTiles?: boolean;
+  /** SSM SecureString parameter holding the sender's Gmail app password, for sending reminders
+   *  through Gmail. Unset: reminders go through SES. */
+  readonly gmailPasswordParameter?: string;
 }
 
 /**
@@ -198,7 +203,7 @@ export class PipelineStack extends Stack {
       props.senderEmailParameter ?? "/onebill/sender-email",
     );
     // SES emails a verification link to this address on first deploy; click it once.
-    const sender = new ses.EmailIdentity(this, "ReminderSender", { identity: ses.Identity.email(senderEmail) });
+    new ses.EmailIdentity(this, "ReminderSender", { identity: ses.Identity.email(senderEmail) });
 
     const remindersFn = newServiceFunction(this, "RemindersFunction", {
       handler: "reminders.handler.handler",
@@ -232,8 +237,42 @@ export class PipelineStack extends Stack {
     );
     remindersFn.addToRolePolicy(
       new iam.PolicyStatement({
+        // SES checks permission on every verified identity involved: the sender, and (while the
+        // account is in the SES sandbox) each recipient's verified address too. So: any identity
+        // in this account, but only ever *from* the verified sender address.
         actions: ["ses:SendEmail"],
-        resources: [`arn:${this.partition}:ses:${this.region}:${this.account}:identity/${sender.emailIdentityName}`],
+        resources: [`arn:${this.partition}:ses:${this.region}:${this.account}:identity/*`],
+        conditions: { StringEquals: { "ses:FromAddress": senderEmail } },
+      }),
+    );
+
+    // Reminders through Gmail (as the sender address), when its app password is stored. Encrypted
+    // with SSM's AWS-managed key: free, and readable only through SSM by this function.
+    if (props.gmailPasswordParameter) {
+      remindersFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [
+            `arn:${this.partition}:ssm:${this.region}:${this.account}:parameter/${props.gmailPasswordParameter.replace(/^\//, "")}`,
+          ],
+        }),
+      );
+      remindersFn.addEnvironment("SMTP_PASSWORD_PARAM", props.gmailPasswordParameter);
+    }
+
+    // A new reminder already inside the 7-day window is emailed right away (not at the next
+    // daily run). The filter means the Lambda only wakes for OBL# inserts, not every table write.
+    remindersFn.addEventSource(
+      new DynamoEventSource(props.table, {
+        startingPosition: lambda.StartingPosition.LATEST,
+        batchSize: 10,
+        retryAttempts: 2,
+        filters: [
+          lambda.FilterCriteria.filter({
+            eventName: lambda.FilterRule.isEqual("INSERT"),
+            dynamodb: { NewImage: { SK: { S: lambda.FilterRule.beginsWith("OBL#") } } },
+          }),
+        ],
       }),
     );
 

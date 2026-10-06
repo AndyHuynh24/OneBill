@@ -1,4 +1,4 @@
-"""Pure business logic for GET /me. No Lambda or HTTP concepts here, so it's easy to test."""
+"""Pure business logic for /me. No Lambda or HTTP concepts here, so it's easy to test."""
 
 from datetime import UTC, datetime
 from typing import Any
@@ -12,7 +12,7 @@ def profile_key(user_id: str) -> dict[str, str]:
     return {"PK": f"USER#{user_id}", "SK": "PROFILE"}
 
 
-def get_or_create_profile(table: Any, user_id: str, now: datetime | None = None) -> dict[str, str]:
+def get_or_create_profile(table: Any, user_id: str, now: datetime | None = None) -> dict[str, Any]:
     """Return the caller's PROFILE item, creating it with defaults on first call.
 
     Creation is idempotent: the put only succeeds if no item exists yet, so two
@@ -44,10 +44,31 @@ def get_or_create_profile(table: Any, user_id: str, now: datetime | None = None)
     return _to_public(item)
 
 
-def _to_public(item: dict[str, Any]) -> dict[str, str]:
+def set_email_reminders(table: Any, user_id: str, enabled: bool) -> dict[str, Any]:
+    """Turn reminder emails on or off for the caller. Returns the updated profile."""
+    if not isinstance(enabled, bool):
+        raise ValueError("emailReminders must be true or false")
+    get_or_create_profile(table, user_id)  # make sure the PROFILE item exists
+    item = table.update_item(
+        Key=profile_key(user_id),
+        UpdateExpression="SET emailReminders = :on",
+        ConditionExpression="attribute_exists(PK)",
+        ExpressionAttributeValues={":on": enabled},
+        ReturnValues="ALL_NEW",
+    )["Attributes"]
+    return _to_public(item)
+
+
+def wants_reminder_emails(item: dict[str, Any] | None) -> bool:
+    """On by default: only an explicit "off" stops reminder emails."""
+    return not item or item.get("emailReminders") is not False
+
+
+def _to_public(item: dict[str, Any]) -> dict[str, Any]:
     """Only expose app fields; key attributes (PK/SK) are storage details."""
     return {
         "userId": item["userId"],
         "baseCurrency": item["baseCurrency"],
         "createdAt": item["createdAt"],
+        "emailReminders": wants_reminder_emails(item),
     }

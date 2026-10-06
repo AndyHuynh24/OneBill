@@ -17,6 +17,10 @@ export interface LineCheck {
 }
 
 /** Every kind a line can be, in the words people use. */
+/** "TAX" already says Tax: the kind label only shows when it adds something ("VISA ****1234 Paid"). */
+const saysKind = (line: DocumentLine) =>
+  line.description.toLowerCase().includes(LINE_KIND_LABELS[line.kind].toLowerCase());
+
 const LINE_KIND_LABELS: Record<LineKind, string> = {
   item: "Item",
   discount: "Discount",
@@ -143,7 +147,7 @@ export function BillLines({
                         onClick={() => setEditing(line.row)}
                       >
                         {line.description}
-                        {showKind && (
+                        {showKind && !saysKind(line) && (
                           <span className="kind">
                             {" "}
                             {LINE_KIND_LABELS[line.kind]}
@@ -154,7 +158,7 @@ export function BillLines({
                     ) : (
                       <>
                         {line.description}
-                        {showKind && (
+                        {showKind && !saysKind(line) && (
                           <span className="kind">
                             {" "}
                             {LINE_KIND_LABELS[line.kind]}

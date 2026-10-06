@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Subscription } from "./api";
-import { activeCount, cycleLabel, cycleSuffix, nextMonthTotal, renewingWithin } from "./subscriptions";
+import { activeCount, cycleLabel, cycleSuffix, monthlyCost, nextMonthTotal, renewingWithin } from "./subscriptions";
 
 const sub = (over: Partial<Subscription>): Subscription => ({
   serviceKey: "x",
@@ -106,5 +106,22 @@ describe("activeCount and cycleLabel", () => {
     [null, "—"],
   ])("%s → %s", (cycle, label) => {
     expect(cycleLabel(cycle as Subscription["cycle"])).toBe(label);
+  });
+});
+
+describe("monthlyCost", () => {
+  const base = { serviceKey: "s", service: "S", plan: null, currency: "USD", status: "charged", nextRenewal: null, renewalComputed: false, history: [], issues: [] } as const;
+  const sub = (over: Partial<Subscription>): Subscription => ({ ...base, history: [], issues: [], amountCents: null, cycle: null, ...over });
+  it("turns every active subscription into a monthly amount", () => {
+    expect(
+      monthlyCost([
+        sub({ amountCents: 1500, cycle: "monthly" }),
+        sub({ amountCents: 12000, cycle: "yearly" }), // $10/month
+        sub({ amountCents: 1200, cycle: "weekly" }), // $52/month
+        sub({ amountCents: 3000, cycle: "quarterly" }), // $10/month
+        sub({ amountCents: 999, cycle: "monthly", status: "cancelled" }), // left out
+        sub({ amountCents: null, cycle: "monthly" }), // no amount: left out
+      ]),
+    ).toBe(1500 + 1000 + 5200 + 1000);
   });
 });

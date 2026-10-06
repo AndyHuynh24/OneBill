@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useBackLayer } from "../backButton";
 import type { ChargeChoice, DocumentDetail, OneBillApi, Split } from "../api";
 import type { Person } from "../split";
-import { AssignCircle, type Assignments, type Picks } from "./AssignCircle";
+import { type Assignments, type Picks, SplitList } from "./SplitList";
 import { PeoplePicker } from "./PeoplePicker";
 import { SplitSummary } from "./SplitSummary";
 
@@ -19,7 +19,7 @@ interface SplitFlowProps {
   onClose: () => void;
 }
 
-/** Split a bill: who's here → assign every line (items, then tax/fees/tip) → summary (saved). */
+/** Split a bill: who's here → who had what (one list) → summary (saved). */
 export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const queryClient = useQueryClient();
   const restored = restore(doc.split);
@@ -87,12 +87,9 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
 
   return (
     <div className="split-flow">
-      {step !== "summary" && <StepHeader step={step} />}
       {step === "people" && (
         <PeoplePicker
-          totalCents={doc.totalCents}
           currency={doc.currency ?? "USD"}
-          vendor={doc.vendor}
           friends={friends}
           people={people}
           onChange={setPeople}
@@ -104,13 +101,14 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
         />
       )}
       {step === "assign" && (
-        <AssignCircle
+        <SplitList
           people={people}
           lines={lines}
           chargeLines={chargeLines}
           currency={doc.currency ?? "USD"}
           initial={picks}
           onDone={allChosen}
+          onEditPeople={() => setStep("people")}
         />
       )}
       {step === "summary" && saved && (
@@ -129,17 +127,10 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
           {save.error.message}
         </p>
       )}
-      {step !== "summary" && (
-        <div className="sheet-actions">
-          {step !== "people" && (
-            <button type="button" onClick={() => setStep("people")}>
-              ← Back to who's here
-            </button>
-          )}
-          <button type="button" className="link-button" onClick={onCancel}>
-            Cancel split
-          </button>
-        </div>
+      {step === "people" && (
+        <button type="button" className="link-button split-cancel" onClick={onCancel}>
+          Cancel split
+        </button>
       )}
     </div>
   );
@@ -173,18 +164,4 @@ function toCharge(pick: Picks[string], count: number): ChargeChoice {
   if (pick.length === count) return { mode: "even" };
   if (pick.length === 1) return { mode: "person", member: pick[0] };
   return { mode: "people", members: pick };
-}
-
-const STEP_TITLES: Record<Exclude<Step, "summary">, string> = {
-  people: "Who's here?",
-  assign: "Who had what?",
-};
-
-function StepHeader({ step }: { step: Exclude<Step, "summary"> }) {
-  return (
-    <div className="step-header">
-      <p className="step-count">Step {step === "people" ? 1 : 2} of 2</p>
-      {step !== "people" && <h2 className="step-title">{STEP_TITLES[step]}</h2>}
-    </div>
-  );
 }

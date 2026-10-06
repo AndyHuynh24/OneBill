@@ -193,6 +193,10 @@ def _with_overage_rule(
     """
     result = _check(lines, total_required)
     result.corrections = list(corrections)
+    if result.total_ok is False:
+        repeated = _without_repeated_discounts(lines, corrections, total_required)
+        if repeated is not None:
+            return repeated
     if result.total_ok is not False or result.overage_cents <= 0:
         return result
     candidates = [line for line in lines if line.kind in _RECAP_KINDS]
@@ -218,6 +222,38 @@ def _with_overage_rule(
     fixed = _check(fixed_lines, total_required)
     if fixed.total_ok is not True:
         return result
+    fixed.corrections = list(corrections) + extra
+    return fixed
+
+
+def _without_repeated_discounts(
+    lines: list[Line], corrections: list[Correction], total_required: bool
+) -> Reconciliation | None:
+    """A discount shown under its item and again, same amount, in the summary below the
+    subtotal is one discount printed twice. If counting it once makes the total add up, the
+    summary copy is relabelled info (the copy under the item stays, so splitting keeps it with
+    that item)."""
+    subtotal_rows = [line.row for line in lines if line.kind == "subtotal"]
+    if not subtotal_rows:
+        return None
+    first_subtotal = min(subtotal_rows)
+    above = [line for line in lines if line.kind == "discount" and line.row < first_subtotal]
+    below = [line for line in lines if line.kind == "discount" and line.row > first_subtotal]
+    relabel: dict[int, LineKind] = {}
+    used: set[int] = set()
+    for repeat in below:
+        match = next(
+            (d for d in above if d.row not in used and d.amount_cents == repeat.amount_cents), None
+        )
+        if match is not None:
+            used.add(match.row)
+            relabel[repeat.row] = "info"
+    if not relabel:
+        return None
+    fixed_lines, extra = _apply(lines, relabel, "repeats a discount already shown under its item")
+    fixed = _check(fixed_lines, total_required)
+    if fixed.total_ok is not True:
+        return None
     fixed.corrections = list(corrections) + extra
     return fixed
 
@@ -342,8 +378,11 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
             not subtotals or _close(subtotals[-1] + r.tax_cents + extras, totals[-1])
         )
 
-    # 1. items (+ discounts, maybe + fees) ≈ printed subtotal
+    # 1. items (+ discounts, maybe + fees) ≈ printed subtotal. Some receipts print the subtotal
+    # before discounts and take them off after it (and before tax): then the items alone match
+    # the subtotal, and the discounts reduce what tax and the total are based on.
     fees_in_subtotal = False
+    discounts_after = False
     if len(subtotals) > 1:
         shown = ", ".join(format_cents(v) for v in subtotals)
         r.issues.append(f"The document shows different subtotals ({shown}).")
@@ -355,10 +394,24 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         elif r.fees_cents and _close(goods + r.fees_cents, printed):
             fees_in_subtotal = True
         else:
-            r.issues.append(
-                f"Items add up to {format_cents(goods)} but the receipt's subtotal is "
-                f"{format_cents(printed)} (off by {format_cents(abs(goods - printed))})."
+            # Before discounts: the items alone match, or (a receipt a few cents off) only
+            # taking the discounts off after the subtotal makes the total add up.
+            discounts_after = bool(r.discounts_cents) and (
+                _close(r.items_cents, printed)
+                or (
+                    bool(totals)
+                    and _close(
+                        printed + r.discounts_cents + r.tax_cents + r.tip_cents + r.fees_cents,
+                        totals[-1],
+                    )
+                )
             )
+            compared = r.items_cents if discounts_after else goods
+            if not _close(compared, printed):
+                r.issues.append(
+                    f"Items add up to {format_cents(compared)} but the receipt's subtotal is "
+                    f"{format_cents(printed)} (off by {format_cents(abs(compared - printed))})."
+                )
         basis = printed
     else:
         basis = goods
@@ -368,7 +421,10 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         basis, tax_added = goods, 0
     else:
         tax_added = r.tax_cents
-    expected = basis + tax_added + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
+    discount_after = r.discounts_cents if discounts_after else 0
+    expected = (
+        basis + discount_after + tax_added + r.tip_cents + (0 if fees_in_subtotal else r.fees_cents)
+    )
     if not totals:
         if total_required:
             r.issues.append("No total or amount due was found on the document.")
@@ -379,6 +435,8 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
         r.overage_cents = expected - final
         if not r.total_ok:
             parts = [f"subtotal {format_cents(basis)}"]
+            if discount_after:
+                parts.append(f"discount {format_cents(discount_after)}")
             if r.tax_cents:
                 parts.append(f"tax {format_cents(r.tax_cents)}")
             if r.tip_cents:
@@ -399,11 +457,18 @@ def _check(lines: list[Line], total_required: bool = True) -> Reconciliation:
             r.issues.append(f"The document shows conflicting totals ({shown}).")
 
     r.math = {
-        "itemsCents": goods,  # calculated: items + discounts as read
+        # calculated: items + discounts as read (items alone when discounts come after the
+        # subtotal, since that's what the subtotal is)
+        "itemsCents": r.items_cents if discounts_after else goods,
         "subtotalCents": r.printed_subtotal_cents,  # printed
         "itemsMatch": None
         if r.printed_subtotal_cents is None
-        else (_close(goods, r.printed_subtotal_cents) or r.tax_included or fees_in_subtotal),
+        else (
+            _close(r.items_cents if discounts_after else goods, r.printed_subtotal_cents)
+            or r.tax_included
+            or fees_in_subtotal
+        ),
+        "discountAfterCents": discount_after,  # negative: taken off after the subtotal
         "feesInSubtotal": fees_in_subtotal,
         "basisCents": basis,
         "taxCents": tax_added,

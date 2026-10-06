@@ -1,11 +1,6 @@
 import type { GmailConnection, Subscription } from "../api";
 import { formatCents, relativeDay, timeAgo } from "../format";
-import {
-  activeCount,
-  cycleLabel,
-  nextMonthTotal,
-  renewingWithin,
-} from "../subscriptions";
+import { activeCount, cycleLabel, monthlyCost, renewingWithin } from "../subscriptions";
 
 interface SubscriptionsProps {
   subscriptions: Subscription[];
@@ -32,7 +27,6 @@ export function Subscriptions({
   onAdd,
   onViewAll,
 }: SubscriptionsProps) {
-  const nextMonth = nextMonthTotal(subscriptions, today);
   const soon = renewingWithin(subscriptions, today, 30);
   const ordered = [...subscriptions].sort(
     (a, b) =>
@@ -53,14 +47,12 @@ export function Subscriptions({
               <span className="stat-label">Active</span>
             </div>
             <div className="stat">
-              <span className="stat-value">
-                {formatCents(nextMonth.totalCents)}
-              </span>
-              <span className="stat-label">Next month</span>
-            </div>
-            <div className="stat">
               <span className="stat-value">{formatCents(soon.totalCents)}</span>
               <span className="stat-label">Next 30 days</span>
+            </div>
+            <div className="stat">
+              <span className="stat-value">{formatCents(monthlyCost(subscriptions))}</span>
+              <span className="stat-label">Per month</span>
             </div>
           </div>
           <table className="sub-table" aria-label="Subscriptions">

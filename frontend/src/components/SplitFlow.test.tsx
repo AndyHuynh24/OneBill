@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type DocumentDetail, type OneBillApi } from "../api";
@@ -32,18 +32,24 @@ function renderFlow(api: OneBillApi, doc: DocumentDetail = DINNER, onClose = vi.
   return onClose;
 }
 
-async function giveTo(name: RegExp) {
-  await userEvent.click(screen.getByRole("button", { name }));
-  await userEvent.click(screen.getByRole("button", { name: /^give to/i }));
+/** Tap a line, toggle people in the picker, close it. */
+async function pick(line: RegExp, ...people: RegExp[]) {
+  // You start selected (lines you tap are yours): stop selecting, so a tap opens the picker.
+  const selected = within(screen.getByRole("group", { name: "People" })).queryByRole("button", { pressed: true });
+  if (selected) await userEvent.click(selected); // tap the highlighted person to stop selecting
+  await userEvent.click(screen.getByRole("button", { name: line }));
+  const picker = screen.getByRole("dialog", { name: /who had/i });
+  for (const person of people) await userEvent.click(within(picker).getByRole("button", { name: person }));
+  await userEvent.click(within(picker).getByRole("button", { name: /done/i }));
 }
 
 async function splitWithBao() {
   await userEvent.type(screen.getByLabelText(/add names/i), "Bao");
   await userEvent.click(screen.getByRole("button", { name: /continue/i })); // adds Bao too
-  await giveTo(/^bao/i); // PAD THAI
-  await giveTo(/^me/i); // CURRY
-  // TAX is a card in the same circle, after the items: one tap for "by what's ordered".
-  await userEvent.click(screen.getByRole("button", { name: /by what's ordered/i }));
+  await pick(/^PAD THAI/, /^bao/i);
+  await pick(/^CURRY/, /^me/i);
+  // TAX goes by what's ordered unless changed.
+  await userEvent.click(screen.getByRole("button", { name: /finish split/i }));
 }
 
 describe("SplitFlow", () => {
@@ -67,16 +73,14 @@ describe("SplitFlow", () => {
     ]);
   });
 
-  it("a saved split opens on its summary; Edit goes back to the circle with everything kept", async () => {
+  it("a saved split opens on its summary; Edit goes back to the list with everything kept", async () => {
     const api = fakeApi({ saveSplit: vi.fn().mockResolvedValue({ ...SAVED, version: 2 }) });
     renderFlow(api, { ...DINNER, split: SAVED });
 
     expect(screen.getByText(/adds up to \$28\.86/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /edit/i }));
-    await userEvent.click(screen.getByRole("button", { name: /PAD THAI.*Bao/ }));
-    await userEvent.click(screen.getByRole("button", { name: /^bao/i })); // Bao has it: deselect
-    await giveTo(/^me/i); // give PAD THAI to me
-    await userEvent.click(screen.getByRole("button", { name: /finish split/i })); // tax already chosen
+    await pick(/^PAD THAI.*Bao/, /^bao/i, /^me/i); // Bao had it: now me instead
+    await userEvent.click(screen.getByRole("button", { name: /finish split/i })); // tax as saved
 
     expect(api.saveSplit).toHaveBeenCalledWith(
       DINNER.docId,
