@@ -149,6 +149,28 @@ def test_global_daily_quota_refunds_the_user_counter(table, s3):
     assert usage["uploads"] == 0  # the per-user slot was given back
 
 
+def test_the_whole_app_has_a_monthly_cap_that_counts_the_owner_too(table, s3):
+    # The month is nearly used up: the next scan (even the owner's) is refused, and the daily
+    # counters it took are given back.
+    table.put_item(Item={"PK": "GLOBAL", "SK": "USAGE#2026-09", "uploads": logic.MONTHLY_APP_LIMIT})
+
+    with pytest.raises(QuotaExceeded, match="this month"):
+        upload(table, s3)
+
+    usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"})["Item"]
+    assert usage["uploads"] == 0
+    daily = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert daily["uploads"] == 0
+
+
+def test_monthly_counter_outlives_the_month(table, s3):
+    upload(table, s3)
+
+    month = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"})["Item"]
+    assert month["uploads"] == 1
+    assert month["expiresAt"] > int(NOW.timestamp()) + 31 * 24 * 3600
+
+
 def test_usage_counters_expire(table, s3):
     upload(table, s3)
 

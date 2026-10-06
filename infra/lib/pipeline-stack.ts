@@ -202,8 +202,12 @@ export class PipelineStack extends Stack {
       this,
       props.senderEmailParameter ?? "/onebill/sender-email",
     );
-    // SES emails a verification link to this address on first deploy; click it once.
-    new ses.EmailIdentity(this, "ReminderSender", { identity: ses.Identity.email(senderEmail) });
+    // Sending through SES (no Gmail app password configured): SES emails a verification link to
+    // this address on first deploy; click it once.
+    const viaSes = !props.gmailPasswordParameter;
+    if (viaSes) {
+      new ses.EmailIdentity(this, "ReminderSender", { identity: ses.Identity.email(senderEmail) });
+    }
 
     const remindersFn = newServiceFunction(this, "RemindersFunction", {
       handler: "reminders.handler.handler",
@@ -235,16 +239,18 @@ export class PipelineStack extends Stack {
     remindersFn.addToRolePolicy(
       new iam.PolicyStatement({ actions: ["cognito-idp:ListUsers"], resources: [props.userPool.userPoolArn] }),
     );
-    remindersFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        // SES checks permission on every verified identity involved: the sender, and (while the
-        // account is in the SES sandbox) each recipient's verified address too. So: any identity
-        // in this account, but only ever *from* the verified sender address.
-        actions: ["ses:SendEmail"],
-        resources: [`arn:${this.partition}:ses:${this.region}:${this.account}:identity/*`],
-        conditions: { StringEquals: { "ses:FromAddress": senderEmail } },
-      }),
-    );
+    if (viaSes) {
+      remindersFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          // SES checks permission on every verified identity involved: the sender, and (while the
+          // account is in the SES sandbox) each recipient's verified address too. So: any identity
+          // in this account, but only ever *from* the verified sender address.
+          actions: ["ses:SendEmail"],
+          resources: [`arn:${this.partition}:ses:${this.region}:${this.account}:identity/*`],
+          conditions: { StringEquals: { "ses:FromAddress": senderEmail } },
+        }),
+      );
+    }
 
     // Reminders through Gmail (as the sender address), when its app password is stored. Encrypted
     // with SSM's AWS-managed key: free, and readable only through SSM by this function.

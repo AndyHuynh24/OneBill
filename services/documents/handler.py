@@ -98,38 +98,53 @@ def _on_upload(detail: dict[str, Any], event_time: str | None = None) -> None:
         logger.info("already_claimed", extra={"docId": doc_id})
         return
     timings = _since("queue", event_time) | _since("sinceRequest", item.get("createdAt"))
-    with _fail_on_error(user_id, doc_id):
-        if int(obj.get("size", 0)) > MAX_BYTES:
-            raise Refused("Files can be at most 10 MB.")
-        key = item["s3Key"]
-        if item.get("contentType") == "application/pdf":
-            kwargs = {"VersionId": version} if version else {}
-            data = s3.get_object(Bucket=BUCKET, Key=key, **kwargs)["Body"].read()
-            if not is_pdf(data):
-                raise Refused("This file isn't a valid PDF.")
-            pages = count_pages(data)
-            if pages is None:
-                raise Refused(UNKNOWN_PAGES)
-            if pages > MAX_PDF_PAGES:
-                raise Refused(TOO_MANY_PAGES)
-            shared = not item.get("owner")  # the owner's uploads are capped on their own
-            if _limits_on() and shared and not store.consume_page_budget(table, pages, _now()):
-                raise Refused(DAILY_LIMIT)
-            job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
-            store.record_textract_job(table, user_id, doc_id, job_id, _now())
-            logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
-            return
-        if (
-            _limits_on()
-            and not item.get("owner")
-            and not store.consume_page_budget(table, 1, _now())
-        ):
+    reading_later = False  # a PDF read by an async Textract job: keep it until that finishes
+    try:
+        with _fail_on_error(user_id, doc_id):
+            reading_later = _read_upload(user_id, doc_id, obj, item, version, timings, started)
+    finally:
+        if not reading_later:
+            _forget_upload(item)
+
+
+def _read_upload(
+    user_id: str,
+    doc_id: str,
+    obj: dict[str, Any],
+    item: dict[str, Any],
+    version: str | None,
+    timings: dict[str, Any],
+    started: float,
+) -> bool:
+    """Read a claimed upload. True when an async Textract job will finish reading it later."""
+    if int(obj.get("size", 0)) > MAX_BYTES:
+        raise Refused("Files can be at most 10 MB.")
+    key = item["s3Key"]
+    if item.get("contentType") == "application/pdf":
+        kwargs = {"VersionId": version} if version else {}
+        data = s3.get_object(Bucket=BUCKET, Key=key, **kwargs)["Body"].read()
+        if not is_pdf(data):
+            raise Refused("This file isn't a valid PDF.")
+        pages = count_pages(data)
+        if pages is None:
+            raise Refused(UNKNOWN_PAGES)
+        if pages > MAX_PDF_PAGES:
+            raise Refused(TOO_MANY_PAGES)
+        shared = not item.get("owner")  # the owner's uploads are capped on their own
+        if _limits_on() and shared and not store.consume_page_budget(table, pages, _now()):
             raise Refused(DAILY_LIMIT)
-        ocr_started = time.monotonic()
-        expense = parse_expense(analyze_sync(textract, BUCKET, key, version))
-        timings["textract"] = _ms(ocr_started)
-        images = _photo_images(key, version, expense) if PHOTO_TILES else []
-        _process(user_id, doc_id, expense, timings, started, images)
+        job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
+        store.record_textract_job(table, user_id, doc_id, job_id, _now())
+        logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
+        return True
+    if _limits_on() and not item.get("owner") and not store.consume_page_budget(table, 1, _now()):
+        raise Refused(DAILY_LIMIT)
+    ocr_started = time.monotonic()
+    expense = parse_expense(analyze_sync(textract, BUCKET, key, version))
+    timings["textract"] = _ms(ocr_started)
+    images = _photo_images(key, version, expense) if PHOTO_TILES else []
+    _process(user_id, doc_id, expense, timings, started, images)
+    return False
 
 
 def _on_textract_done(message: dict[str, Any]) -> None:
@@ -152,13 +167,30 @@ def _on_textract_done(message: dict[str, Any]) -> None:
         return
     started = time.monotonic()
     timings = _since("textract", item.get("updatedAt"))  # async job: started → completion
-    with _fail_on_error(user_id, doc_id):
-        if message.get("Status") != "SUCCEEDED":
-            raise Refused(UNREADABLE)
-        expense = parse_expense(fetch_async(textract, message["JobId"]))
-        if expense.pages > MAX_PDF_PAGES:
-            raise Refused(TOO_MANY_PAGES)  # Textract is already paid; don't also pay for Bedrock
-        _process(user_id, doc_id, expense, timings, started)
+    try:
+        with _fail_on_error(user_id, doc_id):
+            if message.get("Status") != "SUCCEEDED":
+                raise Refused(UNREADABLE)
+            expense = parse_expense(fetch_async(textract, message["JobId"]))
+            if expense.pages > MAX_PDF_PAGES:
+                raise Refused(TOO_MANY_PAGES)  # Textract is paid; don't also pay for Bedrock
+            _process(user_id, doc_id, expense, timings, started)
+    finally:
+        _forget_upload(item)
+
+
+def _forget_upload(item: dict[str, Any]) -> None:
+    """Receipt photos and PDFs aren't kept: once read (or refused), the exact uploaded version
+    is deleted, so no copy lingers in the versioned bucket. A 1-day lifecycle rule on uploads/
+    catches anything a failed delete leaves behind."""
+    key = item.get("s3Key")
+    if not key:
+        return
+    version = item.get("s3VersionId")
+    try:
+        s3.delete_object(Bucket=BUCKET, Key=key, **({"VersionId": version} if version else {}))
+    except Exception:  # noqa: BLE001 (the lifecycle rule removes it within a day anyway)
+        logger.warning("upload_delete_failed", extra={"docId": item.get("docId")})
 
 
 def _photo_images(key: str, version: str | None, expense: ExpenseResult) -> list[bytes]:

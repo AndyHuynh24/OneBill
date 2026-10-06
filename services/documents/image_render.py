@@ -62,8 +62,28 @@ def model_images(data: bytes, expense: ExpenseResult) -> list[bytes]:
         if not tiles:
             return []
     else:
-        tiles = [(0, 0, width, height)]
+        tiles = [_text_area(boxes, width, height)]
     return [_jpeg(image.crop(tile)) for tile in tiles]
+
+
+TEXT_AREA_PAD = 0.02  # of the photo's size, around the outermost lines
+
+
+def _text_area(boxes: list, width: int, height: int) -> tuple[int, int, int, int]:
+    """The part of the photo with text Textract read (all of it was checked for PII), plus a
+    little margin. Barcodes, background, and anything the OCR didn't see stay out."""
+    if not boxes:
+        return (0, 0, width, height)
+    left = max(0.0, min(b.left for b in boxes) - TEXT_AREA_PAD)
+    top = max(0.0, min(b.top for b in boxes) - TEXT_AREA_PAD)
+    right = min(1.0, max(b.left + b.width for b in boxes) + TEXT_AREA_PAD)
+    bottom = min(1.0, max(b.bottom for b in boxes) + TEXT_AREA_PAD)
+    return (
+        math.floor(left * width),
+        math.floor(top * height),
+        math.ceil(right * width),
+        math.ceil(bottom * height),
+    )
 
 
 def _jpeg(tile: Image.Image) -> bytes:

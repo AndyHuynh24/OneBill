@@ -31,6 +31,10 @@ MAX_FILENAME = 120
 USER_DAILY_LIMIT = 3
 GLOBAL_DAILY_LIMIT = 15
 OWNER_DAILY_LIMIT = 25
+# Scans per month for the whole app, the owner's included (2026-10-06, Andy): keeps the worst
+# month near the $10 budget even if every daily limit is used every day.
+MONTHLY_APP_LIMIT = 200
+MONTHLY_USAGE_TTL_DAYS = 40
 UPLOAD_URL_TTL_SECONDS = 300
 USAGE_TTL_DAYS = 7
 MAX_OBLIGATION_WINDOW_DAYS = 366
@@ -125,6 +129,22 @@ def create_upload(
             except QuotaExceeded:
                 _refund_quota(table, f"USER#{user_id}", day)
                 raise
+        month = now.strftime("%Y-%m")
+        try:
+            _consume_quota(
+                table,
+                "GLOBAL",
+                month,
+                MONTHLY_APP_LIMIT,
+                now,
+                message="OneBill has reached this month's scan limit. Try again on the 1st.",
+                ttl_days=MONTHLY_USAGE_TTL_DAYS,
+            )
+        except QuotaExceeded:
+            _refund_quota(table, f"USER#{user_id}", day)
+            if not owner:
+                _refund_quota(table, "GLOBAL", day)
+            raise
 
     doc_id = new_id(int(now.timestamp() * 1000))
     key = f"uploads/{user_id}/{doc_id}"
@@ -235,9 +255,16 @@ def _display_name(filename: str) -> str:
 
 
 def _consume_quota(
-    table: Any, pk: str, day: str, limit: int, now: datetime, mine: bool = False
+    table: Any,
+    pk: str,
+    day: str,
+    limit: int,
+    now: datetime,
+    mine: bool = False,
+    message: str | None = None,
+    ttl_days: int = USAGE_TTL_DAYS,
 ) -> None:
-    expires = int((now + timedelta(days=USAGE_TTL_DAYS)).timestamp())
+    expires = int((now + timedelta(days=ttl_days)).timestamp())
     try:
         table.update_item(
             Key={"PK": pk, "SK": f"USAGE#{day}"},
@@ -248,9 +275,12 @@ def _consume_quota(
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
             raise QuotaExceeded(
-                f"You've used today's {limit} uploads. Try again tomorrow."
-                if mine
-                else "OneBill has reached today's upload limit. Try again tomorrow."
+                message
+                or (
+                    f"You've used today's {limit} uploads. Try again tomorrow."
+                    if mine
+                    else "OneBill has reached today's upload limit. Try again tomorrow."
+                )
             ) from err
         raise
 

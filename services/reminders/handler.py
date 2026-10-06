@@ -109,9 +109,10 @@ def new_reminders(event: dict) -> dict[str, int]:
             continue
         try:
             outcome = send_now(table, item, today, find_email, send_email, APP_URL)
-        except Exception:
-            # Unclaimed again: the daily run still sends the next scheduled email.
-            logger.exception("reminder_now_failed")
+        except Exception as err:
+            # Unclaimed again: the daily run still sends the next scheduled email. Only the
+            # error type is logged: mail errors can include the recipient's address.
+            logger.error("reminder_now_failed", extra={"errorType": type(err).__name__})
             outcome = "failed"
         counts[outcome] = counts.get(outcome, 0) + 1
     logger.info("reminders_now", extra=counts)

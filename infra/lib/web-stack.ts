@@ -1,11 +1,13 @@
 import {
   CfnOutput,
   Duration,
+  RemovalPolicy,
   Stack,
   type StackProps,
   Annotations,
 } from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
@@ -100,6 +102,11 @@ export class WebStack extends Stack {
     });
 
     if (props.siteDir) {
+      // The upload helper's logs: a week is plenty (the default keeps them two years).
+      const deployLogs = new logs.LogGroup(this, "DeployLogs", {
+        retention: logs.RetentionDays.ONE_WEEK,
+        removalPolicy: RemovalPolicy.DESTROY,
+      });
       // Hashed JS/CSS never change, so browsers keep them a year. Old ones stay (no prune), so
       // a tab opened before a deploy keeps working.
       const assets = new s3deploy.BucketDeployment(this, "DeployAssets", {
@@ -107,6 +114,7 @@ export class WebStack extends Stack {
           s3deploy.Source.asset(props.siteDir, { exclude: NEVER_CACHED }),
         ],
         destinationBucket: bucket,
+        logGroup: deployLogs,
         prune: false,
         cacheControl: [
           s3deploy.CacheControl.fromString(
@@ -123,6 +131,7 @@ export class WebStack extends Stack {
           }),
         ],
         destinationBucket: bucket,
+        logGroup: deployLogs,
         prune: false,
         cacheControl: [s3deploy.CacheControl.fromString("no-cache")],
         distribution: this.distribution,

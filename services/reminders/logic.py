@@ -164,6 +164,26 @@ def wants_emails(table: Any, user_id: str) -> bool:
     return wants_reminder_emails(table.get_item(Key=profile_key(user_id)).get("Item"))
 
 
+SEND_NOW_DAILY_CAP = 10  # immediate emails per person per day (each manual add/edit can fire one)
+
+
+def _take_send_now_slot(table: Any, user_id: str, today: date) -> bool:
+    """Count one immediate email for today; False once the day's cap is reached."""
+    expires = int(datetime.combine(today + timedelta(days=2), datetime.min.time()).timestamp())
+    try:
+        table.update_item(
+            Key={"PK": f"USER#{user_id}", "SK": f"USAGE#reminder-now#{today.isoformat()}"},
+            UpdateExpression="ADD sent :one SET expiresAt = if_not_exists(expiresAt, :expires)",
+            ConditionExpression="attribute_not_exists(sent) OR sent < :cap",
+            ExpressionAttributeValues={":one": 1, ":cap": SEND_NOW_DAILY_CAP, ":expires": expires},
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False
+        raise
+    return True
+
+
 def send_now(
     table: Any,
     item: dict[str, Any],
@@ -190,6 +210,8 @@ def send_now(
     email = directory(user_id)
     if not email:
         return "no_email"
+    if not _take_send_now_slot(table, user_id, today):
+        return "capped"  # the daily run still sends the scheduled ones
     if not mark_sent(table, item, offset):
         return "already_sent"
     subject, text, body_html = render_digest([(offset, item)], today, app_url)

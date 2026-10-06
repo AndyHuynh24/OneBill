@@ -4,6 +4,7 @@ import pytest
 
 from api.me.logic import set_email_reminders
 from reminders.logic import (
+    SEND_NOW_DAILY_CAP,
     collect_due,
     mark_sent,
     render_digest,
@@ -298,3 +299,22 @@ def test_no_immediate_email_when_turned_off(table):
 
     assert send_now(table, item, TODAY, DIRECTORY.get, mailer, "x") == "turned_off"
     assert mailer.sent == []
+
+
+def test_immediate_emails_are_capped_per_person_per_day(table):
+    mailer = FakeMailer()
+    outcomes = [
+        send_now(
+            table,
+            put_obligation(table, "a", "2026-10-02", f"o{i}"),
+            TODAY,
+            DIRECTORY.get,
+            mailer,
+            "x",
+        )
+        for i in range(SEND_NOW_DAILY_CAP + 2)
+    ]
+
+    assert outcomes.count("sent") == SEND_NOW_DAILY_CAP
+    assert outcomes[-2:] == ["capped", "capped"]  # the daily run still sends the scheduled ones
+    assert len(mailer.sent) == SEND_NOW_DAILY_CAP

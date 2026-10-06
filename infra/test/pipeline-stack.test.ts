@@ -369,6 +369,8 @@ describe("PipelineStack — reminders through Gmail", () => {
     const policies = JSON.stringify(gmail.findResources("AWS::IAM::Policy"));
     expect(policies).toContain("ssm:GetParameter");
     expect(policies).toContain("parameter/onebill/gmail-app-password");
+    expect(policies).not.toContain("ses:SendEmail"); // Gmail sends: no SES permission or identity
+    gmail.resourceCountIs("AWS::SES::EmailIdentity", 0);
     expect(JSON.stringify(template.findResources("AWS::IAM::Policy"))).not.toContain("gmail-app-password"); // default: none
   });
 });
