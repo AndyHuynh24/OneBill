@@ -1,6 +1,6 @@
 # OneBill
 
-https://github.com/AndyHuynh24/OneBill/issues/3#issue-5832442970 
+https://github.com/user-attachments/assets/6b1dccf6-5b61-490f-8018-4b3adc8b42a6
 
 Scan a receipt, split it with friends, and keep track of subscriptions and bills, all from one Scan button. Live at [one-bill.web.app](https://one-bill.web.app).
 
