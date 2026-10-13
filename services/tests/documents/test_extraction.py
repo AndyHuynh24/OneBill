@@ -288,7 +288,7 @@ def test_model_not_calling_the_tool_raises(bedrock, expense):
         extract(client, MODEL, expense)
 
 
-# --- hardening from the Phase 1 security/cost review --------------------------------------------
+# --- hardening from the security/cost review --------------------------------------------------
 
 
 def base_output(**overrides):

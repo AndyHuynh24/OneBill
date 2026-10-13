@@ -1,7 +1,7 @@
 """Handle one email from the Gmail script: labelled? → dedupe → clean → cap → read → save.
 
 Kept separate from the Lambda handler so it's tested directly (moto + a Bedrock Stubber), and so
-SES forwarding (Phase 3) can call the same function later.
+SES forwarding can call the same function later.
 """
 
 import logging

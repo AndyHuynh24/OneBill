@@ -36,7 +36,7 @@ def test_a_new_key_works_and_only_its_hash_is_stored(table):
 
 
 def test_only_the_owner_can_create_a_key(table):
-    """Decision S2: model calls stay invite-only, like scanning."""
+    """Model calls stay owner-only: emails cost money and inboxes are personal."""
     with pytest.raises(NotAllowed):
         create_key(table, "user-b", set(), NOW)
 

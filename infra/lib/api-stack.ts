@@ -175,7 +175,7 @@ export class ApiStack extends Stack {
       integration: documents,
     });
     this.api.addRoutes({ path: "/obligations", methods: [apigwv2.HttpMethod.GET], integration: documents });
-    // Split bill (Phase 2): served by the same Lambda; no new function or permissions needed.
+    // Split bill: served by the same Lambda; no new function or permissions needed.
     this.api.addRoutes({
       path: "/documents/{docId}/split",
       methods: [apigwv2.HttpMethod.PUT],

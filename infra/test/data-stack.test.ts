@@ -135,7 +135,7 @@ describe("DataStack — S3 docs bucket", () => {
   });
 });
 
-describe("DataStack — Phase 1 upload pipeline settings", () => {
+describe("DataStack — upload pipeline settings", () => {
   it("sends bucket events to EventBridge via a bucket property (no custom-resource Lambda)", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       NotificationConfiguration: { EventBridgeConfiguration: { EventBridgeEnabled: true } },
