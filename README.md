@@ -1,5 +1,7 @@
 # OneBill
 
+https://github.com/AndyHuynh24/OneBill/issues/3#issue-5832442970 
+
 Scan a receipt, split it with friends, and keep track of subscriptions and bills, all from one Scan button. Live at [one-bill.web.app](https://one-bill.web.app).
 
 - **Scan:** take a photo or upload a PDF. Textract reads the text, an LLM labels each line
