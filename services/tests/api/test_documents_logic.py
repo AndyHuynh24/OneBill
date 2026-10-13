@@ -263,6 +263,26 @@ def test_renewals_are_one_users_only(table, s3):
     assert logic.get_usage(table, "user-b", UPLOADER, NOW)["renewalsLeft"] == 2
 
 
+def test_app_usage_lists_the_last_7_days_newest_first(table):
+    for day, scans in (("2026-09-30", 4), ("2026-09-28", 2), ("2026-09-24", 1), ("2026-09-23", 9)):
+        table.put_item(Item={"PK": "GLOBAL", "SK": f"USAGE#{day}", "uploads": scans})
+    table.put_item(Item={"PK": "GLOBAL", "SK": "USAGE#2026-09", "uploads": 99})  # not a day
+
+    days = logic.app_usage(table, NOW)["days"]
+
+    assert [d["date"] for d in days] == [
+        "2026-09-30",
+        "2026-09-29",
+        "2026-09-28",
+        "2026-09-27",
+        "2026-09-26",
+        "2026-09-25",
+        "2026-09-24",
+    ]  # 8 days ago (09-23) is left out; quiet days show as 0
+    assert [d["scans"] for d in days] == [4, 0, 2, 0, 0, 0, 1]
+    assert days[0] == {"date": "2026-09-30", "scans": 4, "pages": 0, "emails": 0, "renewals": 0}
+
+
 def test_a_refund_after_a_renewal_never_goes_below_zero(table):
     table.put_item(Item={"PK": "USER#user-a", "SK": "USAGE#2026-09-30", "uploads": 0})
 

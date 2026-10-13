@@ -223,6 +223,8 @@ export interface UsageTotals {
 /** App-wide counts (all users), sent only to the owner. */
 export interface AppUsage {
   today: UsageTotals;
+  /** The last 7 days, newest (today) first; quiet days are zeros. */
+  days?: (UsageTotals & { date: string })[];
   month: UsageTotals;
   limits: { scans: number; pages: number; emails: number };
 }

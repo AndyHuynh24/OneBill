@@ -373,8 +373,11 @@ def renew_usage(table: Any, user_id: str, groups: set[str], now: datetime) -> di
     return get_usage(table, user_id, groups, now)
 
 
+HISTORY_DAYS = 7  # the day counters expire after USAGE_TTL_DAYS, so no more than that
+
+
 def app_usage(table: Any, now: datetime) -> dict[str, Any]:
-    """App-wide counts for today and this month, with the monthly limits (owner only).
+    """App-wide counts for the last 7 days and this month, with the monthly limits (owner only).
 
     Totals only: no user IDs or emails.
     """
@@ -383,8 +386,24 @@ def app_usage(table: Any, now: datetime) -> dict[str, Any]:
     def totals(item: dict[str, Any]) -> dict[str, int]:
         return {label: int(item.get(attr, 0)) for label, attr in names.items()}
 
+    today = now.date()
+    dates = [(today - timedelta(days=i)).isoformat() for i in range(HISTORY_DAYS)]
+    # One query for the week. The month item ("USAGE#2026-09") can sort inside the range, so
+    # only exact dates are kept.
+    response = table.query(
+        KeyConditionExpression="PK = :pk AND SK BETWEEN :first AND :last",
+        ExpressionAttributeValues={
+            ":pk": "GLOBAL",
+            ":first": f"USAGE#{dates[-1]}",
+            ":last": f"USAGE#{dates[0]}",
+        },
+        ConsistentRead=True,
+    )
+    by_date = {item["SK"].removeprefix("USAGE#"): item for item in response.get("Items", [])}
+    days = [{"date": d, **totals(by_date.get(d, {}))} for d in dates]
     return {
-        "today": totals(_usage_item(table, "GLOBAL", now.date().isoformat())),
+        "today": {k: v for k, v in days[0].items() if k != "date"},
+        "days": days,
         "month": totals(_usage_item(table, "GLOBAL", _month(now))),
         "limits": {
             "scans": MONTHLY_APP_LIMIT,

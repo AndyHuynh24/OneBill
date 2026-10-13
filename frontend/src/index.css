@@ -565,6 +565,11 @@ button.danger {
 .usage-table tbody tr + tr {
   border-top: 1px solid var(--border);
 }
+.usage-subtitle {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
 .usage-note {
   margin: 0.6rem 0 0;
   font-size: 0.75rem;
