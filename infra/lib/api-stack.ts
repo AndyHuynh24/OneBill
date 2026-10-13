@@ -82,7 +82,7 @@ export class ApiStack extends Stack {
     });
     documentsFn.addToRolePolicy(
       new iam.PolicyStatement({
-        // Get/Query: read own items. Put: new DOC#, review OBL#. Update: quotas, review.
+        // Get/Query: read own items. Put: new DOC#, review OBL#. Update: quotas, renewals, review.
         // Delete: obligations replaced during review (inside a transaction).
         actions: [
           "dynamodb:GetItem",
@@ -195,6 +195,8 @@ export class ApiStack extends Stack {
       integration: documents,
     });
     this.api.addRoutes({ path: "/obligations/{oblId}", methods: [apigwv2.HttpMethod.DELETE], integration: documents });
+    // Renew today's scans once they're used up (twice a month; never the owner's).
+    this.api.addRoutes({ path: "/usage/renew", methods: [apigwv2.HttpMethod.POST], integration: documents });
     this.api.addRoutes({
       path: "/ingest/keys",
       methods: [apigwv2.HttpMethod.POST, apigwv2.HttpMethod.DELETE],

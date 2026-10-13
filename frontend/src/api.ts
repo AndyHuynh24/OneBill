@@ -205,6 +205,28 @@ export interface Obligation {
   amountCents?: number | null;
 }
 
+/** The caller's scans: `leftToday` today, and renewals (back to 0 once used up) this month. */
+export interface Usage {
+  dailyLimit: number;
+  usedToday: number;
+  leftToday: number;
+  renewalsLeft: number;
+}
+
+export interface UsageTotals {
+  scans: number;
+  pages: number;
+  emails: number;
+  renewals: number;
+}
+
+/** App-wide counts (all users), sent only to the owner. */
+export interface AppUsage {
+  today: UsageTotals;
+  month: UsageTotals;
+  limits: { scans: number; pages: number; emails: number };
+}
+
 export interface ReviewStats {
   reviewed: number;
   acceptedUnchanged: number;
@@ -250,7 +272,14 @@ export interface OneBillApi {
   readonly baseUrl: string;
   getProfile(): Promise<Profile>;
   setEmailReminders(on: boolean): Promise<Profile>;
-  listDocuments(): Promise<{ documents: DocumentSummary[]; review: ReviewStats }>;
+  listDocuments(): Promise<{
+    documents: DocumentSummary[];
+    review: ReviewStats;
+    usage?: Usage;
+    appUsage?: AppUsage;
+  }>;
+  /** Today's scans back to 0, once they're all used (twice a month). */
+  renewUsage(): Promise<Usage>;
   getDocument(docId: string): Promise<DocumentDetail>;
   reviewDocument(docId: string, request: ReviewRequest): Promise<DocumentDetail>;
   listObligations(fromDate: string, withinDays?: number): Promise<{ obligations: Obligation[] }>;
@@ -297,6 +326,7 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
     getProfile: () => call<Profile>("GET", "me"),
     setEmailReminders: (on) => call<Profile>("PATCH", "me", { emailReminders: on }),
     listDocuments: () => call("GET", "documents"),
+    renewUsage: () => call<Usage>("POST", "usage/renew"),
     getDocument: (docId) => call<DocumentDetail>("GET", `documents/${encodeURIComponent(docId)}`),
     reviewDocument: (docId, request) =>
       call<DocumentDetail>("PATCH", `documents/${encodeURIComponent(docId)}`, request),

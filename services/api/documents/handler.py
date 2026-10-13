@@ -44,6 +44,10 @@ def _user_id() -> str:
     return user_id
 
 
+def _groups() -> set[str]:
+    return logic.parse_groups(_claims().get("cognito:groups"))
+
+
 @app.exception_handler(logic.DocumentsError)
 def _documents_error(err: logic.DocumentsError) -> Response:
     return Response(
@@ -67,7 +71,7 @@ def create_document() -> tuple[dict[str, Any], int]:
         raise logic.BadRequest("filename and contentType are required.")
     if not isinstance(size, int) or isinstance(size, bool):
         raise logic.BadRequest("sizeBytes must be an integer.")
-    groups = logic.parse_groups(_claims().get("cognito:groups"))
+    groups = _groups()
     result = logic.create_upload(
         table,
         s3,
@@ -88,8 +92,25 @@ def create_document() -> tuple[dict[str, Any], int]:
 @app.get("/documents")
 @tracer.capture_method
 def list_documents() -> dict[str, Any]:
-    documents = logic.list_documents(table, _user_id())
-    return {"documents": documents, "review": logic.review_stats(documents)}
+    user_id, groups, now = _user_id(), _groups(), datetime.now(UTC)
+    documents = logic.list_documents(table, user_id)
+    result = {
+        "documents": documents,
+        "review": logic.review_stats(documents),
+        "usage": logic.get_usage(table, user_id, groups, now),
+    }
+    # App-wide totals: decided by the verified token's groups, never by the request.
+    if logic.OWNERS_GROUP in groups:
+        result["appUsage"] = logic.app_usage(table, now)
+    return result
+
+
+@app.post("/usage/renew")
+@tracer.capture_method
+def renew_usage() -> dict[str, Any]:
+    usage = logic.renew_usage(table, _user_id(), _groups(), datetime.now(UTC))
+    logger.info("usage_renewed", extra={"renewalsLeft": usage["renewalsLeft"]})
+    return usage
 
 
 @app.get("/documents/<doc_id>")

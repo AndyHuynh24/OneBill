@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { OneBillApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
 import { AddSubscription } from "./AddSubscription";
+import { AppUsage } from "./AppUsage";
 import { ConnectGmail } from "./ConnectGmail";
 import { ScanProgress } from "./ScanProgress";
 import { SubscriptionSheet } from "./SubscriptionSheet";
@@ -15,6 +16,7 @@ import { todayIso } from "../format";
 import { DocumentSheet } from "./DocumentSheet";
 import { RecentDocuments } from "./RecentDocuments";
 import { ScanButton } from "./ScanButton";
+import { ScanUsage } from "./ScanUsage";
 import { Upcoming } from "./Upcoming";
 import { Logo, type SignInMethod, Welcome } from "./Welcome";
 
@@ -113,6 +115,15 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
     onError: (error) => setNotice(error.message || "Upload failed. Please try again."),
   });
 
+  const renew = useMutation({
+    mutationFn: () => api.renewUsage(),
+    onMutate: () => setNotice(null),
+    onSuccess: (usage) => {
+      queryClient.setQueryData(["documents"], (old: typeof documents.data) => old && { ...old, usage });
+    },
+    onError: (error) => setNotice(error.message || "Couldn't renew. Please try again."),
+  });
+
   const subscriptionsSection = () =>
     subscriptions.data ? (
       <Subscriptions
@@ -193,7 +204,13 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
             ) : (
               <p className="muted">{documents.error ? "Couldn't load documents." : "Loading…"}</p>
             )}
+            {documents.data?.usage && (
+              <ScanUsage usage={documents.data.usage} onRenew={() => renew.mutate()} renewing={renew.isPending} />
+            )}
           </section>
+
+          {/* Only the owner's API response has it (decided by the server from the sign-in). */}
+          {documents.data?.appUsage && <AppUsage usage={documents.data.appUsage} />}
         </>
       ) : (
         <>

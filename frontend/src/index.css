@@ -533,6 +533,43 @@ button.danger {
   }
 }
 
+/* ---------- scan usage (under Receipts) and the owner's App usage ---------- */
+
+.scan-usage {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+}
+.scan-usage .link-button {
+  font-size: inherit;
+}
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.usage-table th,
+.usage-table td {
+  padding: 0.4rem 0;
+  text-align: right;
+}
+.usage-table th[scope="row"],
+.usage-table thead th:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+.usage-table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.usage-table tbody tr + tr {
+  border-top: 1px solid var(--border);
+}
+.usage-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+}
+
 /* ---------- notices ---------- */
 
 .notice {

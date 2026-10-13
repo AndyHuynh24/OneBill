@@ -4,7 +4,7 @@
 - Only its SHA-256 hash is stored: `INGESTKEY#<hash> / KEY → userId`, plus a pointer
   `USER#<id> / INGEST` so creating a new key (or revoking) removes the old one.
 - The ingest route has no JWT authorizer: the caller's user comes only from this lookup.
-- A daily email cap bounds the model cost if a script ever loops.
+- Email caps (per user and day, all users per month) bound the model cost if a script ever loops.
 """
 
 import hashlib
@@ -15,15 +15,19 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from shared import usage as app_counts
+
 KEY_PREFIX = "obk_"
 OWNERS_GROUP = "owners"  # Connect Gmail is owner-only (emails cost money; inboxes are personal)
 DAILY_EMAIL_LIMIT = 10  # per user and day (cost review): labelled by hand, so plenty
-GLOBAL_DAILY_EMAIL_LIMIT = 30  # across all users: bounds the worst case even with leaked keys
+# Across all users, per month (2026-10-12, Andy; was 30 a day): ~0.4¢ an email, so at most ~$1.20.
+GLOBAL_MONTHLY_EMAIL_LIMIT = 300
 KEY_LIFETIME = timedelta(days=365)  # a removed user's key stops working within a year
 # Every labelled request, before it's remembered: bounds stored markers even for emails that
 # never reach the model (e.g. an empty body), per user and day.
 DAILY_REQUEST_LIMIT = 200
 USAGE_TTL_DAYS = 7
+MONTHLY_USAGE_TTL_DAYS = 40
 _KEY = re.compile(r"^Bearer (obk_[A-Za-z0-9_-]{43})$")
 
 
@@ -158,28 +162,42 @@ def consume_email_quota(
     user_id: str,
     now: datetime,
     limit: int = DAILY_EMAIL_LIMIT,
-    global_limit: int = GLOBAL_DAILY_EMAIL_LIMIT,
+    global_limit: int = GLOBAL_MONTHLY_EMAIL_LIMIT,
 ) -> bool:
-    """Count one email today, for this user and for everyone; False once either daily cap is
+    """Count one email for this user today and for everyone this month; False once either cap is
     reached (same USAGE# items as uploads). A refused email isn't counted against the user."""
     if not _count(table, f"USER#{user_id}", now, "emails", limit):
         return False
-    if not _count(table, "GLOBAL", now, "emails", global_limit):
+    month = now.strftime("%Y-%m")
+    if not _count(table, "GLOBAL", now, "emails", global_limit, month, MONTHLY_USAGE_TTL_DAYS):
         _uncount(table, f"USER#{user_id}", now, "emails")
         return False
+    app_counts.count(table, now.date().isoformat(), "emails", 1, now, USAGE_TTL_DAYS)  # to watch
     return True
 
 
-def _count(table: Any, pk: str, now: datetime, name: str, limit: int) -> bool:
-    expires = int((now + timedelta(days=USAGE_TTL_DAYS)).timestamp())
+def _count(
+    table: Any,
+    pk: str,
+    now: datetime,
+    name: str,
+    limit: int | None = None,
+    period: str | None = None,
+    ttl_days: int = USAGE_TTL_DAYS,
+) -> bool:
+    """Add one to `name` on the day's (or `period`'s) USAGE# item; False if it's at `limit`."""
+    expires = int((now + timedelta(days=ttl_days)).timestamp())
+    update: dict[str, Any] = {
+        "Key": {"PK": pk, "SK": f"USAGE#{period or now.date().isoformat()}"},
+        "UpdateExpression": "ADD #n :one SET expiresAt = if_not_exists(expiresAt, :exp)",
+        "ExpressionAttributeNames": {"#n": name},
+        "ExpressionAttributeValues": {":one": 1, ":exp": expires},
+    }
+    if limit is not None:
+        update["ConditionExpression"] = "attribute_not_exists(#n) OR #n < :limit"
+        update["ExpressionAttributeValues"][":limit"] = limit
     try:
-        table.update_item(
-            Key={"PK": pk, "SK": f"USAGE#{now.date().isoformat()}"},
-            UpdateExpression="ADD #n :one SET expiresAt = if_not_exists(expiresAt, :exp)",
-            ConditionExpression="attribute_not_exists(#n) OR #n < :limit",
-            ExpressionAttributeNames={"#n": name},
-            ExpressionAttributeValues={":one": 1, ":exp": expires, ":limit": limit},
-        )
+        table.update_item(**update)
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return False

@@ -179,6 +179,7 @@ describe("ApiStack — documents API", () => {
     "DELETE /subscriptions/{key}",
     "DELETE /obligations/{oblId}",
     "DELETE /documents/{docId}",
+    "POST /usage/renew",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {

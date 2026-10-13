@@ -104,6 +104,60 @@ describe("Home — signed in", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("You've used today's 3 uploads. Try again tomorrow.");
   });
 
+  it("shows the daily scans under Receipts", async () => {
+    renderHome("signedIn");
+
+    expect(await screen.findByText("3 scans a day · 3 left today")).toBeInTheDocument();
+  });
+
+  it("renews today's scans once they're used up", async () => {
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValue({
+        ...DOCS,
+        usage: { dailyLimit: 3, usedToday: 3, leftToday: 0, renewalsLeft: 2 },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Renew (2 left this month)" }));
+
+    expect(api.renewUsage).toHaveBeenCalledOnce();
+    expect(await screen.findByText("3 scans a day · 3 left today")).toBeInTheDocument();
+  });
+
+  it("explains a refused renewal", async () => {
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValue({
+        ...DOCS,
+        usage: { dailyLimit: 3, usedToday: 3, leftToday: 0, renewalsLeft: 1 },
+      }),
+      renewUsage: vi.fn().mockRejectedValue(new ApiError("You've used this month's 2 renewals.", 409)),
+    });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /renew/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("this month's 2 renewals");
+  });
+
+  it("shows App usage only when the API sends it (the owner)", async () => {
+    const appUsage = {
+      today: { scans: 12, pages: 4, emails: 3, renewals: 1 },
+      month: { scans: 87, pages: 51, emails: 40, renewals: 5 },
+      limits: { scans: 200, pages: 600, emails: 300 },
+    };
+    renderHome("signedIn", fakeApi({ listDocuments: vi.fn().mockResolvedValue({ ...DOCS, appUsage }) }));
+
+    expect(await screen.findByRole("heading", { name: "App usage" })).toBeInTheDocument();
+  });
+
+  it("hides App usage from everyone else", async () => {
+    renderHome("signedIn");
+
+    await screen.findByText(/scans a day/);
+    expect(screen.queryByRole("heading", { name: "App usage" })).not.toBeInTheDocument();
+  });
+
   it("opens a document's details", async () => {
     const api = fakeApi({ listDocuments: vi.fn().mockResolvedValue(DOCS) });
     renderHome("signedIn", api);

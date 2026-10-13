@@ -13,11 +13,14 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from documents.validate import Obligation, ValidationResult
+from shared import usage as app_counts
 from shared.ids import is_valid_id, new_id
 
-# Decision R2: OCR pages per day across all users (photos count 1, PDFs their page count).
-DAILY_PAGE_BUDGET = 30
+# OCR pages per month across all users (photos count 1, PDFs their page count): the only shared
+# page limit (2026-10-12, Andy; was 30 a day). $0.01 a page, so at most ~$6 of Textract a month.
+MONTHLY_PAGE_BUDGET = 600
 USAGE_TTL_DAYS = 7
+MONTHLY_USAGE_TTL_DAYS = 40
 
 _UPLOAD_KEY = re.compile(r"^uploads/(?P<user>[A-Za-z0-9-]{1,128})/(?P<doc>[^/]+)$")
 
@@ -70,27 +73,34 @@ def claim(
 
 
 def consume_page_budget(
-    table: Any, pages: int, now: datetime, limit: int = DAILY_PAGE_BUDGET
+    table: Any, pages: int, now: datetime, limit: int = MONTHLY_PAGE_BUDGET
 ) -> bool:
-    """Reserve `pages` from today's global OCR budget. False (nothing reserved) if it won't fit."""
+    """Reserve `pages` from this month's shared OCR budget. False (nothing reserved) if too many."""
     if pages > limit:
         return False
     try:
         table.update_item(
-            Key={"PK": "GLOBAL", "SK": f"USAGE#{now.date().isoformat()}"},
+            Key={"PK": "GLOBAL", "SK": f"USAGE#{now.strftime('%Y-%m')}"},
             UpdateExpression="ADD pages :n SET expiresAt = if_not_exists(expiresAt, :exp)",
             ConditionExpression="attribute_not_exists(pages) OR pages <= :room",
             ExpressionAttributeValues={
                 ":n": pages,
                 ":room": limit - pages,
-                ":exp": int((now + timedelta(days=USAGE_TTL_DAYS)).timestamp()),
+                ":exp": int((now + timedelta(days=MONTHLY_USAGE_TTL_DAYS)).timestamp()),
             },
         )
     except ClientError as err:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return False
         raise
+    app_counts.count(table, now.date().isoformat(), "pages", pages, now, USAGE_TTL_DAYS)
     return True
+
+
+def count_pages(table: Any, pages: int, now: datetime) -> None:
+    """Pages read without the budget (the owner's, or limits off): still in the App usage totals."""
+    app_counts.count(table, now.strftime("%Y-%m"), "pages", pages, now, MONTHLY_USAGE_TTL_DAYS)
+    app_counts.count(table, now.date().isoformat(), "pages", pages, now, USAGE_TTL_DAYS)
 
 
 def get(table: Any, user_id: str, doc_id: str) -> dict[str, Any] | None:

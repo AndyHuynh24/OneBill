@@ -56,7 +56,7 @@ MAX_PDF_PAGES = 10
 UNREADABLE = "We couldn't read this document. Try a clearer, well-lit photo."
 TOO_MANY_PAGES = f"PDFs can have at most {MAX_PDF_PAGES} pages."
 UNKNOWN_PAGES = "We couldn't check how many pages this PDF has. Try a photo instead."
-DAILY_LIMIT = "Today's processing limit has been reached. Please upload it again tomorrow."
+MONTHLY_LIMIT = "OneBill has reached this month's reading limit. Please upload it again on the 1st."
 GENERIC_FAILURE = "Something went wrong while reading this document. Please upload it again."
 TEXTRACT_REJECTIONS = frozenset(
     {
@@ -130,15 +130,12 @@ def _read_upload(
             raise Refused(UNKNOWN_PAGES)
         if pages > MAX_PDF_PAGES:
             raise Refused(TOO_MANY_PAGES)
-        shared = not item.get("owner")  # the owner's uploads are capped on their own
-        if _limits_on() and shared and not store.consume_page_budget(table, pages, _now()):
-            raise Refused(DAILY_LIMIT)
+        _reserve_pages(item, pages)
         job_id = start_async(textract, BUCKET, key, doc_id, TOPIC_ARN, ROLE_ARN, version)
         store.record_textract_job(table, user_id, doc_id, job_id, _now())
         logger.info("textract_async_started", extra={"docId": doc_id, "pages": pages})
         return True
-    if _limits_on() and not item.get("owner") and not store.consume_page_budget(table, 1, _now()):
-        raise Refused(DAILY_LIMIT)
+    _reserve_pages(item, 1)
     ocr_started = time.monotonic()
     expense = parse_expense(analyze_sync(textract, BUCKET, key, version))
     timings["textract"] = _ms(ocr_started)
@@ -275,8 +272,17 @@ def _fail_on_error(user_id: str, doc_id: str) -> Iterator[None]:
 
 
 def _limits_on() -> bool:
-    """The daily OCR page budget, unless switched off for testing (-c dailyLimits=off)."""
+    """The monthly OCR page budget, unless switched off for testing (-c dailyLimits=off)."""
     return os.environ.get("DAILY_LIMITS", "on") != "off"
+
+
+def _reserve_pages(item: dict[str, Any], pages: int) -> None:
+    """Take pages from the shared monthly budget; the owner's are counted but never refused."""
+    if _limits_on() and not item.get("owner"):
+        if not store.consume_page_budget(table, pages, _now()):
+            raise Refused(MONTHLY_LIMIT)
+    else:
+        store.count_pages(table, pages, _now())
 
 
 def _ms(since: float) -> int:

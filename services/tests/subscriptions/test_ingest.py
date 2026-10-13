@@ -7,7 +7,7 @@ import pytest
 
 from subscriptions.ingest import (
     DAILY_EMAIL_LIMIT,
-    GLOBAL_DAILY_EMAIL_LIMIT,
+    GLOBAL_MONTHLY_EMAIL_LIMIT,
     NotAllowed,
     consume_email_quota,
     create_key,
@@ -104,13 +104,21 @@ def test_daily_email_cap_bounds_cost_if_a_script_loops(table):
     assert consume_email_quota(table, "user-a", NOW + timedelta(days=1))  # resets daily
 
 
-def test_an_all_users_daily_cap_bounds_cost_even_with_several_leaked_keys(table):
-    users = [f"user-{i}" for i in range(GLOBAL_DAILY_EMAIL_LIMIT // DAILY_EMAIL_LIMIT + 1)]
-    sent = sum(consume_email_quota(table, u, NOW) for u in users for _ in range(DAILY_EMAIL_LIMIT))
+def test_an_all_users_monthly_cap_bounds_cost_even_with_several_leaked_keys(table):
+    assert GLOBAL_MONTHLY_EMAIL_LIMIT == 300  # 2026-10-12, Andy (was 30 a day)
+    cap = 30  # a small cap keeps the test quick; same code path
+    users = [f"user-{i}" for i in range(cap // DAILY_EMAIL_LIMIT + 1)]
+    sent = sum(
+        consume_email_quota(table, u, NOW, global_limit=cap)
+        for u in users
+        for _ in range(DAILY_EMAIL_LIMIT)
+    )
 
-    assert sent == GLOBAL_DAILY_EMAIL_LIMIT
+    assert sent == cap
     usage = {i["PK"]: i for i in everything(table) if i["SK"].startswith("USAGE#")}
     assert int(usage[f"USER#{users[-1]}"]["emails"]) == 0  # refused emails aren't charged to them
+    # The next day doesn't help: the cap is for the month.
+    assert not consume_email_quota(table, "user-new", NOW + timedelta(days=1), global_limit=cap)
 
 
 def test_a_key_stops_working_after_a_year(table):
@@ -135,7 +143,9 @@ def test_a_key_made_before_expiry_existed_lasts_a_year_from_its_creation(table):
 def test_the_email_counter_shares_the_daily_usage_item_with_uploads(table):
     consume_email_quota(table, "user-a", NOW)
 
-    usage = {i["PK"]: i for i in everything(table) if i["SK"].startswith("USAGE#")}
-    assert int(usage["USER#user-a"]["emails"]) == 1
-    assert int(usage["GLOBAL"]["emails"]) == 1  # the all-users cap counts it too
-    assert int(usage["USER#user-a"]["expiresAt"]) > NOW.timestamp()
+    usage = {(i["PK"], i["SK"]): i for i in everything(table) if i["SK"].startswith("USAGE#")}
+    today, month = f"USAGE#{NOW.date().isoformat()}", f"USAGE#{NOW.strftime('%Y-%m')}"
+    assert int(usage[("USER#user-a", today)]["emails"]) == 1
+    assert int(usage[("GLOBAL", month)]["emails"]) == 1  # the all-users cap counts it
+    assert int(usage[("GLOBAL", today)]["emails"]) == 1  # and today's count, to watch
+    assert int(usage[("USER#user-a", today)]["expiresAt"]) > NOW.timestamp()

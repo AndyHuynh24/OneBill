@@ -77,12 +77,9 @@ def test_anyone_signed_in_may_upload_three_a_day(table, s3):
         upload(table, s3, groups=set())
 
 
-def test_the_owner_has_25_a_day_outside_the_shared_cap(table, s3):
-    for i in range(logic.GLOBAL_DAILY_LIMIT):  # strangers use up the shared cap
-        upload(table, s3, user=f"user-{i // logic.USER_DAILY_LIMIT}")
-
+def test_the_owner_has_25_a_day(table, s3):
     for _ in range(25):
-        upload(table, s3, user="andy", groups=OWNER)  # the owner isn't blocked
+        upload(table, s3, user="andy", groups=OWNER)
     with pytest.raises(QuotaExceeded, match="today's 25 uploads"):
         upload(table, s3, user="andy", groups=OWNER)
 
@@ -129,24 +126,24 @@ def test_per_user_daily_quota(table, s3):
         upload(table, s3)
 
 
-def test_upload_limits_decided_2026_10_04():
-    assert (logic.USER_DAILY_LIMIT, logic.GLOBAL_DAILY_LIMIT, logic.OWNER_DAILY_LIMIT) == (
-        3,
-        15,
-        25,
+def test_upload_limits_decided_2026_10_12():
+    limits = (
+        logic.USER_DAILY_LIMIT,
+        logic.OWNER_DAILY_LIMIT,
+        logic.RENEWALS_PER_MONTH,
+        logic.MONTHLY_APP_LIMIT,
     )
+    assert limits == (3, 25, 2, 200)
 
 
-def test_global_daily_quota_refunds_the_user_counter(table, s3):
-    # Fill the global cap using several users, none of them over their own limit.
-    for i in range(logic.GLOBAL_DAILY_LIMIT):
+def test_there_is_no_shared_daily_limit_only_a_count(table, s3):
+    # 10 users × 3 scans: more than the old shared 15 a day, and nobody is refused.
+    for i in range(10 * logic.USER_DAILY_LIMIT):
         upload(table, s3, user=f"user-{i // logic.USER_DAILY_LIMIT}")
+    upload(table, s3, user="andy", groups=OWNER)
 
-    with pytest.raises(QuotaExceeded):
-        upload(table, s3, user="someone-new")
-
-    usage = table.get_item(Key={"PK": "USER#someone-new", "SK": "USAGE#2026-09-30"})["Item"]
-    assert usage["uploads"] == 0  # the per-user slot was given back
+    daily = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert daily["uploads"] == 31  # the owner's scans are counted too
 
 
 def test_the_whole_app_has_a_monthly_cap_that_counts_the_owner_too(table, s3):
@@ -159,8 +156,7 @@ def test_the_whole_app_has_a_monthly_cap_that_counts_the_owner_too(table, s3):
 
     usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"})["Item"]
     assert usage["uploads"] == 0
-    daily = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
-    assert daily["uploads"] == 0
+    assert "Item" not in table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})
 
 
 def test_monthly_counter_outlives_the_month(table, s3):
@@ -176,6 +172,144 @@ def test_usage_counters_expire(table, s3):
 
     usage = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"})["Item"]
     assert usage["expiresAt"] > int(NOW.timestamp())
+
+
+# --- Usage and renewals --------------------------------------------------------------------------
+
+
+def use_up_today(table, s3, user="user-a", when=NOW):
+    for _ in range(logic.USER_DAILY_LIMIT):
+        create_upload(table, s3, BUCKET, user, UPLOADER, "r.jpg", "image/jpeg", 1000, when)
+
+
+def test_usage_starts_with_three_scans_and_two_renewals(table):
+    assert logic.get_usage(table, "user-a", UPLOADER, NOW) == {
+        "dailyLimit": 3,
+        "usedToday": 0,
+        "leftToday": 3,
+        "renewalsLeft": 2,
+    }
+
+
+def test_usage_counts_todays_scans(table, s3):
+    upload(table, s3)
+
+    usage = logic.get_usage(table, "user-a", UPLOADER, NOW)
+    assert (usage["usedToday"], usage["leftToday"]) == (1, 2)
+
+
+def test_owner_usage_has_25_a_day_and_no_renewals(table):
+    usage = logic.get_usage(table, "andy", OWNER, NOW)
+    assert (usage["dailyLimit"], usage["renewalsLeft"]) == (25, 0)
+
+
+def test_renewing_gives_three_more_scans_today(table, s3):
+    use_up_today(table, s3)
+
+    usage = logic.renew_usage(table, "user-a", UPLOADER, NOW)
+
+    assert (usage["leftToday"], usage["renewalsLeft"]) == (3, 1)
+    for _ in range(3):
+        upload(table, s3)  # allowed again
+    with pytest.raises(QuotaExceeded):
+        upload(table, s3)
+
+
+def test_cant_renew_while_scans_are_left(table, s3):
+    upload(table, s3)
+
+    with pytest.raises(logic.Conflict, match="still have scans"):
+        logic.renew_usage(table, "user-a", UPLOADER, NOW)
+    assert logic.get_usage(table, "user-a", UPLOADER, NOW)["renewalsLeft"] == 2
+
+
+def test_cant_renew_before_scanning_at_all(table):
+    with pytest.raises(logic.Conflict, match="still have scans"):
+        logic.renew_usage(table, "user-a", UPLOADER, NOW)
+
+
+def test_only_two_renewals_a_month_even_across_days(table, s3):
+    later = NOW.replace(day=29)
+    for when in (later, NOW):  # two different days, same month
+        use_up_today(table, s3, when=when)
+        logic.renew_usage(table, "user-a", UPLOADER, when)
+    use_up_today(table, s3)
+
+    with pytest.raises(logic.Conflict, match="this month's 2 renewals"):
+        logic.renew_usage(table, "user-a", UPLOADER, NOW)
+    assert logic.get_usage(table, "user-a", UPLOADER, NOW)["leftToday"] == 0
+
+
+def test_renewals_come_back_in_a_new_month(table, s3):
+    for _ in range(2):
+        use_up_today(table, s3)
+        logic.renew_usage(table, "user-a", UPLOADER, NOW)
+
+    october = datetime(2026, 10, 1, 18, 0, tzinfo=UTC)
+    assert logic.get_usage(table, "user-a", UPLOADER, october)["renewalsLeft"] == 2
+    month = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09"})["Item"]
+    assert month["expiresAt"] > int(NOW.timestamp()) + 31 * 24 * 3600
+
+
+def test_the_owner_cant_renew(table):
+    with pytest.raises(logic.Conflict):
+        logic.renew_usage(table, "andy", OWNER, NOW)
+
+
+def test_renewals_are_one_users_only(table, s3):
+    use_up_today(table, s3, user="user-a")
+    logic.renew_usage(table, "user-a", UPLOADER, NOW)
+
+    assert logic.get_usage(table, "user-b", UPLOADER, NOW)["renewalsLeft"] == 2
+
+
+def test_a_refund_after_a_renewal_never_goes_below_zero(table):
+    table.put_item(Item={"PK": "USER#user-a", "SK": "USAGE#2026-09-30", "uploads": 0})
+
+    logic._refund_quota(table, "USER#user-a", "2026-09-30")
+
+    item = table.get_item(Key={"PK": "USER#user-a", "SK": "USAGE#2026-09-30"})["Item"]
+    assert item["uploads"] == 0
+
+
+def test_a_failed_app_count_doesnt_fail_the_upload(table, s3, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    real = table.update_item
+
+    def flaky(**kwargs):
+        if kwargs["Key"] == {"PK": "GLOBAL", "SK": "USAGE#2026-09-30"}:
+            raise ClientError({"Error": {"Code": "TransactionConflictException"}}, "UpdateItem")
+        return real(**kwargs)
+
+    monkeypatch.setattr(table, "update_item", flaky)
+
+    assert upload(table, s3)["docId"]  # the scan still goes through
+
+
+def test_renewing_leaves_the_shared_counts_out_of_the_transaction(table, s3):
+    use_up_today(table, s3)
+    logic.renew_usage(table, "user-a", UPLOADER, NOW)
+
+    month = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"})["Item"]
+    assert month["renewals"] == 1
+
+
+def test_app_usage_totals_today_and_this_month(table, s3):
+    use_up_today(table, s3)
+    logic.renew_usage(table, "user-a", UPLOADER, NOW)
+    upload(table, s3, user="andy", groups=OWNER)
+    table.update_item(
+        Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"},
+        UpdateExpression="ADD pages :p, emails :e",
+        ExpressionAttributeValues={":p": 12, ":e": 5},
+    )
+
+    usage = logic.app_usage(table, NOW)
+
+    assert usage["today"] == {"scans": 4, "pages": 0, "emails": 0, "renewals": 1}
+    assert usage["month"] == {"scans": 4, "pages": 12, "emails": 5, "renewals": 1}
+    assert usage["limits"] == {"scans": 200, "pages": 600, "emails": 300}
 
 
 # --- GET /documents, GET /documents/{id} --------------------------------------------------------
@@ -629,7 +763,7 @@ def test_lines_and_a_separate_total_cant_be_edited_together(table):
 
 def test_daily_limits_can_be_switched_off_for_testing(table, s3):
     """Deploy-time switch (-c dailyLimits=off); the default deploy turns them back on."""
-    for _ in range(logic.GLOBAL_DAILY_LIMIT + 2):
+    for _ in range(logic.USER_DAILY_LIMIT + 2):
         create_upload(
             table,
             s3,

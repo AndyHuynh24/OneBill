@@ -11,28 +11,32 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from documents import store as documents_store
 from documents.confidence import after_edit
 from documents.extraction import DEADLINE_TYPES, LINE_KINDS, NO_TOTAL_TYPES
 from documents.reconcile import Line, check
 from documents.store import obligation_item
 from documents.validate import Obligation
+from shared import usage as app_counts
 from shared.dates import parse_iso_date
 from shared.ids import is_valid_id, new_id
+from subscriptions import ingest as email_ingest
 from subscriptions import store as subscriptions
 
-# The app owner (a Cognito group, added by hand): a higher cap of their own, outside the shared one.
+# The app owner (a Cognito group, added by hand): a higher daily cap of their own, and no renewals.
 OWNERS_GROUP = "owners"
 ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
 MAX_BYTES = 10 * 1024 * 1024
 MAX_FILENAME = 120
-# Uploads per day (2026-10-04, Andy): anyone signed in gets 3, and all non-owners together get
-# 15 (~2.7¢ a scan, so ~$12/month if strangers max it daily). The owner gets 25, outside the
-# shared cap, so strangers can never use up the owner's uploads.
+# Uploads per day (2026-10-04, Andy): anyone signed in gets 3; the owner gets 25.
 USER_DAILY_LIMIT = 3
-GLOBAL_DAILY_LIMIT = 15
 OWNER_DAILY_LIMIT = 25
-# Scans per month for the whole app, the owner's included (2026-10-06, Andy): keeps the worst
-# month near the $10 budget even if every daily limit is used every day.
+# Once today's 3 are used, a user can renew them (back to 0) twice a month (2026-10-12, Andy).
+# The owner can't: 25 a day is already theirs.
+RENEWALS_PER_MONTH = 2
+# Scans per month for the whole app, the owner's included (2026-10-06, Andy): the only shared
+# limit (the shared daily one was removed 2026-10-12). ~2.7¢ a scan keeps the worst month near
+# the $10 budget.
 MONTHLY_APP_LIMIT = 200
 MONTHLY_USAGE_TTL_DAYS = 40
 UPLOAD_URL_TTL_SECONDS = 300
@@ -123,18 +127,11 @@ def create_upload(
     if enforce_limits:
         limit = OWNER_DAILY_LIMIT if owner else USER_DAILY_LIMIT
         _consume_quota(table, f"USER#{user_id}", day, limit, now, mine=True)
-        if not owner:
-            try:
-                _consume_quota(table, "GLOBAL", day, GLOBAL_DAILY_LIMIT, now)
-            except QuotaExceeded:
-                _refund_quota(table, f"USER#{user_id}", day)
-                raise
-        month = now.strftime("%Y-%m")
         try:
             _consume_quota(
                 table,
                 "GLOBAL",
-                month,
+                _month(now),
                 MONTHLY_APP_LIMIT,
                 now,
                 message="OneBill has reached this month's scan limit. Try again on the 1st.",
@@ -142,9 +139,8 @@ def create_upload(
             )
         except QuotaExceeded:
             _refund_quota(table, f"USER#{user_id}", day)
-            if not owner:
-                _refund_quota(table, "GLOBAL", day)
             raise
+    app_counts.count(table, day, "uploads", 1, now, USAGE_TTL_DAYS)  # today's, to watch
 
     doc_id = new_id(int(now.timestamp() * 1000))
     key = f"uploads/{user_id}/{doc_id}"
@@ -162,7 +158,7 @@ def create_upload(
             "sizeBytes": size_bytes,
             "createdAt": timestamp,
             "updatedAt": timestamp,
-            # The owner's PDFs skip the shared daily page budget (their own cap still applies).
+            # The owner's PDFs are counted but never refused by the shared monthly page budget.
             **({"owner": True} if owner else {}),
         },
         ConditionExpression="attribute_not_exists(PK)",
@@ -286,11 +282,116 @@ def _consume_quota(
 
 
 def _refund_quota(table: Any, pk: str, day: str) -> None:
-    table.update_item(
-        Key={"PK": pk, "SK": f"USAGE#{day}"},
-        UpdateExpression="ADD uploads :minus",
-        ExpressionAttributeValues={":minus": -1},
-    )
+    try:
+        table.update_item(
+            Key={"PK": pk, "SK": f"USAGE#{day}"},
+            UpdateExpression="ADD uploads :minus",
+            # A renewal may have reset the count meanwhile: never go below zero.
+            ConditionExpression="uploads > :zero",
+            ExpressionAttributeValues={":minus": -1, ":zero": 0},
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+
+
+def _month(now: datetime) -> str:
+    return now.strftime("%Y-%m")
+
+
+def _usage_item(table: Any, pk: str, period: str) -> dict[str, Any]:
+    key = {"PK": pk, "SK": f"USAGE#{period}"}
+    return table.get_item(Key=key, ConsistentRead=True).get("Item") or {}
+
+
+def get_usage(table: Any, user_id: str, groups: set[str], now: datetime) -> dict[str, int]:
+    """The caller's scans today and renewals left this month (the Scan button's line)."""
+    owner = OWNERS_GROUP in groups
+    limit = OWNER_DAILY_LIMIT if owner else USER_DAILY_LIMIT
+    used = int(_usage_item(table, f"USER#{user_id}", now.date().isoformat()).get("uploads", 0))
+    renewed = int(_usage_item(table, f"USER#{user_id}", _month(now)).get("renewals", 0))
+    return {
+        "dailyLimit": limit,
+        "usedToday": used,
+        "leftToday": max(0, limit - used),
+        "renewalsLeft": 0 if owner else max(0, RENEWALS_PER_MONTH - renewed),
+    }
+
+
+def renew_usage(table: Any, user_id: str, groups: set[str], now: datetime) -> dict[str, int]:
+    """Give back today's scans once they're all used: at most twice a month, never for the owner.
+
+    One transaction, so a double tap can't renew twice: today's count goes back to 0 only if it
+    reached the limit, and the month's renewals go up only while under the cap.
+    """
+    if OWNERS_GROUP in groups:
+        raise Conflict("Your daily scans can't be renewed.")
+    pk, day, month = f"USER#{user_id}", now.date().isoformat(), _month(now)
+    month_ttl = int((now + timedelta(days=MONTHLY_USAGE_TTL_DAYS)).timestamp())
+    ops = [
+        {
+            "Update": {
+                "TableName": table.name,
+                "Key": {"PK": pk, "SK": f"USAGE#{day}"},
+                "UpdateExpression": "SET uploads = :zero",
+                "ConditionExpression": "uploads >= :limit",
+                "ExpressionAttributeValues": {":zero": 0, ":limit": USER_DAILY_LIMIT},
+            }
+        },
+        {
+            "Update": {
+                "TableName": table.name,
+                "Key": {"PK": pk, "SK": f"USAGE#{month}"},
+                "UpdateExpression": (
+                    "ADD renewals :one SET expiresAt = if_not_exists(expiresAt, :exp)"
+                ),
+                "ConditionExpression": "attribute_not_exists(renewals) OR renewals < :max",
+                "ExpressionAttributeValues": {
+                    ":one": 1,
+                    ":exp": month_ttl,
+                    ":max": RENEWALS_PER_MONTH,
+                },
+            }
+        },
+    ]
+    try:
+        table.meta.client.transact_write_items(TransactItems=ops)
+    except ClientError as err:
+        if err.response["Error"]["Code"] != "TransactionCanceledException":
+            raise
+        reasons = [r.get("Code") for r in err.response.get("CancellationReasons", [])]
+        if reasons[:1] == ["ConditionalCheckFailed"]:
+            raise Conflict("You still have scans left today.") from err
+        if reasons[1:2] == ["ConditionalCheckFailed"]:
+            raise Conflict(
+                f"You've used this month's {RENEWALS_PER_MONTH} renewals. Scans come back tomorrow."
+            ) from err
+        raise Conflict("Renewing didn't go through. Please try again.") from err
+    # The owner's App usage card: outside the transaction, so these shared items never conflict.
+    app_counts.count(table, day, "renewals", 1, now, USAGE_TTL_DAYS)
+    app_counts.count(table, month, "renewals", 1, now, MONTHLY_USAGE_TTL_DAYS)
+    return get_usage(table, user_id, groups, now)
+
+
+def app_usage(table: Any, now: datetime) -> dict[str, Any]:
+    """App-wide counts for today and this month, with the monthly limits (owner only).
+
+    Totals only: no user IDs or emails.
+    """
+    names = {"scans": "uploads", "pages": "pages", "emails": "emails", "renewals": "renewals"}
+
+    def totals(item: dict[str, Any]) -> dict[str, int]:
+        return {label: int(item.get(attr, 0)) for label, attr in names.items()}
+
+    return {
+        "today": totals(_usage_item(table, "GLOBAL", now.date().isoformat())),
+        "month": totals(_usage_item(table, "GLOBAL", _month(now))),
+        "limits": {
+            "scans": MONTHLY_APP_LIMIT,
+            "pages": documents_store.MONTHLY_PAGE_BUDGET,
+            "emails": email_ingest.GLOBAL_MONTHLY_EMAIL_LIMIT,
+        },
+    }
 
 
 def _plain(value: Any) -> Any:

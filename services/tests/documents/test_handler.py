@@ -194,11 +194,10 @@ def test_duplicate_event_makes_no_paid_calls(env):
     assert doc(env)["status"] == "ready"
 
 
-def test_daily_page_budget_refuses_before_ocr(env):
+def test_monthly_page_budget_refuses_before_ocr(env):
     from documents import store
 
-    for _ in range(store.DAILY_PAGE_BUDGET):
-        store.consume_page_budget(env["table"], 1, store_now())
+    store.consume_page_budget(env["table"], store.MONTHLY_PAGE_BUDGET, store_now())  # all used
     version = upload(env)
 
     run(env, s3_event(version=version))  # nothing queued: an OCR call would raise
@@ -383,8 +382,7 @@ def test_page_budget_is_skipped_when_daily_limits_are_off(env, monkeypatch):
     from documents import store
 
     monkeypatch.setenv("DAILY_LIMITS", "off")  # read per event, so no reload is needed
-    for _ in range(store.DAILY_PAGE_BUDGET):
-        store.consume_page_budget(env["table"], 1, store_now())
+    store.consume_page_budget(env["table"], store.MONTHLY_PAGE_BUDGET, store_now())  # all used
     version = upload(env)
     expect_analyze_sync(env, version)
     expect_bedrock(env, "grocery_correct.json")

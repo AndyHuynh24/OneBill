@@ -113,6 +113,54 @@ def test_get_documents_includes_review_stats(handler):
     assert body["review"] == {"reviewed": 0, "acceptedUnchanged": 0, "acceptanceRate": None}
 
 
+STRANGER = {"sub": "user-s"}
+
+
+def test_get_documents_includes_my_usage(handler):
+    call(handler, http_event("POST", "/documents", STRANGER, NEW_DOC))
+
+    _, body = call(handler, http_event("GET", "/documents", STRANGER))
+
+    assert body["usage"] == {"dailyLimit": 3, "usedToday": 1, "leftToday": 2, "renewalsLeft": 2}
+
+
+def test_app_usage_goes_only_to_owners(handler):
+    call(handler, http_event("POST", "/documents", STRANGER, NEW_DOC))
+
+    _, mine = call(handler, http_event("GET", "/documents", STRANGER))
+    _, owner = call(handler, http_event("GET", "/documents", UPLOADER))
+
+    assert "appUsage" not in mine
+    assert owner["appUsage"]["today"]["scans"] == 1
+    assert owner["appUsage"]["limits"]["scans"] == 200
+
+
+def test_app_usage_ignores_groups_sent_in_the_request(handler):
+    event = http_event("GET", "/documents", STRANGER, query={"groups": "owners"})
+    event["headers"]["cognito:groups"] = "[owners]"
+
+    _, body = call(handler, event)
+
+    assert "appUsage" not in body
+
+
+def test_post_usage_renew(handler):
+    for _ in range(3):
+        call(handler, http_event("POST", "/documents", STRANGER, NEW_DOC))
+
+    status, body = call(handler, http_event("POST", "/usage/renew", STRANGER))
+
+    assert status == 200
+    assert (body["leftToday"], body["renewalsLeft"]) == (3, 1)
+
+
+def test_post_usage_renew_with_scans_left_is_409(handler):
+    status, body = call(handler, http_event("POST", "/usage/renew", STRANGER))
+
+    assert status == 409
+    assert "scans left" in body["message"]
+
+
 def test_patch_review_of_a_pending_document_is_400(handler):
     _, created = call(handler, http_event("POST", "/documents", UPLOADER, NEW_DOC))
     doc_id = created["docId"]

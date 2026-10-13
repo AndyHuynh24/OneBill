@@ -173,19 +173,33 @@ def test_mark_failed_records_a_friendly_reason(table):
 # --- global daily page budget (decision R2) -----------------------------------------------------
 
 
-def test_page_budget_allows_pages_up_to_the_limit(table):
+def test_page_budget_is_monthly_and_allows_pages_up_to_the_limit(table):
+    assert store.MONTHLY_PAGE_BUDGET == 600  # 2026-10-12, Andy
     assert store.consume_page_budget(table, 20, NOW, limit=30) is True
     assert store.consume_page_budget(table, 10, NOW, limit=30) is True
     assert store.consume_page_budget(table, 1, NOW, limit=30) is False
 
-    usage = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
-    assert usage["pages"] == 30
-    assert usage["expiresAt"] > int(NOW.timestamp())
+    month = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"})["Item"]
+    assert month["pages"] == 30
+    assert month["expiresAt"] > int(NOW.timestamp()) + 31 * 24 * 3600
+    today = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert today["pages"] == 30  # counted per day too, for the App usage card
 
 
 def test_page_budget_refuses_a_document_that_would_cross_the_limit(table):
     store.consume_page_budget(table, 25, NOW, limit=30)
 
     assert store.consume_page_budget(table, 6, NOW, limit=30) is False
-    usage = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
-    assert usage["pages"] == 25  # nothing consumed by the refused document
+    month = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"})["Item"]
+    assert month["pages"] == 25  # nothing consumed by the refused document
+    today = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09-30"})["Item"]
+    assert today["pages"] == 25
+
+
+def test_counted_pages_are_never_refused(table):
+    store.consume_page_budget(table, 30, NOW, limit=30)
+
+    store.count_pages(table, 5, NOW)  # the owner's PDF
+
+    month = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-09"})["Item"]
+    assert month["pages"] == 35
