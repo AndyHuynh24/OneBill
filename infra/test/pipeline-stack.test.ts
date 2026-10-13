@@ -141,10 +141,17 @@ describe("PipelineStack — extract Lambda", () => {
     ]);
   });
 
-  it("can only read uploads, including the pinned version (no writes, no other prefixes)", () => {
+  it("can only read and then delete uploads (no writes, no other prefixes)", () => {
     const statements = extractStatements();
     // GetObjectVersion: Textract and the PDF check read the exact upload version that was claimed.
-    expect(actionsOf(statements, "s3:")).toEqual(["s3:GetObject", "s3:GetObjectVersion"]);
+    // Delete(Version): photos and PDFs aren't kept; that exact version is removed once read.
+    expect(actionsOf(statements, "s3:")).toEqual([
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+    ]);
+    expect(actionsOf(statements, "s3:")).not.toContain("s3:PutObject");
     const s3 = statements.find((st) => actionsOf([st], "s3:").length);
     expect(JSON.stringify(s3?.Resource)).toContain("/uploads/*");
   });

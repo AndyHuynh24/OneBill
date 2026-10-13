@@ -65,6 +65,14 @@ export class DataStack extends Stack {
       versioned: true,
       lifecycleRules: [
         { id: "expire-tmp", prefix: "tmp/", expiration: Duration.days(1) },
+        // Receipt photos and PDFs aren't kept: deleted right after reading, and this removes
+        // anything a failed delete left behind (every version) within a day.
+        {
+          id: "expire-uploads",
+          prefix: "uploads/",
+          expiration: Duration.days(1),
+          noncurrentVersionExpiration: Duration.days(1),
+        },
         { id: "abort-incomplete-uploads", abortIncompleteMultipartUploadAfter: Duration.days(1) },
         { id: "expire-old-versions", noncurrentVersionExpiration: Duration.days(30) },
       ],

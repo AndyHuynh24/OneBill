@@ -85,7 +85,7 @@ describe("Home — signed in", () => {
     renderHome("signedIn", api);
     const file = new File(["jpeg"], "receipt.jpg", { type: "image/jpeg" });
 
-    await userEvent.upload(await screen.findByLabelText(/scan or upload/i), file);
+    await userEvent.upload(await screen.findByLabelText(/upload a photo or pdf/i), file);
 
     expect(api.uploadDocument).toHaveBeenCalledWith(file);
   });
@@ -97,7 +97,7 @@ describe("Home — signed in", () => {
     renderHome("signedIn", api);
 
     await userEvent.upload(
-      await screen.findByLabelText(/scan or upload/i),
+      await screen.findByLabelText(/upload a photo or pdf/i),
       new File(["x"], "a.jpg", { type: "image/jpeg" }),
     );
 
@@ -129,7 +129,7 @@ describe("Home — signed in", () => {
 
     // Any documents refresh (here: after an upload) that shows the doc finished…
     await userEvent.upload(
-      screen.getByLabelText(/scan or upload/i),
+      screen.getByLabelText(/upload a photo or pdf/i),
       new File(["x"], "a.jpg", { type: "image/jpeg" }),
     );
 
@@ -152,7 +152,7 @@ describe("Home — signed in", () => {
     expect(await screen.findByText(/nothing yet/i)).toBeInTheDocument();
 
     await userEvent.upload(
-      screen.getByLabelText(/scan or upload/i),
+      screen.getByLabelText(/upload a photo or pdf/i),
       new File(["x"], "dinner.jpg", { type: "image/jpeg" }),
     );
 

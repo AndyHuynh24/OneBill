@@ -156,6 +156,31 @@ def test_photo_upload_becomes_a_ready_document_without_reminders(env):
     assert obligations == []  # receipts make no reminders (return windows aren't tracked)
 
 
+def stored_versions(env):
+    listing = env["s3"].list_object_versions(Bucket=BUCKET, Prefix=KEY)
+    return listing.get("Versions", [])
+
+
+def test_the_photo_is_deleted_once_read(env):
+    version = upload(env)
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")
+
+    run(env, s3_event(version=version))
+
+    assert doc(env)["status"] == "ready"
+    assert stored_versions(env) == []  # the exact version is gone: no copy left in the bucket
+
+
+def test_a_refused_upload_is_deleted_too(env):
+    version = upload(env, content_type="application/pdf", body=b"not a pdf")
+
+    run(env, s3_event(version=version))
+
+    assert doc(env)["status"] == "failed"
+    assert stored_versions(env) == []
+
+
 def test_duplicate_event_makes_no_paid_calls(env):
     version = upload(env)
     expect_analyze_sync(env, version)
@@ -234,6 +259,7 @@ def test_pdf_starts_an_async_job(env):
     item = doc(env)
     assert item["status"] == "processing"
     assert item["textractJobId"] == "job-123"
+    assert len(stored_versions(env)) == 1  # kept until the async job has read it
 
 
 def test_pdf_over_ten_pages_is_refused_before_ocr(env):

@@ -1,5 +1,5 @@
 import type { DocStatus, DocumentSummary } from "../api";
-import { formatCents, formatDate } from "../format";
+import { docTitle, formatCents, formatDate } from "../format";
 
 const STATUS: Record<DocStatus, { label: string; tone: string }> = {
   pending_upload: { label: "Uploading…", tone: "busy" },
@@ -23,10 +23,9 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
   }
   return (
     <ul className="doc-list">
-      {uploading.map((name, i) => (
+      {uploading.map((_, i) => (
         <li key={`uploading-${i}`} className="doc-card">
-          <span className="doc-title">{name}</span>
-          <span className="chip chip-busy">Uploading…</span>
+          <span className="doc-title doc-title-reading">Reading…</span>
         </li>
       ))}
       {(limit ? documents.slice(0, limit) : documents).map((doc) => {
@@ -35,8 +34,8 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
         return (
           <li key={doc.docId}>
             <button type="button" className="doc-card" disabled={busy} onClick={() => onOpen(doc.docId)}>
-              <span className="doc-title">
-                {doc.vendor || doc.filename || "Document"}
+              <span className={doc.vendor || !busy ? "doc-title" : "doc-title doc-title-reading"}>
+                {docTitle(doc)}
                 {doc.source === "email" && <span className="tag-email">Email</span>}
                 {(doc.confidence?.level === "confident" || doc.confidence?.level === "confirmed") && (
                   <span className="tag-sure" title="Confident: the amounts were found and add up" aria-label="Confident">
@@ -51,8 +50,9 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
                 {doc.documentDate ? formatDate(doc.documentDate) : ""}
                 {doc.totalCents != null ? ` · ${formatCents(doc.totalCents, doc.currency ?? "USD")}` : ""}
               </span>
-              {/* Ready is the normal state: only what needs attention (or is still going) shows. */}
-              {status.tone !== "ok" && <span className={`chip chip-${status.tone}`}>{status.label}</span>}
+              {/* Ready is the normal state: only what needs attention shows (the title already
+                  says "Reading…" while a scan is read). */}
+              {status.tone !== "ok" && doc.status !== "processing" && <span className={`chip chip-${status.tone}`}>{status.label}</span>}
             </button>
           </li>
         );

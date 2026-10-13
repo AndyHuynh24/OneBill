@@ -171,3 +171,12 @@ describe("DataStack — tagging", () => {
     expect(tags).toContainEqual({ Key: "project", Value: "onebill" });
   });
 });
+
+describe("DataStack — receipt photos aren't kept", () => {
+  it("removes anything left under uploads/ within a day, every version", () => {
+    const bucket = Object.values(template.findResources("AWS::S3::Bucket")).find((b) => b.Properties.CorsConfiguration);
+    const rule = bucket?.Properties.LifecycleConfiguration.Rules.find((r: { Id: string }) => r.Id === "expire-uploads");
+    expect(rule).toMatchObject({ Prefix: "uploads/", ExpirationInDays: 1, NoncurrentVersionExpiration: { NoncurrentDays: 1 } });
+  });
+});
+

@@ -78,3 +78,14 @@ export const DEADLINE_LABELS: Record<string, string> = {
   renewal: "Renews",
   trial_ends: "Trial ends",
 };
+
+/** A bill's title: the store as read, "Reading…" until then, never the photo's file name. */
+export function docTitle(doc: {
+  vendor?: string | null;
+  status?: string;
+  contentType?: string;
+}): string {
+  if (doc.vendor) return doc.vendor;
+  if (doc.status === "pending_upload" || doc.status === "processing") return "Reading…";
+  return doc.contentType === "application/pdf" ? "Untitled bill" : "Untitled receipt";
+}

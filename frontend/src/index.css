@@ -275,6 +275,11 @@ button.danger {
   font-weight: 600;
 }
 
+.doc-title-reading {
+  color: var(--muted);
+  font-weight: 500;
+}
+
 .doc-meta {
   grid-column: 1;
   color: var(--muted);
@@ -484,9 +489,47 @@ button.danger {
   box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
+/* Scan's choice: camera or upload (a bottom sheet, like the line picker). */
+.scan-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.scan-option {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  padding: 0.95rem 1rem;
+  text-align: left;
+  color: var(--accent-strong);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.scan-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  color: var(--text);
+}
+.scan-option-text span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.scan-cancel {
+  margin-top: 0.2rem;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+}
+
 @media (hover: hover) {
   .scan-button:hover:not(:disabled) {
     background: var(--accent-strong);
+  }
+  .scan-option:hover {
+    background: var(--accent-soft);
   }
 }
 

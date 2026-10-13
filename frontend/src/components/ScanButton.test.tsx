@@ -4,12 +4,25 @@ import { describe, expect, it, vi } from "vitest";
 import { ScanButton } from "./ScanButton";
 
 describe("ScanButton", () => {
-  it("accepts photos and PDFs, without forcing the camera", () => {
+  it("opens the back camera for Scan, and offers Upload for photos and PDFs", () => {
     render(<ScanButton onFile={vi.fn()} />);
 
-    const input = screen.getByLabelText(/scan or upload/i);
-    expect(input).toHaveAttribute("accept", "image/jpeg,image/png,application/pdf");
-    expect(input).not.toHaveAttribute("capture"); // lets phones offer camera OR library
+    expect(screen.getByLabelText(/scan a receipt with the camera/i)).toHaveAttribute(
+      "capture",
+      "environment",
+    );
+    const upload = screen.getByLabelText(/upload a photo or pdf/i);
+    expect(upload).toHaveAttribute("accept", "image/jpeg,image/png,application/pdf");
+    expect(upload).not.toHaveAttribute("capture"); // library, screenshots, and files
+  });
+
+  it("asks camera or upload when Scan is tapped", async () => {
+    render(<ScanButton onFile={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /scan receipt/i }));
+
+    expect(screen.getByRole("button", { name: /take a photo/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /upload a photo or pdf/i })).toBeInTheDocument();
   });
 
   it("hands the chosen file to onFile", async () => {
@@ -17,7 +30,7 @@ describe("ScanButton", () => {
     render(<ScanButton onFile={onFile} />);
     const file = new File(["jpeg"], "receipt.jpg", { type: "image/jpeg" });
 
-    await userEvent.upload(screen.getByLabelText(/scan or upload/i), file);
+    await userEvent.upload(screen.getByLabelText(/scan a receipt with the camera/i), file);
 
     expect(onFile).toHaveBeenCalledWith(file);
   });

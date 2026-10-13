@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useBackLayer } from "../backButton";
 import type { CorrectionFields, OneBillApi, ReviewRequest } from "../api";
-import { centsToInput, DEADLINE_LABELS, formatCents, formatDate, parseDollars } from "../format";
+import { centsToInput, DEADLINE_LABELS, docTitle, formatCents, formatDate, parseDollars } from "../format";
 import { BillLines, type LineCheck, type LineInput } from "./BillLines";
 import { BillStatus, ItemsTotal } from "./BillStatus";
 import { canSplit } from "../split";
@@ -123,12 +123,12 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
               <InlineText
                 label="Vendor"
                 value={doc.vendor ?? ""}
-                display={doc.vendor || doc.filename || "Document"}
+                display={docTitle(doc)}
                 saving={edit.isPending}
                 onSave={(vendor) => edit.mutate({ fields: { vendor: vendor || null } })}
               />
             ) : (
-              doc.vendor || doc.filename || "Document"
+              docTitle(doc)
             )}
             {/* Splitting: the total sits beside the name (no date), to save room for the circle. */}
             {mode === "split" && doc?.totalCents != null && (

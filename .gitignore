@@ -44,3 +44,10 @@ eval/out/
 
 # Firebase Hosting deploy cache
 .firebase/
+eval/public/
+
+# Local-only notes for Claude Code (removed from the repo on main)
+CLAUDE.md
+
+# TypeScript incremental build cache
+*.tsbuildinfo

@@ -30,7 +30,7 @@ describe("Looks right → Split this bill? (inside Home)", () => {
     });
     renderHome(api);
     await screen.findByText(/nothing yet/i);
-    await userEvent.upload(screen.getByLabelText(/scan or upload/i), new File(["x"], "d.jpg", { type: "image/jpeg" }));
+    await userEvent.upload(screen.getByLabelText(/upload a photo or pdf/i), new File(["x"], "d.jpg", { type: "image/jpeg" }));
 
     await userEvent.click(await screen.findByRole("button", { name: /looks right/i }));
 
