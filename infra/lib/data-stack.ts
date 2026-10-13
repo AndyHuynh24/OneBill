@@ -6,7 +6,7 @@ import { Construct } from "constructs";
 /**
  * Storage for every user's data: one single-table DynamoDB table (records) and one
  * S3 bucket (documents), both encrypted at rest with AWS-owned keys.
- * Key design: docs/SPEC.md → Data model.
+ * Keys: PK `USER#<id>` (or `GLOBAL`), SK `<TYPE>#<id>`; GSI1 for due dates, GSI2 for groups.
  */
 export interface DataStackProps extends StackProps {
   /** Browser origin allowed to POST uploads straight to the docs bucket (presigned POST). */
@@ -29,7 +29,7 @@ export class DataStack extends Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       // Encrypted at rest with AWS's own key (free). A customer-managed key only adds a second
       // lock against roles with partial access; with one user and no AWS-connected CI, there
-      // are none (decision 2026-10-04). Add one back before granting anyone limited access.
+      // are none. Add one back before granting anyone limited access.
       encryption: dynamodb.TableEncryption.DEFAULT,
       deletionProtection: true,
       // Items with an `expiresAt` epoch-seconds attribute (e.g. daily usage counters) delete themselves.

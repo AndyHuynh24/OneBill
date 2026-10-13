@@ -116,7 +116,7 @@ describe("ApiStack — /me Lambda", () => {
           TABLE_NAME: Match.anyValue(),
           // Keep response bodies (future: transactions) out of X-Ray traces.
           POWERTOOLS_TRACER_CAPTURE_RESPONSE: "false",
-          // X-Ray is off by default (cost decision R1); enable with -c tracing=true.
+          // X-Ray is off by default (cost); enable with -c tracing=true.
           POWERTOOLS_TRACE_DISABLED: "true",
         }),
       },

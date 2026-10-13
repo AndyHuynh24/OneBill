@@ -43,7 +43,7 @@ def policy_conditions(fields: dict) -> list:
     return json.loads(base64.b64decode(fields["policy"]))["conditions"]
 
 
-# --- POST /documents ---------------------------------------------------------------------------
+# --- POST /documents ----------------------------------------------------------------------------
 
 
 def test_create_upload_returns_locked_down_presigned_post(table, s3):
@@ -126,7 +126,7 @@ def test_per_user_daily_quota(table, s3):
         upload(table, s3)
 
 
-def test_upload_limits_decided_2026_10_12():
+def test_upload_limits():
     limits = (
         logic.USER_DAILY_LIMIT,
         logic.OWNER_DAILY_LIMIT,
@@ -174,7 +174,7 @@ def test_usage_counters_expire(table, s3):
     assert usage["expiresAt"] > int(NOW.timestamp())
 
 
-# --- Usage and renewals --------------------------------------------------------------------------
+# --- Usage and renewals -------------------------------------------------------------------------
 
 
 def use_up_today(table, s3, user="user-a", when=NOW):
@@ -685,7 +685,7 @@ def test_concurrent_corrections_cannot_orphan_obligations(table):
     assert len(obligations_for(table)) == 1
 
 
-# --- step 6: fixing individual lines ---------------------------------------------------------
+# --- step 6: fixing individual lines ------------------------------------------------------------
 
 DINNER = [
     {"description": "PAD THAI", "kind": "item", "amountCents": 1450},
@@ -798,7 +798,7 @@ def test_daily_limits_can_be_switched_off_for_testing(table, s3):
         )
 
 
-# --- removing a reminder, deleting a document --------------------------------------------------
+# --- removing a reminder, deleting a document ---------------------------------------------------
 
 from api.documents.logic import delete_document, remove_obligation  # noqa: E402
 
@@ -897,7 +897,7 @@ def test_someone_elses_document_cant_be_deleted(table, s3):
         delete_document(table, s3, BUCKET, "user-a", doc_id, NOW)
 
 
-# --- "Looks right" on a flagged line (phase 2d) --------------------------------------------------
+# --- "Looks right" on a flagged line ------------------------------------------------------------
 
 
 def flagged_doc(table, status="ready"):

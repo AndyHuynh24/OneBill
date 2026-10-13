@@ -1,7 +1,7 @@
 """Calendar dates for deadlines and reminders.
 
 Obligations are calendar dates (a return window closes on a *day*), so "today" must be computed
-in a time zone. Phase 1 uses one app-wide zone (decision D3); per-user zones can come later.
+in a time zone. For now there's one app-wide zone; per-user zones can come later.
 """
 
 from datetime import date, datetime

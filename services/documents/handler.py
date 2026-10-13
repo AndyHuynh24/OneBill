@@ -48,7 +48,7 @@ BUCKET = os.environ["BUCKET_NAME"]
 MODEL_ID = os.environ["BEDROCK_MODEL_ID"]
 TOPIC_ARN = os.environ["TEXTRACT_TOPIC_ARN"]
 ROLE_ARN = os.environ["TEXTRACT_ROLE_ARN"]
-# Photo tiles next to the OCR text (phase 2c). Off until the eval shows it helps; "off" rolls back.
+# Photo tiles next to the OCR text. Off until the eval shows it helps; "off" rolls back.
 PHOTO_TILES = os.environ.get("PHOTO_TILES", "off") == "on"
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PDF_PAGES = 10

@@ -28,7 +28,7 @@ def process_email(
     table: Any, bedrock: Any, model_id: str, user_id: str, payload: dict[str, Any], now: datetime
 ) -> dict[str, Any]:
     email = _validated(payload, now)
-    # Only emails the user labelled "OneBill" are processed (2026-10-03). Anything else is
+    # Only emails the user labelled "OneBill" are processed. Anything else is
     # ignored before it's remembered, so labelling it later still gets it read.
     if not email["labelled"]:
         return {"status": "ignored", "subscriptions": 0, "documents": 0}

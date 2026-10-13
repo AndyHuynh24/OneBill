@@ -37,13 +37,13 @@ export interface PipelineStackProps extends StackProps {
   readonly senderEmailParameter?: string;
   readonly enableTracing?: boolean;
   /**
-   * Daily upload limits (decision R2). `false` only for a testing deploy
+   * Daily upload limits. `false` only for a testing deploy
    * (`cdk deploy -c dailyLimits=off`); any normal deploy turns them back on.
    * @default true
    */
   readonly dailyLimits?: boolean;
   /**
-   * Send photo tiles next to the OCR text (phase 2c). The Pillow layer is always attached;
+   * Send photo tiles next to the OCR text. The Pillow layer is always attached;
    * this only sets PHOTO_TILES, so turning it off is a config-only rollback.
    * @default false
    */

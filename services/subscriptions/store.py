@@ -1,4 +1,4 @@
-"""Saving subscriptions read from emails (design: docs/design/phase2b-subscriptions.md, S3).
+"""Saving subscriptions read from emails.
 
 - One `SUB#<serviceKey>` item per service: the latest state plus the last 12 charges.
 - Its renewal reminder is a normal `OBL#` item on GSI1, so the existing daily reminders job

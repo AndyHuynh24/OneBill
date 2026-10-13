@@ -28,15 +28,14 @@ OWNERS_GROUP = "owners"
 ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "application/pdf"})
 MAX_BYTES = 10 * 1024 * 1024
 MAX_FILENAME = 120
-# Uploads per day (2026-10-04, Andy): anyone signed in gets 3; the owner gets 25.
+# Uploads per day: anyone signed in gets 3; the owner gets 25.
 USER_DAILY_LIMIT = 3
 OWNER_DAILY_LIMIT = 25
-# Once today's 3 are used, a user can renew them (back to 0) twice a month (2026-10-12, Andy).
+# Once today's 3 are used, a user can renew them (back to 0) twice a month.
 # The owner can't: 25 a day is already theirs.
 RENEWALS_PER_MONTH = 2
-# Scans per month for the whole app, the owner's included (2026-10-06, Andy): the only shared
-# limit (the shared daily one was removed 2026-10-12). ~2.7¢ a scan keeps the worst month near
-# the $10 budget.
+# Scans per month for the whole app, the owner's included: the only shared limit. At ~2.7¢ a
+# scan, it keeps the worst month near the $10 budget.
 MONTHLY_APP_LIMIT = 200
 MONTHLY_USAGE_TTL_DAYS = 40
 UPLOAD_URL_TTL_SECONDS = 300
@@ -442,7 +441,7 @@ _SUMMARY_ATTRS = (
     "reviewOutcome",
     "failureReason",
     "source",  # "email" for labelled emails read like a scan
-    "confidence",  # {"level", "checks"}: the list shows a ✓ or "Check" badge (phase 2d)
+    "confidence",  # {"level", "checks"}: the list shows a ✓ or "Check" badge
 )
 
 

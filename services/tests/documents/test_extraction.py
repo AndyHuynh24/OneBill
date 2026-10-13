@@ -131,7 +131,6 @@ def test_parse_output_converts_amounts_to_cents_in_code():
     ],
 )
 def test_a_line_with_an_unclear_amount_or_kind_is_kept_and_flagged_never_dropped(bad_line, kept):
-    """Andy: "only flag, never remove a field from the bill"."""
     good = {"description": "MILK", "amount": "4.19", "kind": "item"}
     tool_input = {
         "doc_type": "receipt",

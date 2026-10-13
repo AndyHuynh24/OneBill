@@ -50,7 +50,7 @@ class ValidationResult:
     obligations: list[Obligation] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)  # oddities that don't need a review
     tax_included: bool = False  # item prices already include the tax
-    # {"level": "confident" | "mostly" | "check", "checks": [{"row", "reason"}]} (phase 2d)
+    # {"level": "confident" | "mostly" | "check", "checks": [{"row", "reason"}]}
     confidence: dict[str, Any] = field(default_factory=dict)
     math: dict[str, Any] = field(default_factory=dict)  # see Reconciliation.math
 

@@ -10,7 +10,7 @@ export interface AuthStackProps extends StackProps {
   /** Every address the app runs at (the public site and local dev): sign-in may return to each. */
   readonly frontendUrls: string[];
   /**
-   * Google OAuth client ID ("Continue with Google", design: phase2e-google-signin). Not a
+   * Google OAuth client ID ("Continue with Google"). Not a
    * secret. Without it, sign-in is email only.
    */
   readonly googleClientId?: string;
@@ -28,7 +28,7 @@ export class AuthStack extends Stack {
   readonly domain: cognito.UserPoolDomain;
   /**
    * The app owner (added by hand): 25 uploads a day outside the shared cap, and Connect Gmail.
-   * Everyone else signed in gets 3 uploads a day (2026-10-04, replacing invite-only uploads).
+   * Everyone else signed in gets 3 uploads a day.
    */
   readonly ownersGroup: cognito.UserPoolGroup;
 

@@ -392,7 +392,7 @@ def test_page_budget_is_skipped_when_daily_limits_are_off(env, monkeypatch):
     assert doc(env)["status"] == "ready"
 
 
-# --- photo tiles next to the OCR text (phase 2c) ------------------------------------------------
+# --- photo tiles next to the OCR text -----------------------------------------------------------
 
 
 def jpeg_bytes():

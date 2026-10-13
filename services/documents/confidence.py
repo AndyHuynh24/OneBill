@@ -1,4 +1,4 @@
-"""How sure we are about a reading, from evidence, not from the model's opinion (phase 2d).
+"""How sure we are about a reading, from evidence, not from the model's opinion.
 
 Per money line: flagged if the OCR read its amount with low confidence, if the amount isn't
 printed on the document, or if the math points at it. When the totals don't add up, a misread is

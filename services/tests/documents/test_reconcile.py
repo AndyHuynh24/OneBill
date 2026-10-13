@@ -41,7 +41,7 @@ def test_correctly_labelled_receipt_reconciles():
 
 
 def test_total_subtotal_cash_change_mislabelled_as_items_are_corrected():
-    """Andy's bug: the model calls every money line an 'item'. The total must still be $26.18."""
+    """The model calls every money line an 'item'. The total must still be $26.18."""
     mislabelled = lines(
         ("BANANAS", "item", 129),
         ("MILK 1 GAL", "item", 419),

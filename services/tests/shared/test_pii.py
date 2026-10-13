@@ -53,7 +53,7 @@ def test_multiline_receipt_keeps_structure():
     assert redact(text).text == "TARGET\nBANANAS 1.29\nVISA [CARD]\nTOTAL 1.29"
 
 
-# --- address blocks (phase 2c): the customer's name and address never reach the model --------
+# --- address blocks: the customer's name and address never reach the model --------
 
 from types import SimpleNamespace  # noqa: E402
 

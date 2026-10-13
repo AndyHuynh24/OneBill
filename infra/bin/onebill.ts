@@ -10,7 +10,7 @@ import { WebStack } from "../lib/web-stack";
 
 const app = new App();
 
-// Everything lives in us-east-1 (Phase 0 decision: SES inbound needs it later).
+// Everything lives in us-east-1 (SES inbound email is only offered in a few regions).
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
 // Where the app runs: the public site ("publicUrl", once it exists) and local dev. Sign-in
 // redirects, API CORS, and upload CORS allow each; emails link to the public site.
@@ -24,7 +24,7 @@ const appUrl = publicUrl ?? devUrl;
 // Testing only: `cdk deploy -c dailyLimits=off` skips the daily upload limits. Any deploy
 // without the flag (including CI) turns them back on.
 const dailyLimits = app.node.tryGetContext("dailyLimits") !== "off";
-// Photo tiles next to the OCR text (phase 2c): "photoTiles" in cdk.json, so it's reviewed in a PR.
+// Photo tiles next to the OCR text: "photoTiles" in cdk.json, so it's reviewed in a PR.
 const photoTiles = app.node.tryGetContext("photoTiles") === "on";
 
 const data = new DataStack(app, "OneBill-Data", { env, frontendUrls });
@@ -62,7 +62,7 @@ new PipelineStack(app, "OneBill-Pipeline", {
   gmailPasswordParameter: app.node.tryGetContext("gmailPasswordParameter") || undefined,
 });
 
-// The public website (phase 2f). `make deploy-web` builds the frontend first; without a build,
+// The public website. `make deploy-web` builds the frontend first; without a build,
 // the stack still synthesizes (bucket and distribution, nothing uploaded).
 const siteDir = join(__dirname, "..", "..", "frontend", "dist");
 new WebStack(app, "OneBill-Web", {

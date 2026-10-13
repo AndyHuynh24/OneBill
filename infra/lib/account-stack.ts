@@ -17,7 +17,7 @@ export interface AccountStackProps extends StackProps {
    */
   readonly githubSubject: string;
   /**
-   * Create the GitHub Actions role for `cdk diff` on pull requests. Off by default (2026-10-04):
+   * Create the GitHub Actions role for `cdk diff` on pull requests. Off by default:
    * with no customer-managed key, a read-only role could read the table, so CI isn't connected
    * to AWS. Turn on only together with a customer-managed key (`-c ciRole=on`).
    */
@@ -56,7 +56,7 @@ export class AccountStack extends Stack {
         budgetLimit: { amount: 10, unit: "USD" },
       },
       notificationsWithSubscribers: [
-        alert("ACTUAL", 30), // $3: early warning; normal spend is ~$2 (decision R3)
+        alert("ACTUAL", 30), // $3: early warning; normal spend is ~$2
         alert("ACTUAL", 50),
         alert("ACTUAL", 80),
         alert("ACTUAL", 100),

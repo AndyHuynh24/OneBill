@@ -28,7 +28,7 @@ MONEY_FIELDS = frozenset(
 )
 HINT_FIELDS = frozenset({"VENDOR_NAME", "NAME", "INVOICE_RECEIPT_DATE", "DUE_DATE"})
 # Textract fields that hold the customer's name or address: never shown to the model, and lines
-# matching them are masked (phase 2c). The generic NAME/ADDRESS/STREET/CITY fields aren't here:
+# matching them are masked. The generic NAME/ADDRESS/STREET/CITY fields aren't here:
 # on a paper receipt they hold the store's name and address.
 CUSTOMER_FIELDS = frozenset({"RECEIVER_NAME", "RECEIVER_ADDRESS"})
 MASKED_LINE = "[PERSONAL INFO]"
@@ -69,7 +69,7 @@ class ExpenseResult:
     currency: str | None = None
     # Where each of `lines` sits on page 1 (same order), for cutting image tiles.
     line_boxes: list[Box] = field(default_factory=list)
-    # Textract's OCR confidence (0–100) for each of `lines`, same order (phase 2d).
+    # Textract's OCR confidence (0–100) for each of `lines`, same order.
     line_confidences: list[float] = field(default_factory=list)
 
     @property

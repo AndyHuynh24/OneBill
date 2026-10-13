@@ -52,7 +52,7 @@ function powertoolsLayer(scope: Construct): lambda.ILayerVersion {
 }
 
 /**
- * Pillow for the extract Lambda (photo tiles, phase 2c). Installed from
+ * Pillow for the extract Lambda (photo tiles). Installed from
  * infra/layers/pillow/requirements.txt, which pins every wheel by hash (exported from
  * services/uv.lock), so a tampered download fails the build. Built locally with uv from the
  * manylinux_2_28 arm64 wheel (no Docker), cached by the requirements' hash under infra/.layers.
@@ -128,7 +128,7 @@ export interface ServiceFunctionProps {
   readonly environment?: Record<string, string>;
   readonly timeout?: Duration;
   readonly memorySize?: number;
-  /** Active X-Ray tracing; off by default (cost decision R1). */
+  /** Active X-Ray tracing; off by default (cost). */
   readonly enableTracing?: boolean;
   /** For asynchronously invoked functions: where failed invocations go after retries. */
   readonly deadLetterQueue?: sqs.IQueue;

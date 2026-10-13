@@ -77,7 +77,7 @@ describe("AuthStack — hosted login", () => {
 
 });
 
-describe("AuthStack — sign in with Google (phase 2e)", () => {
+describe("AuthStack — sign in with Google", () => {
   const withGoogle = () => {
     const app = new App();
     const stack = new AuthStack(app, "TestAuthGoogle", {

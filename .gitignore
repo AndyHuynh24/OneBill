@@ -9,9 +9,6 @@
 !.env.example
 *.pem
 
-# Claude Code local settings
-.claude/settings.local.json
-
 # Node
 node_modules/
 dist/
@@ -31,12 +28,6 @@ __pycache__/
 .coverage
 infra/cdk-outputs.json
 
-# Local-only notes (not part of the project)
-docs/learn/
-docs/pr/
-docs/LEARNING_LOG.md
-START_HERE.md
-
 # Eval inputs and per-receipt outputs contain real receipts (personal data): local only.
 eval/receipts/
 eval/cache/
@@ -45,9 +36,6 @@ eval/out/
 # Firebase Hosting deploy cache
 .firebase/
 eval/public/
-
-# Local-only notes for Claude Code (removed from the repo on main)
-CLAUDE.md
 
 # TypeScript incremental build cache
 *.tsbuildinfo

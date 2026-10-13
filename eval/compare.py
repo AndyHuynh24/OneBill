@@ -1,7 +1,7 @@
 """Compare three ways of reading a receipt on the same labelled photos:
 
     textract  Textract AnalyzeExpense alone: its summary fields and line-item rows, no model.
-    llm       Claude alone: the whole photo, one call, no OCR text (same tool schema and prompt
+    llm       The model alone: the whole photo, one call, no OCR text (same tool schema and prompt
               rules, and the same code turns the lines into totals).
     hybrid    OneBill's pipeline: Textract text + photo tiles (PII blacked out) + Claude,
               with the code-checked repair pass. `hybrid-text` is the same without the tiles.

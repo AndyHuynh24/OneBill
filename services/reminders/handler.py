@@ -1,7 +1,7 @@
 """Reminders Lambda: daily by EventBridge Scheduler (08:00 America/Los_Angeles), and on each new
 reminder (a DynamoDB stream of OBL# inserts) to email right away when it's already due soon.
 
-Emails aren't stored in DynamoDB (Phase 0 decision): they're looked up in Cognito at send time.
+Emails aren't stored in DynamoDB: they're looked up in Cognito at send time.
 """
 
 import os

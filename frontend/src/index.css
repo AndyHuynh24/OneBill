@@ -1593,7 +1593,7 @@ button.btn-delete {
   vertical-align: middle;
 }
 
-/* --- Confidence (phase 2d): banner, flagged lines, list badges --- */
+/* --- Confidence: banner, flagged lines, list badges --- */
 .confidence {
   margin: 0.6rem 0;
   padding: 0.55rem 0.8rem;
@@ -1670,7 +1670,7 @@ button.check-ok {
   vertical-align: middle;
 }
 
-/* --- Fix in place (phase 2d): tap a line, edit it right there --- */
+/* --- Fix in place: tap a line, edit it right there --- */
 button.line-tap {
   all: unset;
   cursor: pointer;
@@ -1769,7 +1769,7 @@ button.check-use {
   font-size: 0.85rem;
 }
 
-/* --- One status card + calculated items total (phase 2d) --- */
+/* --- One status card + calculated items total --- */
 .bill-status {
   margin: 0.6rem 0;
   padding: 0.65rem 0.85rem;
@@ -2132,7 +2132,7 @@ button.check-use {
   }
 }
 
-/* --- Split screen fits one screen (2026-10-04) --- */
+/* --- Split screen fits one screen --- */
 .step-header {
   margin: 0 0 0.35rem;
 }
@@ -2319,7 +2319,7 @@ button.nav-arrow {
   font-weight: 700;
 }
 
-/* --- Split screen: full height, labels away from the card, long names (2026-10-04) --- */
+/* --- Split screen: full height, labels away from the card, long names --- */
 .sheet.sheet-full {
   max-height: 100dvh;
   height: 100dvh;
@@ -2375,7 +2375,7 @@ button.nav-arrow {
   background: var(--surface);
 }
 
-/* ================= Split screen, simplified (2026-10-04) ================= */
+/* ================= Split screen, simplified ================= */
 .split-flow {
   --split-text: 0.95rem;
 }
@@ -2517,7 +2517,7 @@ button.nav-arrow {
   border: 1px solid var(--border);
 }
 
-/* ===== The table: a smaller disc in the middle, people sitting around it (2026-10-04) ===== */
+/* ===== The table: a smaller disc in the middle, people sitting around it ===== */
 .circle {
   background: none;
 }
@@ -2562,7 +2562,7 @@ button.nav-arrow {
   font-weight: 600;
 }
 
-/* ===== Split screen polish (2026-10-04, round 3) ===== */
+/* ===== Split screen polish ===== */
 /* Avatars back to their earlier size, in proportion with the labels and card */
 .circle-seat .avatar-lg {
   width: 4rem;
@@ -2615,7 +2615,7 @@ button.nav-arrow {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-/* ===== Round 4: names, controls fit, even spacing, drag & drop cues ===== */
+/* ===== Split screen: names, controls fit, even spacing, drag & drop cues ===== */
 .item-name-wrap {
   display: flex;
   flex-direction: column;
@@ -2699,7 +2699,7 @@ button.nav-arrow {
   font-weight: 700;
 }
 
-/* ===== The circle sits in the middle of the free space (2026-10-04) ===== */
+/* ===== The circle sits in the middle of the free space ===== */
 .assign-main {
   display: flex;
   flex-direction: column;
@@ -2718,7 +2718,7 @@ button.nav-arrow {
   margin: 0 auto;
 }
 
-/* ===== The circle: sized by width only, its box fitted to where people sit (2026-10-04) =====
+/* ===== The circle: sized by width only, its box fitted to where people sit =====
    --top-y / --bottom-y: how far the topmost / bottommost person is from the box's top / bottom
    (fractions of the width, set by PeopleCircle). Each side gets exactly the room a person's
    avatar and label need (--seat-room), whether that means trimming empty space or adding it. */
@@ -2768,7 +2768,7 @@ button.nav-arrow {
     background: var(--accent-soft);
   }
 }
-/* ===== Fit title → "Everything and who has it" on one screen (2026-10-04) ===== */
+/* ===== Fit title → "Everything and who has it" on one screen ===== */
 /* The circle shrinks a little on short windows (never below 17.5rem, where it still looks
    right), full size on phones. The box margins keep exactly the room the name labels need. */
 .circle,
@@ -2809,7 +2809,7 @@ button.nav-arrow {
   margin-top: 0;
   padding: 0.25rem;
 }
-/* ===== One circle size for 2, 3, 4… people (2026-10-04) =====
+/* ===== One circle size for 2, 3, 4… people =====
    Same width, same height, same spacing whatever the number of people. */
 .circle,
 .sheet-full .circle,
@@ -2839,7 +2839,7 @@ button.nav-arrow {
   overflow-wrap: break-word;
 }
 
-/* ===== Item card: "Name · $price" as one flowing line (2026-10-04) ===== */
+/* ===== Item card: "Name · $price" as one flowing line ===== */
 .item-line {
   display: block;
   text-align: center;
@@ -2882,7 +2882,7 @@ button.nav-arrow {
   border-color: #e6cf8f;
 }
 
-/* ===== 7+ people: the card on top, everyone in a grid below (2026-10-04) ===== */
+/* ===== 7+ people: the card on top, everyone in a grid below ===== */
 .people-board {
   display: flex;
   flex-direction: column;
@@ -2961,7 +2961,7 @@ button.nav-arrow {
   line-height: 1.15;
 }
 
-/* ===== Who has it: small avatars inside the tile, beside the grip (2026-10-04) ===== */
+/* ===== Who has it: small avatars inside the tile, beside the grip ===== */
 .card-holders {
   position: static;
   display: flex;
@@ -3036,7 +3036,7 @@ button.nav-arrow {
   margin-top: -0.3rem;
 }
 
-/* ===== The tile's color ring: one border, a segment per chosen person (2026-10-04) ===== */
+/* ===== The tile's color ring: one border, a segment per chosen person ===== */
 .item-card {
   --card-bg: var(--surface);
   background: var(--card-bg);
@@ -3053,7 +3053,7 @@ button.nav-arrow {
   box-shadow: 0 18px 40px rgba(80, 50, 25, 0.22);
 }
 
-/* ===== Split screen: roomier, people farther out, ring inside a white edge (2026-10-04) ===== */
+/* ===== Split screen: roomier, people farther out, ring inside a white edge ===== */
 /* The color ring sits just inside a thin white edge, so the colors stand out */
 .item-card.ringed {
   border: 3px solid transparent;
@@ -3127,7 +3127,7 @@ button.nav-arrow {
 }
 
 
-/* ===== The card's top line: grip · "1 of 9" (no progress bar) (2026-10-04) ===== */
+/* ===== The card's top line: grip · "1 of 9" (no progress bar) ===== */
 .item-card .card-top {
   display: flex;
   align-items: center;
@@ -3157,7 +3157,7 @@ button.nav-arrow {
   background-size: 6px 4px;
 }
 
-/* ===== Install the app (PWA) (2026-10-05) ===== */
+/* ===== Install the app (PWA) ===== */
 .install {
   position: relative;
 }
@@ -3228,7 +3228,7 @@ button.nav-arrow {
   animation: fade-in 0.15s ease both;
 }
 
-/* ===== Home: one "Subscriptions & bills" card, soonest first (2026-10-05) ===== */
+/* ===== Home: one "Subscriptions & bills" card, soonest first ===== */
 .section-title {
   margin-bottom: 0.55rem;
 }
@@ -3371,7 +3371,7 @@ button.nav-arrow {
   }
 }
 
-/* ===== Split: one list for any group size (2026-10-05) ===== */
+/* ===== Split: one list for any group size ===== */
 .split-list {
   display: flex;
   flex-direction: column;
@@ -3718,7 +3718,7 @@ button.nav-arrow {
   padding-right: 0.6rem;
 }
 
-/* ===== Bill screen: quieter (2026-10-05) ===== */
+/* ===== Bill screen: quieter ===== */
 .bill-status.ok {
   background: transparent;
   border: none;
@@ -3953,7 +3953,7 @@ label,
   font-weight: 600;
 }
 
-/* ===== Welcome: one centered column (2026-10-05) ===== */
+/* ===== Welcome: one centered column ===== */
 .welcome {
   max-width: 30rem;
   margin: 0 auto;

@@ -26,12 +26,12 @@ export interface ApiStackProps extends StackProps {
   readonly frontendUrls: string[];
   /**
    * Active X-Ray tracing. Off by default: X-Ray samples every request at ~1/s and can't be
-   * turned down, which dominated the abuse-case cost (decision R1). Enable while debugging.
+   * turned down, which dominated the abuse-case cost. Enable while debugging.
    * @default false
    */
   readonly enableTracing?: boolean;
   /**
-   * Daily upload limits (decision R2). `false` only for a testing deploy
+   * Daily upload limits. `false` only for a testing deploy
    * (`cdk deploy -c dailyLimits=off`); any normal deploy turns them back on.
    * @default true
    */
@@ -138,7 +138,7 @@ export class ApiStack extends Stack {
       httpApi: this.api,
       stageName: "$default",
       autoDeploy: true,
-      // Low on purpose (decision R1): plenty for one person, and it caps the worst-case bill
+      // Low on purpose: plenty for one person, and it caps the worst-case bill
       // if someone abuses an open-sign-up account (~$8/month at this limit).
       throttle: { rateLimit: 2, burstLimit: 5 },
       accessLogSettings: {

@@ -1,5 +1,5 @@
 """Turn an uploaded photo into the image(s) the model sees: PII blacked out, tiled if the print
-is small, each within the model's size limits (design: phase2c-image-tiles).
+is small, each within the model's size limits.
 
 Returns [] (text only) whenever that can't be done safely: no line positions to mask PII with,
 an unreadable file, or too many tiles.
@@ -29,7 +29,7 @@ def model_images(data: bytes, expense: ExpenseResult) -> list[bytes]:
         if image.width * image.height > MAX_PIXELS:
             return []
         # A photo stored sideways with an EXIF "rotate me" tag: Textract measures its boxes on
-        # the photo as viewed (checked 2026-10-04 with a real orientation-6 photo), so the
+        # the photo as viewed (checked with a real orientation-6 photo), so the
         # masks are drawn after applying the same rotation (exif_transpose below).
         if image.format == "JPEG" and image.width * image.height > DRAFT_ABOVE:
             image.draft("RGB", (image.width // 2, image.height // 2))

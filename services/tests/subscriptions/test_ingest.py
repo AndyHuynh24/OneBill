@@ -105,7 +105,7 @@ def test_daily_email_cap_bounds_cost_if_a_script_loops(table):
 
 
 def test_an_all_users_monthly_cap_bounds_cost_even_with_several_leaked_keys(table):
-    assert GLOBAL_MONTHLY_EMAIL_LIMIT == 300  # 2026-10-12, Andy (was 30 a day)
+    assert GLOBAL_MONTHLY_EMAIL_LIMIT == 300
     cap = 30  # a small cap keeps the test quick; same code path
     users = [f"user-{i}" for i in range(cap // DAILY_EMAIL_LIMIT + 1)]
     sent = sum(

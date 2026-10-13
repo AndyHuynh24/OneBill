@@ -12,7 +12,7 @@ from subscriptions.parse import SubscriptionParseError, read_subscription_email
 MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 RECEIVED = date(2026, 10, 1)
 NETFLIX_TEXT = (
-    "Thanks for your payment\n\nHi Andy,\n"
+    "Thanks for your payment\n\nHi Jamie,\n"
     "We charged your card ending in 4242 for your Standard plan.\n\n"
     "Amount | $15.49\n"
     "Billing period | Oct 1, 2026 – Oct 31, 2026\n"
@@ -300,12 +300,12 @@ def test_the_customers_address_block_is_masked_like_on_the_bill_path(bedrock):
     client.meta.events.register(
         "before-parameter-build.bedrock-runtime.Converse", lambda params, **_: sent.append(params)
     )
-    with_address = NETFLIX_TEXT + "\nShipping address\nAndy Huynh\n12 Elm St\nSan Jose CA 95112"
+    with_address = NETFLIX_TEXT + "\nShipping address\nJamie Rivera\n12 Elm St\nSan Jose CA 95112"
 
     read(bedrock, {"is_subscription_email": True, "subscriptions": [sub()]}, text=with_address)
 
     text = sent[0]["messages"][0]["content"][0]["text"]
-    assert "Andy Huynh" not in text  # the block's name line ("Hi Andy" greetings aren't caught)
+    assert "Jamie Rivera" not in text  # the block's name line ("Hi Jamie" greetings aren't caught)
     assert "Elm" not in text
     assert "95112" not in text
 

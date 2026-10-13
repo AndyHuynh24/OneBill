@@ -1,4 +1,4 @@
-"""POST /ingest/email: emails sent by the user's Gmail script (design: phase2b-subscriptions S1/S2).
+"""POST /ingest/email: emails sent by the user's Gmail script.
 
 This is the API's one route without the Cognito JWT authorizer, because Apps Script can't sign
 in. The caller is identified only by the ingest key in the Authorization header (looked up by

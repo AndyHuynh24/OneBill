@@ -8,7 +8,7 @@ NETFLIX = """<!DOCTYPE html><html><head><title>Your receipt</title>
 <div style="display:none;max-height:0">Your membership renews soon &#8199;&zwnj;</div>
 <table role="presentation"><tr><td><img src="https://cdn/logo.png" alt="Netflix"></td></tr></table>
 <h1>Thanks for your payment</h1>
-<p>Hi Andy,<br>We charged your card for your <b>Standard</b> plan.</p>
+<p>Hi Jamie,<br>We charged your card for your <b>Standard</b> plan.</p>
 <table>
   <tr><td>Amount</td><td>$15.49</td></tr>
   <tr><td>Billing period</td><td>Oct 1, 2026 &ndash; Oct 31, 2026</td></tr>
@@ -22,7 +22,7 @@ def test_keeps_the_text_a_person_reads_in_reading_order():
     text = html_to_text(NETFLIX)
 
     assert "Thanks for your payment" in text
-    assert "Hi Andy,\nWe charged your card for your Standard plan." in text
+    assert "Hi Jamie,\nWe charged your card for your Standard plan." in text
     assert "Amount | $15.49" in text  # table rows stay on one line
     assert "Billing period | Oct 1, 2026 – Oct 31, 2026" in text  # entities decoded
     assert "Next billing date | November 1, 2026" in text

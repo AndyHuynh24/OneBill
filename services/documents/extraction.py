@@ -168,7 +168,7 @@ class ExtractionError(Exception):
     """The model's output couldn't be used (no tool call, or invalid shape)."""
 
 
-# With a photo (phase 2c): the image shows layout, the OCR text gives the exact digits.
+# With a photo: the image shows layout, the OCR text gives the exact digits.
 _OCR_INTRO = SYSTEM_PROMPT[
     SYSTEM_PROMPT.index("You receive one document") : SYSTEM_PROMPT.index("Call the ")
 ]
@@ -276,7 +276,7 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
     lines: list[Line] = []
     warnings: list[str] = []
     for index, raw in enumerate(raw_lines, start=1):
-        # Never drop a line the model read (Andy, 2026-10-03: "only flag, never remove"): a
+        # Never drop a line the model read (only flag, never remove): a
         # line with an unclear amount or kind is kept and flagged, so it stays on the bill.
         if not isinstance(raw, dict):
             warnings.append(f"Line {index} couldn't be read at all.")  # nothing to keep
@@ -305,7 +305,7 @@ def parse_output(tool_input: dict[str, Any]) -> ExtractedDocument:
     deadlines: list[Deadline] = []
     for raw in tool_input.get("deadlines") or []:
         if isinstance(raw, dict) and raw.get("type") == "return_by":
-            continue  # return windows aren't tracked (removed 2026-10-02): dropped quietly
+            continue  # return windows aren't tracked: dropped quietly
         deadline = _deadline(raw)
         if deadline:
             deadlines.append(deadline)

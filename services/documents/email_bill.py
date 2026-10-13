@@ -1,4 +1,4 @@
-"""A labelled email read like a scanned receipt or bill (decision A, 2026-10-02).
+"""A labelled email read like a scanned receipt or bill.
 
 Same reading and checks as a scan (the model classifies lines, code does the math, deadlines
 need printed evidence), minus Textract: the email is already text. It's saved as a DOC# with

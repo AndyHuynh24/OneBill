@@ -17,7 +17,7 @@ from shared import usage as app_counts
 from shared.ids import is_valid_id, new_id
 
 # OCR pages per month across all users (photos count 1, PDFs their page count): the only shared
-# page limit (2026-10-12, Andy; was 30 a day). $0.01 a page, so at most ~$6 of Textract a month.
+# page limit. $0.01 a page, so at most ~$6 of Textract a month.
 MONTHLY_PAGE_BUDGET = 600
 USAGE_TTL_DAYS = 7
 MONTHLY_USAGE_TTL_DAYS = 40

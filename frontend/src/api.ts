@@ -45,7 +45,7 @@ export interface BillMath {
   taxIncluded: boolean;
 }
 
-/** How sure the reading is, from evidence (OCR clarity, amounts found, math), phase 2d. */
+/** How sure the reading is, from evidence (OCR clarity, amounts found, math). */
 export interface Confidence {
   level: "confident" | "mostly" | "check" | "confirmed";
   /** suggestedCents: one digit off; this amount would make the bill add up. */

@@ -170,11 +170,11 @@ def test_mark_failed_records_a_friendly_reason(table):
     assert item["failureReason"] == "We couldn't read this document."
 
 
-# --- global daily page budget (decision R2) -----------------------------------------------------
+# --- shared monthly page budget -----------------------------------------------------------------
 
 
 def test_page_budget_is_monthly_and_allows_pages_up_to_the_limit(table):
-    assert store.MONTHLY_PAGE_BUDGET == 600  # 2026-10-12, Andy
+    assert store.MONTHLY_PAGE_BUDGET == 600
     assert store.consume_page_budget(table, 20, NOW, limit=30) is True
     assert store.consume_page_budget(table, 10, NOW, limit=30) is True
     assert store.consume_page_budget(table, 1, NOW, limit=30) is False

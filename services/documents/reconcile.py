@@ -89,7 +89,7 @@ class Reconciliation:
     # printed tax is the part of it that's tax. Splitting must not add the tax again.
     tax_included: bool = False
     overage_cents: int = 0  # computed − printed total, when the total check fails
-    # The two checks as numbers, for showing the user (phase 2d): items → subtotal, and
+    # The two checks as numbers, for showing the user: items → subtotal, and
     # subtotal + charges → total. Plain ints/bools/None.
     math: dict[str, Any] = field(default_factory=dict)
 

@@ -1,4 +1,4 @@
-"""The ingest key the Gmail script uses instead of a Cognito sign-in (design S2).
+"""The ingest key the Gmail script uses instead of a Cognito sign-in.
 
 - A user creates it in the app (signed in, `owners` only) and sees it once.
 - Only its SHA-256 hash is stored: `INGESTKEY#<hash> / KEY → userId`, plus a pointer
@@ -20,7 +20,7 @@ from shared import usage as app_counts
 KEY_PREFIX = "obk_"
 OWNERS_GROUP = "owners"  # Connect Gmail is owner-only (emails cost money; inboxes are personal)
 DAILY_EMAIL_LIMIT = 10  # per user and day (cost review): labelled by hand, so plenty
-# Across all users, per month (2026-10-12, Andy; was 30 a day): ~0.4¢ an email, so at most ~$1.20.
+# Across all users, per month: ~0.4¢ an email, so at most ~$1.20.
 GLOBAL_MONTHLY_EMAIL_LIMIT = 300
 KEY_LIFETIME = timedelta(days=365)  # a removed user's key stops working within a year
 # Every labelled request, before it's remembered: bounds stored markers even for emails that

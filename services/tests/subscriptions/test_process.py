@@ -178,7 +178,6 @@ def test_a_payload_without_the_labelled_flag_counts_as_unlabelled(table, bedrock
 
 
 def test_a_labelled_subscription_email_is_a_bill_and_a_subscription(table, bedrock):
-    """Andy: 'the label can be subscription too'."""
     client, stub = bedrock
     expect_netflix(stub)
 

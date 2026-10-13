@@ -1,4 +1,4 @@
-"""Cut a photo into tiles the model can read at full sharpness (design: phase2c-image-tiles).
+"""Cut a photo into tiles the model can read at full sharpness.
 
 The model shrinks any image over MAX_EDGE px or MAX_PIXELS to fit, which blurs small print in a
 tall screenshot. When the typical OCR line would come out smaller than MIN_LINE_PX, the photo is

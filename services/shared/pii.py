@@ -1,7 +1,7 @@
 """Mask personal data in document text before it goes to an LLM or a log.
 
-What counts as PII here (Phase 1, decision D8): card numbers (full or masked tails), long
-account/reference numbers, and email addresses. Phase 2c adds the customer's name and address
+What counts as PII here: card numbers (full or masked tails), long
+account/reference numbers, and email addresses. Also the customer's name and address
 (`address_lines`: delivery/billing blocks, postal-code lines, Textract's customer fields). Prices,
 dates, item names, and the store's name stay, because extraction needs them.
 """
