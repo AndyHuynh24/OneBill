@@ -171,6 +171,7 @@ describe("ApiStack — documents API", () => {
     "PATCH /documents/{docId}",
     "GET /obligations",
     "PUT /documents/{docId}/split",
+    "PUT /documents/{docId}/split/paid",
     "GET /subscriptions",
     "POST /subscriptions",
     "PATCH /subscriptions/{key}",

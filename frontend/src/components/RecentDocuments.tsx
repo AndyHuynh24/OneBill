@@ -49,6 +49,13 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
               <span className="doc-meta">
                 {doc.documentDate ? formatDate(doc.documentDate) : ""}
                 {doc.totalCents != null ? ` · ${formatCents(doc.totalCents, doc.currency ?? "USD")}` : ""}
+                {/* On the meta line, not a chip: a "Check this" chip can share the row. */}
+                {!!doc.owedCents && (
+                  <>
+                    {" · "}
+                    <span className="owed">Owed {formatCents(doc.owedCents, doc.currency ?? "USD")}</span>
+                  </>
+                )}
               </span>
               {/* Ready is the normal state: only what needs attention shows (the title already
                   says "Reading…" while a scan is read). */}

@@ -63,6 +63,23 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
     },
   });
 
+  // A tick shows at once; if it can't be saved, it's undone and the reason shown.
+  const markPaid = useMutation({
+    mutationFn: ({ member, paid }: { member: string; paid: boolean }) =>
+      api.setSplitPaid(doc.docId, { member, paid, expectedVersion: saved?.version ?? 0 }),
+    onMutate: ({ member, paid }) => {
+      const before = saved;
+      setSaved((s) => s && { ...s, paid: withPaid(s.paid, member, paid) });
+      return { before };
+    },
+    onError: (_err, _vars, context) => setSaved(context?.before),
+    onSuccess: (split) => {
+      setSaved(split);
+      queryClient.invalidateQueries({ queryKey: ["document", doc.docId] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+  });
+
   function choosePeople(chosen: Person[]) {
     // Only people added at the end: everyone keeps their seat, so earlier choices still hold.
     // Anything else (removed or reordered): earlier choices may point at the wrong people.
@@ -117,14 +134,15 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
           doc={doc}
           onEdit={() => setStep("assign")}
           onAddPeople={() => setStep("people")}
+          onTogglePaid={(member, paid) => markPaid.mutate({ member, paid })}
           onDone={onClose}
         />
       )}
 
       {save.isPending && <p className="muted">Saving…</p>}
-      {save.error && (
+      {(save.error ?? markPaid.error) && (
         <p role="alert" className="error">
-          {save.error.message}
+          {(save.error ?? markPaid.error)?.message}
         </p>
       )}
       {step === "people" && (
@@ -164,4 +182,11 @@ function toCharge(pick: Picks[string], count: number): ChargeChoice {
   if (pick.length === count) return { mode: "even" };
   if (pick.length === 1) return { mode: "person", member: pick[0] };
   return { mode: "people", members: pick };
+}
+
+function withPaid(paid: Record<string, string> | undefined, member: string, on: boolean): Record<string, string> {
+  const next = { ...paid };
+  if (on) next[member] ??= new Date().toISOString();
+  else delete next[member];
+  return next;
 }

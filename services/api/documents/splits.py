@@ -97,10 +97,84 @@ def save_split(
         "receiptTotalCents": int(doc["totalCents"]),
         "matchesReceipt": matches,
         "taxIncluded": tax_included,
+        # member id → when they paid you back; kept for people whose share didn't change
+        "paid": _kept_paid(doc.get("split"), members, shares),
         "updatedAt": now.isoformat(),
     }
     _store(table, user_id, doc_id, split, expected, seen)
     return split
+
+
+def set_paid(
+    table: Any, user_id: str, doc_id: str, body: dict[str, Any], now: datetime
+) -> dict[str, Any]:
+    """Tick (or untick) one person as having paid you back. Not an edit of the split: the
+    version and the document's updatedAt stay, so an open split screen isn't interrupted."""
+    member, paid, expected = body.get("member"), body.get("paid"), body.get("expectedVersion")
+    if not isinstance(member, str) or not isinstance(paid, bool):
+        raise BadRequest("member (an id) and paid (true or false) are required.")
+    if not isinstance(expected, int) or isinstance(expected, bool):
+        raise BadRequest("expectedVersion (the split you're looking at) is required.")
+    split = get_document(table, user_id, doc_id, now).get("split")  # NotFound for others
+    if not split:
+        raise BadRequest("This bill isn't split yet.")
+    person = next((m for m in split["members"] if m["id"] == member), None)
+    if person is None:
+        raise BadRequest("That person isn't in this split.")
+    if person.get("self"):
+        raise BadRequest("You don't need to pay yourself back.")
+
+    marks = dict(split.get("paid") or {})
+    names = {"#split": "split", "#version": "version", "#paid": "paid"}
+    values: dict[str, Any] = {":v": expected}
+    if "paid" not in split:  # saved before ticks existed: create the map
+        if not paid:
+            return split | {"paid": marks}
+        update = "SET #split.#paid = :marks"
+        condition = "#split.#version = :v AND attribute_not_exists(#split.#paid)"
+        values[":marks"] = {member: now.isoformat()}
+    elif paid:
+        update = "SET #split.#paid.#m = if_not_exists(#split.#paid.#m, :at)"
+        condition = "#split.#version = :v AND attribute_exists(#split.#paid)"
+        names["#m"], values[":at"] = member, now.isoformat()
+    else:
+        update = "REMOVE #split.#paid.#m"
+        condition = "#split.#version = :v AND attribute_exists(#split.#paid)"
+        names["#m"] = member
+    try:
+        table.update_item(
+            Key={"PK": f"USER#{user_id}", "SK": f"DOC#{doc_id}"},
+            UpdateExpression=update,
+            ConditionExpression=condition,
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=values,
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise Conflict("This split changed. Reload and try again.") from err
+        raise
+    if paid:
+        marks.setdefault(member, now.isoformat())
+    else:
+        marks.pop(member, None)
+    return split | {"paid": marks}
+
+
+def _kept_paid(
+    old: dict[str, Any] | None, members: list[dict[str, Any]], shares: list[Any]
+) -> dict[str, str]:
+    """Ticks from the previous split, for the same person (by name) owing the same amount."""
+    if not old or not old.get("paid"):
+        return {}
+    old_names = {m["id"]: m["name"].casefold() for m in old.get("members", [])}
+    old_totals = {old_names.get(s["member"]): int(s["totalCents"]) for s in old.get("shares", [])}
+    paid_at = {old_names.get(mid): at for mid, at in old["paid"].items()}
+    new_ids = {m["id"]: m["name"].casefold() for m in members if not m["self"]}
+    return {
+        s.member: paid_at[name]
+        for s in shares
+        if (name := new_ids.get(s.member)) in paid_at and old_totals.get(name) == s.total_cents
+    }
 
 
 def _members(raw: Any) -> list[dict[str, Any]]:

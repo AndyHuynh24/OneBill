@@ -446,7 +446,21 @@ _SUMMARY_ATTRS = (
 
 
 def _summary(item: dict[str, Any]) -> dict[str, Any]:
-    return _plain({k: item[k] for k in _SUMMARY_ATTRS if k in item})
+    summary = _plain({k: item[k] for k in _SUMMARY_ATTRS if k in item})
+    if item.get("split"):
+        summary["owedCents"] = _owed_cents(item["split"])
+    return summary
+
+
+def _owed_cents(split: dict[str, Any]) -> int:
+    """What the others on a split still owe you: their shares, minus anyone ticked as paid."""
+    others = {m["id"] for m in split.get("members", []) if not m.get("self")}
+    paid = split.get("paid") or {}
+    return sum(
+        int(s["totalCents"])
+        for s in split.get("shares", [])
+        if s["member"] in others and s["member"] not in paid
+    )
 
 
 def review_document(

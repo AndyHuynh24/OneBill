@@ -89,6 +89,7 @@ export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
     deleteObligation: vi.fn().mockResolvedValue(undefined),
     deleteDocument: vi.fn().mockResolvedValue(undefined),
     saveSplit: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0 }),
+    setSplitPaid: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0, paid: {} }),
     ...overrides,
   };
 }

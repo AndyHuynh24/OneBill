@@ -60,4 +60,68 @@ describe("SplitSummary", () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("THAI BASIL"));
     expect(await screen.findByText(/copied/i)).toBeInTheDocument();
   });
+
+  it("lets you tick each other person as paid, never yourself", async () => {
+    const onTogglePaid = vi.fn();
+    render(<SplitSummary split={SPLIT} doc={DINNER} onEdit={vi.fn()} onDone={vi.fn()} onTogglePaid={onTogglePaid} />);
+
+    expect(screen.queryByRole("button", { name: /mark me as paid/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Mark Bao as paid" }));
+
+    expect(onTogglePaid).toHaveBeenCalledWith("m1", true);
+  });
+
+  it("shows who has paid and how much is paid back", () => {
+    const three: Split = {
+      ...SPLIT,
+      members: [...SPLIT.members, { id: "m2", name: "Linh", self: false, color: 2 }],
+      shares: [...SPLIT.shares, { member: "m2", totalCents: 2105, itemsCents: 2000, extrasCents: 105, rows: [] }],
+      paid: { m1: "2026-10-14T19:00:00Z" },
+    };
+    render(<SplitSummary split={three} doc={DINNER} onEdit={vi.fn()} onDone={vi.fn()} onTogglePaid={vi.fn()} />);
+
+    expect(screen.getByRole("listitem", { name: /bao/i })).toHaveTextContent("Paid");
+    expect(screen.getByRole("button", { name: "Mark Bao as not paid" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("listitem", { name: /linh/i })).not.toHaveTextContent("Paid");
+    expect(screen.getByText("$15.79 of $36.84 paid back")).toBeInTheDocument();
+  });
+
+  it("says so when everyone has paid", () => {
+    render(
+      <SplitSummary
+        split={{ ...SPLIT, paid: { m1: "2026-10-14T19:00:00Z" } }}
+        doc={DINNER}
+        onEdit={vi.fn()}
+        onDone={vi.fn()}
+        onTogglePaid={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/everyone has paid/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /remind/i })).not.toBeInTheDocument();
+  });
+
+  it("Remind shares just that person's items and amount", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, share });
+    render(<SplitSummary split={SPLIT} doc={DINNER} onEdit={vi.fn()} onDone={vi.fn()} onTogglePaid={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Remind Bao" }));
+
+    const text: string = share.mock.calls[0][0].text;
+    expect(text).toContain("Bao: $15.79\n- PAD THAI");
+    expect(text).not.toContain("Me:");
+  });
+
+  it("Share leaves out people who have paid", async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, share });
+    render(
+      <SplitSummary split={{ ...SPLIT, paid: { m1: "x" } }} doc={DINNER} onEdit={vi.fn()} onDone={vi.fn()} />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^share$/i }));
+
+    expect(share.mock.calls[0][0].text).not.toContain("Bao:");
+  });
 });

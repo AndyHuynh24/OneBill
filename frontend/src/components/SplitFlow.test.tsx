@@ -110,4 +110,27 @@ describe("SplitFlow", () => {
 
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("ticking someone as paid shows at once and is saved against this split", async () => {
+    const api = fakeApi({ setSplitPaid: vi.fn().mockResolvedValue({ ...SAVED, paid: { m1: "2026-10-14T19:00:00Z" } }) });
+    renderFlow(api, { ...DINNER, split: SAVED });
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark Bao as paid" }));
+
+    expect(screen.getByRole("listitem", { name: /bao/i })).toHaveTextContent("Paid");
+    expect(api.setSplitPaid).toHaveBeenCalledWith(DINNER.docId, { member: "m1", paid: true, expectedVersion: 1 });
+    expect(await screen.findByText(/everyone has paid/i)).toBeInTheDocument();
+  });
+
+  it("a tick that can't be saved is undone, with the reason", async () => {
+    const api = fakeApi({
+      setSplitPaid: vi.fn().mockRejectedValue(new ApiError("This split changed. Reload and try again.", 409)),
+    });
+    renderFlow(api, { ...DINNER, split: SAVED });
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark Bao as paid" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This split changed");
+    expect(screen.getByRole("listitem", { name: /bao/i })).not.toHaveTextContent("Paid");
+  });
 });

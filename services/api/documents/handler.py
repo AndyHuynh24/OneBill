@@ -175,6 +175,18 @@ def save_split(doc_id: str) -> dict[str, Any]:
     return split
 
 
+@app.put("/documents/<doc_id>/split/paid")
+@tracer.capture_method
+def set_split_paid(doc_id: str) -> dict[str, Any]:
+    body = app.current_event.json_body or {}
+    if not isinstance(body, dict):
+        raise logic.BadRequest("Body must be a JSON object.")
+    split = splits.set_paid(table, _user_id(), doc_id, body, now=datetime.now(UTC))
+    # Counts only: names stay out of logs.
+    logger.info("split_paid_marked", extra={"docId": doc_id, "paid": len(split["paid"])})
+    return split
+
+
 @app.get("/subscriptions")
 @tracer.capture_method
 def list_subscriptions() -> dict[str, Any]:

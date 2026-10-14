@@ -181,6 +181,11 @@ export class ApiStack extends Stack {
       methods: [apigwv2.HttpMethod.PUT],
       integration: documents,
     });
+    this.api.addRoutes({
+      path: "/documents/{docId}/split/paid",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration: documents,
+    });
 
 
     // Subscriptions and the Gmail connection (signed in): same Lambda, no new permissions.

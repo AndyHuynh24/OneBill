@@ -358,6 +358,34 @@ def test_list_documents_newest_first_and_only_mine(table, s3):
     assert all(d["status"] == "pending_upload" for d in docs)
 
 
+def test_list_shows_what_is_still_owed_on_a_split_bill(table):
+    split = {
+        "version": 1,
+        "members": [
+            {"id": "m0", "name": "Me", "self": True},
+            {"id": "m1", "name": "Bao", "self": False},
+            {"id": "m2", "name": "Linh", "self": False},
+        ],
+        "shares": [
+            {"member": "m0", "totalCents": 1000},
+            {"member": "m1", "totalCents": 2105},
+            {"member": "m2", "totalCents": 1450},
+        ],
+        "paid": {"m2": "2026-09-30T20:00:00+00:00"},
+    }
+    base = {"PK": "USER#user-a", "status": "ready", "totalCents": 4555}
+    table.put_item(Item=base | {"SK": "DOC#a", "docId": "a", "split": split})
+    table.put_item(Item=base | {"SK": "DOC#b", "docId": "b", "split": split | {"paid": {}}})
+    table.put_item(Item=base | {"SK": "DOC#c", "docId": "c"})  # not split
+    everyone = split | {"paid": {"m1": "x", "m2": "x"}}
+    table.put_item(Item=base | {"SK": "DOC#d", "docId": "d", "split": everyone})
+
+    owed = {d["docId"]: d.get("owedCents") for d in list_documents(table, "user-a", now=NOW)}
+
+    assert owed == {"a": 2105, "b": 3555, "c": None, "d": 0}  # your own share is never owed
+    assert all("split" not in d for d in list_documents(table, "user-a", now=NOW))
+
+
 def test_get_document_returns_my_document(table, s3):
     doc_id = upload(table, s3)["docId"]
 

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from api.documents.logic import BadRequest, Conflict, NotFound, review_document
-from api.documents.splits import save_split
+from api.documents.splits import save_split, set_paid
 
 NOW = datetime(2026, 10, 1, 19, 0, tzinfo=UTC)
 DOC = "1790000000000aaaaaaaa"
@@ -235,3 +235,168 @@ def test_a_charge_can_be_shared_by_some_people_like_an_item(table):
     assert split["charges"]["6"] == {"mode": "people", "members": [ids[1], ids[2]]}
     me = next(s for s in split["shares"] if s["member"] == ids[0])
     assert me["extrasCents"] < 710  # Me doesn't share the tip
+
+
+# --- PUT /documents/{id}/split/paid ---------------------------------------------------------------
+
+LATER = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
+
+
+def split_once(table):
+    put_doc(table)
+    split = save_split(table, "user-a", DOC, body(), NOW)
+    return {m["name"]: m["id"] for m in split["members"]}
+
+
+def stored_split(table, user="user-a"):
+    return table.get_item(Key={"PK": f"USER#{user}", "SK": f"DOC#{DOC}"})["Item"]["split"]
+
+
+def tick(table, member, paid=True, version=1, user="user-a", when=LATER):
+    return set_paid(
+        table, user, DOC, {"member": member, "paid": paid, "expectedVersion": version}, when
+    )
+
+
+def test_a_new_split_has_nobody_paid(table):
+    put_doc(table)
+
+    assert save_split(table, "user-a", DOC, body(), NOW)["paid"] == {}
+
+
+def test_marking_someone_paid_records_when(table):
+    ids = split_once(table)
+
+    split = tick(table, ids["Bao"])
+
+    assert split["paid"] == {ids["Bao"]: LATER.isoformat()}
+    assert stored_split(table)["paid"] == {ids["Bao"]: LATER.isoformat()}
+    assert int(stored_split(table)["version"]) == 1  # a tick isn't an edit of the split
+
+
+def test_ticking_twice_keeps_the_first_time(table):
+    ids = split_once(table)
+    tick(table, ids["Bao"])
+
+    split = tick(table, ids["Bao"], when=datetime(2026, 10, 5, tzinfo=UTC))
+
+    assert split["paid"][ids["Bao"]] == LATER.isoformat()
+
+
+def test_unticking_removes_the_mark(table):
+    ids = split_once(table)
+    tick(table, ids["Bao"])
+    tick(table, ids["Linh"])
+
+    split = tick(table, ids["Bao"], paid=False)
+
+    assert split["paid"] == {ids["Linh"]: LATER.isoformat()}
+    assert set(stored_split(table)["paid"]) == {ids["Linh"]}
+
+
+def test_a_split_saved_before_ticks_existed_can_be_ticked(table):
+    ids = split_once(table)
+    table.update_item(
+        Key={"PK": "USER#user-a", "SK": f"DOC#{DOC}"},
+        UpdateExpression="REMOVE #s.#p",
+        ExpressionAttributeNames={"#s": "split", "#p": "paid"},
+    )
+
+    assert tick(table, ids["Linh"])["paid"] == {ids["Linh"]: LATER.isoformat()}
+    assert tick(table, ids["Bao"], paid=False)["paid"] == {ids["Linh"]: LATER.isoformat()}
+
+
+def test_the_bill_itself_doesnt_change(table):
+    ids = split_once(table)
+    before = table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{DOC}"})["Item"]["updatedAt"]
+
+    tick(table, ids["Bao"])
+
+    item = table.get_item(Key={"PK": "USER#user-a", "SK": f"DOC#{DOC}"})["Item"]
+    assert item["updatedAt"] == before  # an open split screen isn't told the bill changed
+
+
+def test_you_cant_mark_yourself_paid(table):
+    ids = split_once(table)
+
+    with pytest.raises(BadRequest, match="yourself"):
+        tick(table, ids["Me"])
+
+
+def test_only_people_in_the_split_can_be_marked(table):
+    split_once(table)
+
+    with pytest.raises(BadRequest, match="isn't in this split"):
+        tick(table, "m9")
+
+
+def test_a_tick_on_an_older_version_of_the_split_is_refused(table):
+    ids = split_once(table)
+
+    with pytest.raises(Conflict):
+        tick(table, ids["Bao"], version=2)
+
+
+def test_a_bill_that_isnt_split_cant_be_marked(table):
+    put_doc(table)
+
+    with pytest.raises(BadRequest, match="isn't split"):
+        tick(table, "m1")
+
+
+def test_someone_elses_bill_is_not_found(table):
+    ids = split_once(table)
+
+    with pytest.raises(NotFound):
+        tick(table, ids["Bao"], user="user-b")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"member": "m1", "paid": "yes", "expectedVersion": 1},
+        {"member": 1, "paid": True, "expectedVersion": 1},
+        {"member": "m1", "paid": True},
+        {"member": "m1", "paid": True, "expectedVersion": True},
+    ],
+)
+def test_a_malformed_tick_is_refused(table, payload):
+    split_once(table)
+
+    with pytest.raises(BadRequest):
+        set_paid(table, "user-a", DOC, payload, LATER)
+
+
+def test_splitting_again_keeps_ticks_only_for_unchanged_shares(table):
+    ids = split_once(table)
+    tick(table, ids["Bao"])
+    tick(table, ids["Linh"])
+
+    resplit = {"expectedUpdatedAt": NOW.isoformat()}  # saving a split updates the bill
+    same = save_split(table, "user-a", DOC, body(expectedVersion=1, **resplit), NOW)
+    assert set(same["paid"]) == {ids["Bao"], ids["Linh"]}  # same shares: both kept
+
+    # Now I share Linh's curry: Bao's share is unchanged, Linh's goes down.
+    changed = body(
+        assignments={"1": [1], "2": [2, 0], "3": [0, 1, 2]}, expectedVersion=2, **resplit
+    )
+    split = save_split(table, "user-a", DOC, changed, NOW)
+
+    assert split["paid"] == {ids["Bao"]: LATER.isoformat()}  # Linh now owes a different amount
+
+
+def test_ticks_follow_the_person_when_seats_move(table):
+    ids = split_once(table)
+    tick(table, ids["Linh"])
+
+    # Linh moves to seat 1 (a new member id) with the same items, so her share is unchanged.
+    reordered = body(
+        members=[{"name": "Me", "self": True}, {"name": "Linh"}, {"name": "Bao"}],
+        assignments={"1": [2], "2": [1], "3": [0, 1, 2]},
+        expectedVersion=1,
+        expectedUpdatedAt=NOW.isoformat(),
+    )
+    split = save_split(table, "user-a", DOC, reordered, NOW)
+
+    linh = next(m["id"] for m in split["members"] if m["name"] == "Linh")
+    assert split["paid"] == {linh: LATER.isoformat()}

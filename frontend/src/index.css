@@ -317,6 +317,11 @@ button.danger {
   color: var(--error);
 }
 
+.doc-meta .owed {
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
 .chip-busy {
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -1245,6 +1250,52 @@ select {
 .share-total {
   font-size: 1.1rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Paid back: a round check on the right; a paid row's amount is dimmed. */
+.share-amount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.share-paid .share-total {
+  color: var(--muted);
+}
+
+.paid-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--success);
+}
+
+.paid-toggle {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--accent-text);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.paid-toggle[aria-pressed="true"] {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.share-detail .remind {
+  align-self: flex-start;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.paid-progress {
+  font-weight: 600;
+  color: var(--success);
 }
 
 .split-check {

@@ -64,18 +64,21 @@ export function canSplit(lines: DocumentLine[] | undefined): boolean {
 /**
  * The message for the share sheet: a header, then each person with one line per item
  * ("- PAD THAI $12.00", "- SPRING ROLLS $6.00 (split 3 ways)") and their tax/tip/fees.
+ * People already marked as paid are left out; `only` limits it to one person (a reminder).
  */
 export function shareText(
   split: Split,
   lines: DocumentLine[],
   meta: { vendor?: string | null; documentDate?: string | null; currency?: string | null },
+  only?: string,
 ): string {
   const currency = meta.currency ?? "USD";
   const byRow = new Map(lines.map((l) => [l.row, l]));
   const header = [meta.vendor, meta.documentDate && formatDate(meta.documentDate), formatCents(split.totalCents, currency)]
     .filter(Boolean)
     .join(" · ");
-  const people = split.shares.map((share) => {
+  const shares = split.shares.filter((s) => (only ? s.member === only : !split.paid?.[s.member]));
+  const people = shares.map((share) => {
     const member = split.members.find((m) => m.id === share.member);
     const items = share.rows.flatMap((row) => {
       const line = byRow.get(row);
