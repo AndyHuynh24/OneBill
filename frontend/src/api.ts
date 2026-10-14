@@ -67,6 +67,8 @@ export interface DocumentSummary {
   reviewOutcome?: "accepted" | "corrected";
   /** "email": a labelled email read like a scan. */
   source?: "email";
+  /** On a split bill: what the others still owe you (0 once everyone has paid). */
+  owedCents?: number;
 }
 
 export interface DocumentLine {
@@ -143,6 +145,8 @@ export interface Split {
   matchesReceipt?: boolean;
   taxIncluded?: boolean;
   updatedAt?: string;
+  /** Member id → when you marked them as paid. Never includes you. */
+  paid?: Record<string, string>;
 }
 
 export type BillingCycle = "weekly" | "monthly" | "quarterly" | "yearly" | "other";
@@ -288,6 +292,8 @@ export interface OneBillApi {
   /** Ask the API for an upload ticket, then send the file straight to S3. */
   uploadDocument(file: File): Promise<string>;
   saveSplit(docId: string, request: SplitRequest): Promise<Split>;
+  /** Tick (or untick) one person as having paid you back; refused (409) if the split changed. */
+  setSplitPaid(docId: string, request: { member: string; paid: boolean; expectedVersion: number }): Promise<Split>;
   listSubscriptions(): Promise<{ subscriptions: Subscription[]; connection: GmailConnection }>;
   cancelSubscription(serviceKey: string): Promise<Subscription>;
   editSubscription(serviceKey: string, fields: SubscriptionEdit): Promise<Subscription>;
@@ -356,6 +362,8 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
       await call("DELETE", `documents/${encodeURIComponent(docId)}`);
     },
     saveSplit: (docId, request) => call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split`, request),
+    setSplitPaid: (docId, request) =>
+      call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split/paid`, request),
     async uploadDocument(file) {
       const ticket = await call<UploadTicket>("POST", "documents", {
         filename: file.name,
