@@ -193,6 +193,17 @@ def test_a_labelled_subscription_email_is_a_bill_and_a_subscription(table, bedro
     )
 
 
+def test_each_model_read_adds_to_the_app_ai_totals(table, bedrock):
+    client, stub = bedrock
+    expect_netflix(stub)  # a subscription read, then a bill read
+
+    process_email(table, client, MODEL, "user-a", EMAIL, NOW)
+
+    item = table.get_item(Key={"PK": "GLOBAL", "SK": "USAGE#2026-10"})["Item"]
+    assert (item["aiReads"], item["inputTokens"], item["outputTokens"]) == (2, 2, 2)
+    assert "costMicroUsd" in documents(table)[0]  # kept with the bill, like a scan
+
+
 def test_a_labelled_bill_is_only_a_bill(table, bedrock):
     client, stub = bedrock
     expect_receipt(stub, BILL)

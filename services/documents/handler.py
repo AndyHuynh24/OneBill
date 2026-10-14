@@ -30,6 +30,7 @@ from documents.textract import (
     start_async,
 )
 from documents.validate import validate
+from shared import llm_cost
 
 logger = Logger()
 tracer = Tracer()
@@ -215,15 +216,19 @@ def _process(
 ) -> None:
     outcome = extract(bedrock, MODEL_ID, expense, images or [])
     result = validate(outcome, expense)
+    now = _now()
     meta = {
         "attempts": outcome.attempts,
         "modelId": outcome.model_id,
         "promptVersion": outcome.prompt_version,
         "inputTokens": outcome.usage["inputTokens"],
         "outputTokens": outcome.usage["outputTokens"],
+        **llm_cost.record(
+            table, now, outcome.model_id, outcome.usage, outcome.model_ms, expense.pages
+        ),
     }
     save_started = time.monotonic()
-    store.save_result(table, user_id, doc_id, result, expense.pages, meta, _now())
+    store.save_result(table, user_id, doc_id, result, expense.pages, meta, now)
     timings |= {"model": outcome.model_ms, "save": _ms(save_started), "handler": _ms(started)}
     # Log outcomes and counts only: never document text or extracted fields.
     logger.info(

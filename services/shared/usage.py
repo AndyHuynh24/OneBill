@@ -15,18 +15,32 @@ logger = logging.getLogger(__name__)
 
 def count(table: Any, period: str, name: str, amount: int, now: datetime, ttl_days: int) -> None:
     """Add `amount` to GLOBAL's `name` for `period` (a day or a month); best effort."""
+    count_many(table, period, {name: amount}, now, ttl_days)
+
+
+def count_many(
+    table: Any, period: str, amounts: dict[str, int], now: datetime, ttl_days: int
+) -> None:
+    """Add several counts to GLOBAL's `period` item in one write; best effort."""
+    names = {f"#n{i}": name for i, name in enumerate(amounts)}
+    values = {f":n{i}": amount for i, amount in enumerate(amounts.values())}
+    adds = ", ".join(f"#n{i} :n{i}" for i in range(len(amounts)))
     try:
         table.update_item(
             Key={"PK": "GLOBAL", "SK": f"USAGE#{period}"},
-            UpdateExpression="ADD #n :n SET expiresAt = if_not_exists(expiresAt, :exp)",
-            ExpressionAttributeNames={"#n": name},
+            UpdateExpression=f"ADD {adds} SET expiresAt = if_not_exists(expiresAt, :exp)",
+            ExpressionAttributeNames=names,
             ExpressionAttributeValues={
-                ":n": amount,
+                **values,
                 ":exp": int((now + timedelta(days=ttl_days)).timestamp()),
             },
         )
     except ClientError as err:
         logger.warning(
             "usage_count_failed",
-            extra={"counter": name, "period": period, "error": err.response["Error"]["Code"]},
+            extra={
+                "counter": ",".join(amounts),
+                "period": period,
+                "error": err.response["Error"]["Code"],
+            },
         )
