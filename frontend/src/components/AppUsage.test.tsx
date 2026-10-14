@@ -40,9 +40,31 @@ describe("AppUsage", () => {
     expect(screen.getByRole("row", { name: /^sat, oct 10 7 9 2 0$/i })).toBeInTheDocument();
   });
 
-  it("works without history (an older API)", () => {
+  it("shows the estimated AI cost, average per read, and tokens", () => {
+    const ai = {
+      today: { reads: 4, costMicroUsd: 61_600, inputTokens: 9_000, outputTokens: 2_100 },
+      month: { reads: 120, costMicroUsd: 1_843_000, inputTokens: 260_000, outputTokens: 61_000 },
+    };
+    render(<AppUsage usage={{ ...USAGE, ai }} />);
+
+    expect(screen.getByRole("heading", { name: "AI (estimated)" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /^model reads 4 120$/i })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /^cost \$0\.0616 \$1\.84$/i })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /^avg per read \$0\.0154 \$0\.0154$/i })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /^tokens in \/ out 9,000 \/ 2,100 260,000 \/ 61,000$/i })).toBeInTheDocument();
+  });
+
+  it("shows no average before the first read", () => {
+    const zero = { reads: 0, costMicroUsd: 0, inputTokens: 0, outputTokens: 0 };
+    render(<AppUsage usage={{ ...USAGE, ai: { today: zero, month: zero } }} />);
+
+    expect(screen.getByRole("row", { name: /^avg per read — —$/i })).toBeInTheDocument();
+  });
+
+  it("works without history or AI totals (an older API)", () => {
     render(<AppUsage usage={{ ...USAGE, days: undefined }} />);
 
     expect(screen.queryByRole("heading", { name: /last/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /ai/i })).not.toBeInTheDocument();
   });
 });

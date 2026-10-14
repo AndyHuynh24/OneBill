@@ -1,4 +1,4 @@
-import type { AppUsage as AppUsageData, UsageTotals } from "../api";
+import type { AiTotals, AppUsage as AppUsageData, UsageTotals } from "../api";
 
 const ROWS: { label: string; key: keyof UsageTotals }[] = [
   { label: "Scans", key: "scans" },
@@ -9,6 +9,22 @@ const ROWS: { label: string; key: keyof UsageTotals }[] = [
 
 /** Column headers for the 7-day table, short enough for a phone. */
 const SHORT: Partial<Record<keyof UsageTotals, string>> = { pages: "Pages", emails: "Emails", renewals: "Renewals" };
+
+const AI_ROWS: { label: string; value: (t: AiTotals) => string }[] = [
+  { label: "Model reads", value: (t) => t.reads.toLocaleString("en-US") },
+  { label: "Cost", value: (t) => dollars(t.costMicroUsd) },
+  { label: "Avg per read", value: (t) => (t.reads > 0 ? dollars(t.costMicroUsd / t.reads) : "—") },
+  {
+    label: "Tokens in / out",
+    value: (t) => `${t.inputTokens.toLocaleString("en-US")} / ${t.outputTokens.toLocaleString("en-US")}`,
+  },
+];
+
+/** Micro-dollars as dollars: "$1.84", or "$0.0154" below a dollar so a single read still shows. */
+function dollars(microUsd: number): string {
+  const usd = microUsd / 1_000_000;
+  return `$${usd.toFixed(usd >= 1 ? 2 : 4)}`;
+}
 
 /** "Sat, Oct 10" for a YYYY-MM-DD day. */
 function dayLabel(isoDate: string): string {
@@ -22,6 +38,7 @@ function dayLabel(isoDate: string): string {
 /** The owner's view of the whole app: today, this month (against the limits), and the last 7 days. */
 export function AppUsage({ usage }: { usage: AppUsageData }) {
   const limits: Partial<Record<keyof UsageTotals, number>> = usage.limits;
+  const ai = usage.ai;
   return (
     <section aria-labelledby="app-usage-title">
       <div className="section-title">
@@ -80,7 +97,34 @@ export function AppUsage({ usage }: { usage: AppUsageData }) {
             </table>
           </>
         )}
-        <p className="muted usage-note">All users. Days and months are in UTC.</p>
+        {ai && (
+          <>
+            <h3 className="usage-subtitle">AI (estimated)</h3>
+            <table className="usage-table">
+              <thead>
+                <tr>
+                  <th scope="col">
+                    <span className="visually-hidden">Measure</span>
+                  </th>
+                  <th scope="col">Today</th>
+                  <th scope="col">This month</th>
+                </tr>
+              </thead>
+              <tbody>
+                {AI_ROWS.map(({ label, value }) => (
+                  <tr key={label}>
+                    <th scope="row">{label}</th>
+                    <td>{value(ai.today)}</td>
+                    <td>{value(ai.month)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+        <p className="muted usage-note">
+          All users. Days and months are in UTC.{ai && " AI cost uses list prices (Textract + Bedrock)."}
+        </p>
       </div>
     </section>
   );
