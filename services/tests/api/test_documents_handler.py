@@ -214,7 +214,7 @@ def test_invalid_window_is_400_not_500(handler, days):
     assert status == 400
 
 
-def test_put_split_saves_and_a_stale_resave_is_409(handler, table):
+def test_put_split_saves_a_stale_resave_is_409_and_people_can_be_marked_paid(handler, table):
     lines = [
         {"row": 1, "description": "A", "kind": "item", "amountCents": 1000},
         {"row": 2, "description": "B", "kind": "item", "amountCents": 500},
@@ -254,6 +254,25 @@ def test_put_split_saves_and_a_stale_resave_is_409(handler, table):
     status, body = put()  # same expectedVersion again: someone else already saved
     assert status == 409
     assert "Reload" in body["message"]
+
+    paid_path = f"{path}/paid"
+    tick = {"member": "m1", "paid": True, "expectedVersion": 1}
+    event = http_event(
+        "PUT", paid_path, {"sub": "user-a"}, body=tick, path_params={"docId": doc_id}
+    )
+    status, body = call(handler, event)
+    assert status == 200
+    assert set(body["paid"]) == {"m1"}
+
+    event = http_event(
+        "PUT",
+        paid_path,
+        {"sub": "user-a"},
+        body=tick | {"member": "m0"},
+        path_params={"docId": doc_id},
+    )
+    status, body = call(handler, event)
+    assert status == 400  # you can't owe yourself
 
 
 # --- subscriptions and the Gmail connection (signed in) -------------------------------------
