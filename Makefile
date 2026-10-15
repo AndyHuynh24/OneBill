@@ -3,7 +3,8 @@
 # unless AWS_PROFILE is already set.
 export AWS_PROFILE ?= onebill-iam
 
-.PHONY: install test lint synth diff dev deploy-web frontend-env eval layer-requirements \
+.PHONY: install test lint synth diff dev deploy-web frontend-env frontend-env-staging deploy-staging \
+	deploy-web-staging eval layer-requirements \
 	test-services test-infra test-frontend lint-services lint-infra lint-frontend
 
 install:
@@ -39,14 +40,30 @@ synth:
 diff:
 	cd infra && npx cdk diff --method=template
 
-# After deploying: generate frontend/.env.local from stack outputs, then `make dev`.
+# Point the local frontend at a stage's stacks (frontend/.env.local).
 frontend-env:
-	./scripts/write_frontend_env.sh
+	./scripts/write_frontend_env.sh OneBill
 
+frontend-env-staging:
+	./scripts/write_frontend_env.sh OneBill-Staging
+
+# Local frontend against STAGING (new features are tested there). STAGE=prod for production.
+STAGE ?= staging
 dev:
+	@if [ "$(STAGE)" = "prod" ]; then ./scripts/write_frontend_env.sh OneBill; \
+	else ./scripts/write_frontend_env.sh OneBill-Staging; fi
 	cd frontend && npm run dev
 
-# Build the frontend with the deployed stacks' settings and publish it to the public site.
+# Staging: every stack, then its website (its own CloudFront address; email sign-in only).
+deploy-staging:
+	cd infra && npx cdk deploy -c stage=staging 'OneBill-Staging-*'
+
+deploy-web-staging: frontend-env-staging
+	cd frontend && npm run build
+	cd infra && npx cdk deploy -c stage=staging OneBill-Staging-Web
+	./scripts/write_frontend_env.sh OneBill-Staging
+
+# Production website: build against production's stacks and publish it.
 deploy-web: frontend-env
 	cd frontend && npm run build
 	cd infra && npx cdk deploy OneBill-Web
