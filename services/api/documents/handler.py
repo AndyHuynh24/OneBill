@@ -84,6 +84,8 @@ def create_document() -> tuple[dict[str, Any], int]:
         now=datetime.now(UTC),
         # Temporary testing switch, set only by `cdk deploy -c dailyLimits=off`.
         enforce_limits=os.environ.get("DAILY_LIMITS", "on") != "off",
+        # The trip tile's own Scan button; checked against the caller's own trips.
+        trip_id=body.get("tripId"),
     )
     logger.info("upload_created", extra={"docId": result["docId"]})
     return result, 201

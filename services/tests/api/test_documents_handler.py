@@ -77,6 +77,14 @@ def test_post_documents_validates_body(handler):
     assert status == 400
 
 
+def test_a_scan_into_a_trip_that_isnt_yours_or_isnt_on_is_400(handler):
+    body = NEW_DOC | {"tripId": "1790000000000aaaaaaaa"}
+    status, response = call(handler, http_event("POST", "/documents", UPLOADER, body))
+
+    assert status == 400
+    assert "trip" in response["message"]
+
+
 def test_user_id_comes_only_from_claims(handler):
     body = NEW_DOC | {"userId": "user-b"}
 

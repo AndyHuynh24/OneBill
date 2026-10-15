@@ -12,14 +12,15 @@ def trip_gsi_keys(user_id: str, trip_id: str, doc_id: str) -> dict[str, str]:
     return {"GSI2PK": f"USER#{user_id}#TRIP#{trip_id}", "GSI2SK": f"DOC#{doc_id}"}
 
 
-def active_trip_id(table: Any, user_id: str) -> str | None:
-    item = table.get_item(Key={"PK": f"USER#{user_id}", "SK": ACTIVE_SK}).get("Item")
-    return item.get("tripId") if item else None
+def is_active(table: Any, user_id: str, trip_id: str) -> bool:
+    """The caller's own trip, and still on (a scan from its tile may join it)."""
+    item = table.get_item(Key={"PK": f"USER#{user_id}", "SK": f"TRIP#{trip_id}"}).get("Item")
+    return bool(item) and item.get("status") == "active"
 
 
 def put_in_trip(table: Any, item: dict[str, Any], user_id: str, trip_id: str) -> bool:
-    """Put a new DOC in a trip only if that trip is still the active one (one transaction, so a
-    trip ended mid-upload can't gain a receipt). False: the trip ended; nothing was written."""
+    """Put a new DOC in a trip only if that trip is still on (one transaction, so a trip ended
+    mid-upload can't gain a receipt). False: the trip ended; nothing was written."""
     try:
         table.meta.client.transact_write_items(
             TransactItems=[
@@ -35,9 +36,10 @@ def put_in_trip(table: Any, item: dict[str, Any], user_id: str, trip_id: str) ->
                 {
                     "ConditionCheck": {
                         "TableName": table.name,
-                        "Key": {"PK": f"USER#{user_id}", "SK": ACTIVE_SK},
-                        "ConditionExpression": "tripId = :t",
-                        "ExpressionAttributeValues": {":t": trip_id},
+                        "Key": {"PK": f"USER#{user_id}", "SK": f"TRIP#{trip_id}"},
+                        "ConditionExpression": "#s = :active",
+                        "ExpressionAttributeNames": {"#s": "status"},
+                        "ExpressionAttributeValues": {":active": "active"},
                     }
                 },
             ]

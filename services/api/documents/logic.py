@@ -108,11 +108,13 @@ def create_upload(
     size_bytes: int,
     now: datetime,
     enforce_limits: bool = True,
+    trip_id: str | None = None,
 ) -> dict[str, Any]:
     """Reserve quota, record a pending DOC item, and return a presigned POST for the browser.
 
     `enforce_limits=False` skips the daily counts (a temporary testing switch); the per-file
-    checks always apply.
+    checks always apply. `trip_id`: scanned from a trip's own button, so it joins that trip
+    (it must be the caller's, and still on). The main Scan button never joins a trip.
     """
     owner = OWNERS_GROUP in groups
     if content_type not in ALLOWED_TYPES:
@@ -122,6 +124,13 @@ def create_upload(
     display_name = _display_name(filename)
     if not display_name:
         raise BadRequest("A file name is required.")
+    # Checked before any quota is used; re-checked in the write itself (the trip could end).
+    if trip_id is not None and not (
+        isinstance(trip_id, str)
+        and is_valid_id(trip_id)
+        and trips.is_active(table, user_id, trip_id)
+    ):
+        raise BadRequest("That trip isn't on any more. Scan with the main button instead.")
 
     day = now.date().isoformat()
     if enforce_limits:
@@ -160,8 +169,7 @@ def create_upload(
         # The owner's PDFs are counted but never refused by the shared monthly page budget.
         **({"owner": True} if owner else {}),
     }
-    # A scan joins the trip that's on, decided here: the client can't pick someone else's trip.
-    trip_id = trips.active_trip_id(table, user_id)
+    # A trip that ended mid-upload: the scan is still saved, just not in the trip.
     if not (trip_id and trips.put_in_trip(table, item, user_id, trip_id)):
         table.put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
     # A POST policy (unlike a presigned PUT) lets S3 itself refuse oversized or mistyped files.
