@@ -332,23 +332,6 @@ def test_app_usage_totals_today_and_this_month(table, s3):
     assert usage["limits"] == {"scans": 200, "pages": 600, "emails": 300}
 
 
-def test_app_usage_includes_estimated_ai_cost_and_tokens(table):
-    ai = {"aiReads": 4, "aiCostMicroUsd": 61_400, "inputTokens": 9_000, "outputTokens": 2_100}
-    table.put_item(Item={"PK": "GLOBAL", "SK": "USAGE#2026-09-30", **ai})
-    table.put_item(Item={"PK": "GLOBAL", "SK": "USAGE#2026-09", **ai, "aiReads": 10})
-
-    usage = logic.app_usage(table, NOW)
-
-    assert usage["ai"]["today"] == {
-        "reads": 4,
-        "costMicroUsd": 61_400,
-        "inputTokens": 9_000,
-        "outputTokens": 2_100,
-    }
-    assert usage["ai"]["month"]["reads"] == 10
-    assert usage["today"] == {"scans": 0, "pages": 0, "emails": 0, "renewals": 0}  # unchanged
-
-
 # --- GET /documents, GET /documents/{id} --------------------------------------------------------
 
 

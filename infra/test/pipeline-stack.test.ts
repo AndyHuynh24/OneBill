@@ -382,14 +382,3 @@ describe("PipelineStack — reminders through Gmail", () => {
   });
 });
 
-
-describe("PipelineStack — AI cost and latency", () => {
-  it("saves one Logs Insights query over the extract Lambda's logs", () => {
-    template.resourceCountIs("AWS::Logs::QueryDefinition", 1);
-    template.hasResourceProperties("AWS::Logs::QueryDefinition", {
-      Name: "onebill/ai-cost-latency",
-      LogGroupNames: [{ Ref: Match.stringLikeRegexp("^ExtractFunctionLogs") }],
-      QueryString: Match.stringLikeRegexp("document_processed[\\s\\S]*costMicroUsd[\\s\\S]*timingsMs\\.handler"),
-    });
-  });
-});

@@ -5,7 +5,6 @@ import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as logs from "aws-cdk-lib/aws-logs";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
@@ -121,28 +120,6 @@ export class PipelineStack extends Stack {
         ...(props.dailyLimits === false ? { DAILY_LIMITS: "off" } : {}),
       },
     });
-    // Cost per read and where the time goes, on demand (CloudWatch → Logs Insights → Saved
-    // queries). Saved queries are free; running one bills only the few MB of logs it scans.
-    new logs.QueryDefinition(this, "AiCostLatencyQuery", {
-      queryDefinitionName: "onebill/ai-cost-latency",
-      logGroups: [extractFn.logGroup],
-      queryString: new logs.QueryString({
-        filterStatements: ['message = "document_processed"'],
-        statsStatements: [
-          [
-            "count(*) as reads",
-            "avg(costMicroUsd) as avgCostMicroUsd",
-            "pct(costMicroUsd, 95) as p95CostMicroUsd",
-            "avg(outputTokensPerSec) as avgOutputTokensPerSec",
-            "pct(timingsMs.textract, 50) as p50TextractMs",
-            "pct(timingsMs.textract, 95) as p95TextractMs",
-            "pct(timingsMs.handler, 50) as p50HandlerMs",
-            "pct(timingsMs.handler, 95) as p95HandlerMs",
-          ].join(", "),
-        ],
-      }),
-    });
-
     // Uploads are capped at 15 a day for everyone (with limits on); each makes 1–2 calls.
     alarmOver(
       this,

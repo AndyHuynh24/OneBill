@@ -278,14 +278,6 @@ export interface UsageTotals {
   renewals: number;
 }
 
-/** Model reads (scans and emails) and their estimated cost in micro-dollars (1 µ$ = $0.000001). */
-export interface AiTotals {
-  reads: number;
-  costMicroUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-}
-
 /** App-wide counts (all users), sent only to the owner. */
 export interface AppUsage {
   today: UsageTotals;
@@ -293,7 +285,6 @@ export interface AppUsage {
   days?: (UsageTotals & { date: string })[];
   month: UsageTotals;
   limits: { scans: number; pages: number; emails: number };
-  ai?: { today: AiTotals; month: AiTotals };
 }
 
 export interface ReviewStats {

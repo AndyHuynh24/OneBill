@@ -17,7 +17,6 @@ from documents import store
 from documents.extraction import ExtractionError, extract
 from documents.textract import ExpenseResult
 from documents.validate import validate
-from shared import llm_cost
 
 MAX_LINES = 2000
 EMAIL_MAX_OUTPUT_TOKENS = 1500
@@ -104,7 +103,6 @@ def read_email_bill(
         "promptVersion": outcome.prompt_version,
         "inputTokens": outcome.usage["inputTokens"],
         "outputTokens": outcome.usage["outputTokens"],
-        **llm_cost.record(table, now, outcome.model_id, outcome.usage, outcome.model_ms),
     }
     store.save_result(table, user_id, doc_id, result, 1, meta, now)
     return result.status
