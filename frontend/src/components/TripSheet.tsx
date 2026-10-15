@@ -64,7 +64,7 @@ export function TripSheet({ api, tripId, onClose, onOpenDocument }: TripSheetPro
           <>
             <p className="muted trip-meta">
               {formatDate(trip.startedAt.slice(0, 10))}
-              {trip.endedAt ? ` – ${formatDate(trip.endedAt.slice(0, 10))}` : " · on now: new scans join it"} ·{" "}
+              {trip.endedAt ? ` – ${formatDate(trip.endedAt.slice(0, 10))}` : " · on now"} ·{" "}
               {formatCents(trip.totalCents, currency)}
             </p>
 
@@ -119,7 +119,9 @@ export function TripSheet({ api, tripId, onClose, onOpenDocument }: TripSheetPro
             )}
 
             <h3>Receipts</h3>
-            {trip.receipts.length === 0 && <p className="muted">No receipts yet. Scan one and it joins this trip.</p>}
+            {trip.receipts.length === 0 && (
+              <p className="muted">No receipts yet. Use Scan for trip on the trip card, or add one from a receipt.</p>
+            )}
             <ul className="plain-list trip-receipts">
               {trip.receipts.map((r) => (
                 <li key={r.docId} className="trip-receipt">

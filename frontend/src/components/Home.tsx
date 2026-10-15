@@ -107,15 +107,17 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const exitHint = useExitHint();
 
   const upload = useMutation({
-    mutationFn: (file: File) => api.uploadDocument(file),
+    // The main Scan button sends no trip; the trip card's own Scan sends its trip.
+    mutationFn: ({ file, tripId }: { file: File; tripId?: string }) =>
+      tripId ? api.uploadDocument(file, tripId) : api.uploadDocument(file),
     onSuccess: (docId) => setOpenDoc(docId), // the uploading sheet becomes the bill's screen
-    onMutate: (file) => {
+    onMutate: ({ file }) => {
       setNotice(null);
       setOpenDoc(null);
       setScanning(true);
       setUploading((names) => [...names, file.name]);
     },
-    onSettled: (_data, _error, file) => {
+    onSettled: (_data, _error, { file }) => {
       setScanning(false);
       setUploading((names) => names.filter((n) => n !== file.name));
       queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -208,6 +210,8 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
                 past={trips.data.past}
                 onOpen={setOpenTrip}
                 onStart={() => setStartingTrip(true)}
+                onScan={(file, tripId) => upload.mutate({ file, tripId })}
+                scanning={upload.isPending}
               />
             )}
             {documents.data ? (
@@ -266,7 +270,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
         </p>
       )}
 
-      <ScanButton onFile={(file) => upload.mutate(file)} busy={upload.isPending} />
+      <ScanButton onFile={(file) => upload.mutate({ file })} busy={upload.isPending} />
 
       {exitHint && (
         <p className="exit-hint" role="status">

@@ -265,15 +265,22 @@ describe("DocumentSheet", () => {
     expect(api.removeFromTrip).toHaveBeenCalledWith("trip-1", DINNER.docId);
   });
 
-  it("offers to add a receipt to the trip that's on", async () => {
+  it("a receipt scanned with the main button can be put in any trip, current or past", async () => {
+    const past = { ...TRIP, tripId: "trip-0", name: "Denver", status: "ended" as const };
     const api = fakeApi({
       getDocument: vi.fn().mockResolvedValue(DINNER),
-      listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }),
+      listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [past] }),
     });
     renderSheet(api, vi.fn(), DINNER.docId);
 
-    await userEvent.click(await screen.findByRole("button", { name: /add to chicago/i }));
+    const picker = await screen.findByRole("combobox", { name: /add to a trip/i });
+    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Add to a trip…",
+      "Chicago (on now)",
+      "Denver",
+    ]);
+    await userEvent.selectOptions(picker, "trip-0");
 
-    expect(api.addToTrip).toHaveBeenCalledWith("trip-1", DINNER.docId);
+    expect(api.addToTrip).toHaveBeenCalledWith("trip-0", DINNER.docId);
   });
 });

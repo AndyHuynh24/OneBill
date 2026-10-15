@@ -16,18 +16,19 @@ function wrap(ui: ReactNode) {
 describe("TripCard", () => {
   it("shows the active trip with its receipts and total", async () => {
     const onOpen = vi.fn();
-    render(<TripCard active={TRIP} past={[]} onOpen={onOpen} onStart={vi.fn()} />);
+    render(<TripCard active={TRIP} past={[]} onOpen={onOpen} onStart={vi.fn()} onScan={vi.fn()} />);
 
-    const card = screen.getByRole("button", { name: /chicago/i });
+    const card = screen.getByRole("button", { name: /open chicago/i });
     expect(card).toHaveTextContent("2 receipts · $150.00");
     await userEvent.click(card);
     expect(onOpen).toHaveBeenCalledWith("trip-1");
+    expect(screen.getByRole("button", { name: /scan for trip/i })).toBeInTheDocument();
   });
 
   it("offers to start a trip when none is on, and lists past trips", async () => {
     const onStart = vi.fn();
     const past = [{ ...TRIP, tripId: "t0", name: "Denver", status: "ended" as const }];
-    render(<TripCard active={null} past={past} onOpen={vi.fn()} onStart={onStart} />);
+    render(<TripCard active={null} past={past} onOpen={vi.fn()} onStart={onStart} onScan={vi.fn()} />);
 
     await userEvent.click(screen.getByRole("button", { name: /start a trip/i }));
     expect(onStart).toHaveBeenCalledOnce();

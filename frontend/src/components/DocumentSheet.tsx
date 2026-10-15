@@ -38,7 +38,8 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     enabled: !!doc?.tripId,
   });
   const tripPeople = trip.data?.members.map((m) => (m.self ? { name: m.name, self: true } : { name: m.name }));
-  const activeTrip = trips.data?.active;
+  // Any of your trips, current or past: a receipt scanned with the main button can still join one.
+  const allTrips = [...(trips.data?.active ? [trips.data.active] : []), ...(trips.data?.past ?? [])];
   const membership = useMutation({
     mutationFn: ({ tripId, add }: { tripId: string; add: boolean }) =>
       add ? api.addToTrip(tripId, docId) : api.removeFromTrip(tripId, docId),
@@ -306,16 +307,23 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                     </button>
                   </p>
                 ) : (
-                  activeTrip &&
+                  allTrips.length > 0 &&
                   doc.status !== "failed" && (
-                    <button
-                      type="button"
-                      className="link-button trip-link"
-                      disabled={membership.isPending}
-                      onClick={() => membership.mutate({ tripId: activeTrip.tripId, add: true })}
-                    >
-                      + Add to {activeTrip.name}
-                    </button>
+                    <label className="trip-link trip-picker">
+                      <span className="visually-hidden">Add to a trip</span>
+                      <select
+                        value=""
+                        disabled={membership.isPending}
+                        onChange={(e) => e.target.value && membership.mutate({ tripId: e.target.value, add: true })}
+                      >
+                        <option value="">Add to a trip…</option>
+                        {allTrips.map((t) => (
+                          <option key={t.tripId} value={t.tripId}>
+                            {t.status === "active" ? `${t.name} (on now)` : t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   )
                 )}
               </>

@@ -344,7 +344,8 @@ export interface OneBillApi {
   reviewDocument(docId: string, request: ReviewRequest): Promise<DocumentDetail>;
   listObligations(fromDate: string, withinDays?: number): Promise<{ obligations: Obligation[] }>;
   /** Ask the API for an upload ticket, then send the file straight to S3. */
-  uploadDocument(file: File): Promise<string>;
+  /** `tripId`: scanned from a trip's own button, so the receipt joins that trip. */
+  uploadDocument(file: File, tripId?: string): Promise<string>;
   saveSplit(docId: string, request: SplitRequest): Promise<Split>;
   /** Tick (or untick) one person as having paid you back; refused (409) if the split changed. */
   setSplitPaid(docId: string, request: { member: string; paid: boolean; expectedVersion: number }): Promise<Split>;
@@ -441,11 +442,12 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
     removeFromTrip: async (tripId, docId) => {
       await call("DELETE", `trips/${encodeURIComponent(tripId)}/documents/${encodeURIComponent(docId)}`);
     },
-    async uploadDocument(file) {
+    async uploadDocument(file, tripId) {
       const ticket = await call<UploadTicket>("POST", "documents", {
         filename: file.name,
         contentType: file.type,
         sizeBytes: file.size,
+        ...(tripId ? { tripId } : {}),
       });
       // S3 POST policy: the signed fields first, the file last. No auth header: the signature
       // in the fields is the permission, and S3 enforces the size/type limits it encodes.

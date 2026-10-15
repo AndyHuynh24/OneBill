@@ -381,11 +381,32 @@ describe("Home — signed in", () => {
     expect(screen.getByRole("dialog", { name: /start a trip/i })).toBeInTheDocument();
   });
 
+  it("the trip card's own Scan button puts the receipt in that trip", async () => {
+    const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
+    renderHome("signedIn", api);
+    const file = new File(["jpeg"], "dinner.jpg", { type: "image/jpeg" });
+
+    await userEvent.upload(await screen.findByLabelText("Upload a photo or PDF for Chicago"), file);
+
+    expect(api.uploadDocument).toHaveBeenCalledWith(file, "trip-1");
+  });
+
+  it("the main Scan button never puts a receipt in a trip", async () => {
+    const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
+    renderHome("signedIn", api);
+    const file = new File(["jpeg"], "receipt.jpg", { type: "image/jpeg" });
+
+    await screen.findByLabelText("Upload a photo or PDF for Chicago");
+    await userEvent.upload(screen.getByLabelText("Upload a photo or PDF"), file);
+
+    expect(api.uploadDocument).toHaveBeenCalledWith(file);
+  });
+
   it("shows the trip that's on and opens it", async () => {
     const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
     renderHome("signedIn", api);
 
-    await userEvent.click(await screen.findByRole("button", { name: /chicago/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /open chicago/i }));
 
     expect(await screen.findByRole("dialog", { name: "Chicago" })).toBeInTheDocument();
     expect(api.getTrip).toHaveBeenCalledWith("trip-1");
