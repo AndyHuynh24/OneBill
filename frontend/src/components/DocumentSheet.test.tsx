@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { OneBillApi } from "../api";
-import { DINNER, RECEIPT, fakeApi } from "../test/fakeApi";
+import { DINNER, RECEIPT, TRIP, TRIP_DETAIL, fakeApi } from "../test/fakeApi";
 import { DocumentSheet } from "./DocumentSheet";
 
 function renderSheet(api: OneBillApi, onClose = vi.fn(), docId = RECEIPT.docId) {
@@ -250,5 +250,30 @@ describe("DocumentSheet", () => {
 
     expect(api.deleteDocument).toHaveBeenCalledWith(DINNER.docId);
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("shows the trip a receipt is in, and can take it out", async () => {
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue({ ...DINNER, tripId: "trip-1" }),
+      getTrip: vi.fn().mockResolvedValue(TRIP_DETAIL),
+    });
+    renderSheet(api, vi.fn(), DINNER.docId);
+
+    expect(await screen.findByText(/in trip: chicago/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /remove from trip/i }));
+
+    expect(api.removeFromTrip).toHaveBeenCalledWith("trip-1", DINNER.docId);
+  });
+
+  it("offers to add a receipt to the trip that's on", async () => {
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue(DINNER),
+      listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }),
+    });
+    renderSheet(api, vi.fn(), DINNER.docId);
+
+    await userEvent.click(await screen.findByRole("button", { name: /add to chicago/i }));
+
+    expect(api.addToTrip).toHaveBeenCalledWith("trip-1", DINNER.docId);
   });
 });

@@ -69,6 +69,8 @@ export interface DocumentSummary {
   source?: "email";
   /** On a split bill: what the others still owe you (0 once everyone has paid). */
   owedCents?: number;
+  /** In a trip: it settles with the trip, not on its own. */
+  tripId?: string;
 }
 
 export interface DocumentLine {
@@ -116,6 +118,8 @@ export interface SplitRequest {
   expectedVersion: number;
   /** The document version the split was made on; refused (409) if the lines changed since. */
   expectedUpdatedAt: string;
+  /** The seat of whoever paid the bill (default: you). */
+  paidBy?: number;
 }
 
 export interface SplitMember {
@@ -147,6 +151,56 @@ export interface Split {
   updatedAt?: string;
   /** Member id → when you marked them as paid. Never includes you. */
   paid?: Record<string, string>;
+  /** Member id of whoever paid the bill. */
+  paidBy?: string;
+}
+
+export interface TripMember {
+  name: string;
+  self: boolean;
+}
+
+export interface TripSummary {
+  tripId: string;
+  name: string;
+  members: TripMember[];
+  status: "active" | "ended";
+  startedAt: string;
+  endedAt?: string;
+  receiptCount?: number;
+  totalCents?: number;
+}
+
+export interface TripReceipt {
+  docId: string;
+  vendor?: string | null;
+  documentDate?: string | null;
+  totalCents: number | null;
+  currency?: string | null;
+  status: DocStatus;
+  split: boolean;
+  /** Who paid it (a name), once it's split. */
+  paidBy: string | null;
+}
+
+/** One payment of the settle-up list; computed by the server from the splits. */
+export interface TripPayment {
+  from: string;
+  to: string;
+  amountCents: number;
+  settledAt: string | null;
+}
+
+export interface TripDetail extends TripSummary {
+  receipts: TripReceipt[];
+  totalCents: number;
+  /** Each person's shares across the split receipts. */
+  spent: Record<string, number>;
+  payments: TripPayment[];
+  /** Read receipts nobody has split yet (not in the balances). */
+  unsplit: string[];
+  /** A tick no longer matches its payment (a receipt was added or changed). */
+  balancesChanged: boolean;
 }
 
 export type BillingCycle = "weekly" | "monthly" | "quarterly" | "yearly" | "other";
@@ -294,6 +348,14 @@ export interface OneBillApi {
   saveSplit(docId: string, request: SplitRequest): Promise<Split>;
   /** Tick (or untick) one person as having paid you back; refused (409) if the split changed. */
   setSplitPaid(docId: string, request: { member: string; paid: boolean; expectedVersion: number }): Promise<Split>;
+  listTrips(): Promise<{ active: TripSummary | null; past: TripSummary[] }>;
+  startTrip(request: { name: string; members: { name: string; self?: boolean }[] }): Promise<TripSummary>;
+  getTrip(tripId: string): Promise<TripDetail>;
+  updateTrip(tripId: string, request: { name?: string; end?: boolean }): Promise<TripSummary>;
+  deleteTrip(tripId: string): Promise<void>;
+  setTripSettled(tripId: string, request: { from: string; to: string; paid: boolean }): Promise<TripDetail>;
+  addToTrip(tripId: string, docId: string): Promise<void>;
+  removeFromTrip(tripId: string, docId: string): Promise<void>;
   listSubscriptions(): Promise<{ subscriptions: Subscription[]; connection: GmailConnection }>;
   cancelSubscription(serviceKey: string): Promise<Subscription>;
   editSubscription(serviceKey: string, fields: SubscriptionEdit): Promise<Subscription>;
@@ -364,6 +426,21 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
     saveSplit: (docId, request) => call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split`, request),
     setSplitPaid: (docId, request) =>
       call<Split>("PUT", `documents/${encodeURIComponent(docId)}/split/paid`, request),
+    listTrips: () => call("GET", "trips"),
+    startTrip: (request) => call<TripSummary>("POST", "trips", request),
+    getTrip: (tripId) => call<TripDetail>("GET", `trips/${encodeURIComponent(tripId)}`),
+    updateTrip: (tripId, request) => call<TripSummary>("PATCH", `trips/${encodeURIComponent(tripId)}`, request),
+    deleteTrip: async (tripId) => {
+      await call("DELETE", `trips/${encodeURIComponent(tripId)}`);
+    },
+    setTripSettled: (tripId, request) =>
+      call<TripDetail>("PUT", `trips/${encodeURIComponent(tripId)}/settled`, request),
+    addToTrip: async (tripId, docId) => {
+      await call("PUT", `trips/${encodeURIComponent(tripId)}/documents/${encodeURIComponent(docId)}`);
+    },
+    removeFromTrip: async (tripId, docId) => {
+      await call("DELETE", `trips/${encodeURIComponent(tripId)}/documents/${encodeURIComponent(docId)}`);
+    },
     async uploadDocument(file) {
       const ticket = await call<UploadTicket>("POST", "documents", {
         filename: file.name,

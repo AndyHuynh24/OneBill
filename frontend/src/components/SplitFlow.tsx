@@ -15,14 +15,18 @@ const CHARGE_KINDS = new Set(["tax", "fee", "tip"]);
 interface SplitFlowProps {
   api: OneBillApi;
   doc: DocumentDetail;
+  /** A trip receipt: its people, to start a new split with. */
+  tripPeople?: Person[];
   onCancel: () => void;
   onClose: () => void;
 }
 
 /** Split a bill: who's here → who had what (one list) → summary (saved). */
-export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
+export function SplitFlow({ api, doc, tripPeople, onCancel, onClose }: SplitFlowProps) {
   const queryClient = useQueryClient();
   const restored = restore(doc.split);
+  if (!doc.split && tripPeople?.length) restored.people = tripPeople;
+  const inTrip = !!doc.tripId;
   // The steps taken, so the phone's Back retraces them (going to an earlier step trims back to it).
   const [trail, setTrail] = useState<Step[]>([doc.split ? "summary" : "people"]);
   const step = trail[trail.length - 1];
@@ -32,6 +36,11 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const [people, setPeople] = useState<Person[]>(restored.people);
   const [picks, setPicks] = useState<Picks>(restored.picks);
   const [saved, setSaved] = useState<Split | undefined>(doc.split);
+  // Who paid the bill (a seat); only asked on trips, where friends pay too.
+  const [paidBy, setPaidBy] = useState(() => {
+    const seat = doc.split?.members.findIndex((m) => m.id === doc.split?.paidBy) ?? -1;
+    return seat >= 0 ? seat : Math.max(0, restored.people.findIndex((p) => p.self));
+  });
   // The bill's version as loaded (not the split's save time): edits to the bill after a split
   // was saved (e.g. Looks right) must not make every later save look like a conflict.
   const [docVersion, setDocVersion] = useState(doc.updatedAt ?? "");
@@ -45,13 +54,14 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
   const [, refreshFriends] = useState(0);
   const friends = userId ? loadFriends(userId) : [];
   const save = useMutation({
-    mutationFn: (request: { assignments: Assignments; charges: Charges }) =>
+    mutationFn: (request: { assignments: Assignments; charges: Charges; paidBy?: number }) =>
       api.saveSplit(doc.docId, {
         members: people.map((p) => (p.self ? { name: p.name, self: true } : { name: p.name })),
         assignments: request.assignments,
         charges: request.charges,
         expectedVersion: saved?.version ?? 0,
         expectedUpdatedAt: docVersion,
+        ...(inTrip ? { paidBy: request.paidBy ?? Math.min(paidBy, people.length - 1) } : {}),
       }),
     onSuccess: (split) => {
       setSaved(split);
@@ -59,6 +69,7 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
       setStep("summary");
       queryClient.invalidateQueries({ queryKey: ["document", doc.docId] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (inTrip) queryClient.invalidateQueries({ queryKey: ["trip"] });
       if (userId) rememberFriends(userId, people.filter((p) => !p.self).map((p) => p.name));
     },
   });
@@ -89,9 +100,8 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
     setStep("assign");
   }
 
-  /** Every line chosen: items become assignments, tax/tip/fee picks become charge choices. */
-  function allChosen(done: Picks) {
-    setPicks(done);
+  /** Items become assignments, tax/tip/fee picks become charge choices. */
+  function toRequest(done: Picks): { assignments: Assignments; charges: Charges } {
     const chargeRows = new Set(chargeLines.map((l) => String(l.row)));
     const assignments: Assignments = {};
     const charges: Charges = {};
@@ -99,7 +109,19 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
       if (chargeRows.has(row)) charges[row] = toCharge(pick, people.length);
       else if (Array.isArray(pick)) assignments[row] = pick;
     }
-    save.mutate({ assignments, charges });
+    return { assignments, charges };
+  }
+
+  /** Every line chosen: save the split. */
+  function allChosen(done: Picks) {
+    setPicks(done);
+    save.mutate(toRequest(done));
+  }
+
+  /** A trip friend paid instead: same split, saved again with the new payer. */
+  function choosePaidBy(seat: number) {
+    setPaidBy(seat);
+    save.mutate({ ...toRequest(picks), paidBy: seat });
   }
 
   return (
@@ -134,7 +156,9 @@ export function SplitFlow({ api, doc, onCancel, onClose }: SplitFlowProps) {
           doc={doc}
           onEdit={() => setStep("assign")}
           onAddPeople={() => setStep("people")}
-          onTogglePaid={(member, paid) => markPaid.mutate({ member, paid })}
+          onTogglePaid={inTrip ? undefined : (member, paid) => markPaid.mutate({ member, paid })}
+          paidBySeat={inTrip ? paidBy : undefined}
+          onPaidBy={inTrip ? choosePaidBy : undefined}
           onDone={onClose}
         />
       )}

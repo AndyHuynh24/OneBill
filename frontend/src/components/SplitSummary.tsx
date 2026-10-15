@@ -13,10 +13,22 @@ interface SplitSummaryProps {
   onAddPeople?: () => void;
   /** Tick or untick someone as having paid you back (hidden when not given). */
   onTogglePaid?: (member: string, paid: boolean) => void;
+  /** Trips: who paid the bill (a seat), and choosing someone else. */
+  paidBySeat?: number;
+  onPaidBy?: (seat: number) => void;
 }
 
 /** Who owes what. The shares come from the server and always add up to the receipt. */
-export function SplitSummary({ split, doc, onEdit, onDone, onAddPeople, onTogglePaid }: SplitSummaryProps) {
+export function SplitSummary({
+  split,
+  doc,
+  onEdit,
+  onDone,
+  onAddPeople,
+  onTogglePaid,
+  paidBySeat,
+  onPaidBy,
+}: SplitSummaryProps) {
   const [copied, setCopied] = useState(false);
   const currency = doc.currency ?? "USD";
   const description = new Map((doc.lines ?? []).map((l) => [l.row, l.description]));
@@ -40,6 +52,24 @@ export function SplitSummary({ split, doc, onEdit, onDone, onAddPeople, onToggle
   return (
     <div className="split-summary">
       <h2>Who owes what</h2>
+      {onPaidBy && (
+        <div className="paid-by" role="group" aria-label="Paid by">
+          <span className="muted">Paid by</span>
+          <div className="chips">
+            {split.members.map((m, seat) => (
+              <button
+                key={m.id}
+                type="button"
+                className="friend-chip"
+                aria-pressed={seat === paidBySeat}
+                onClick={() => seat !== paidBySeat && onPaidBy(seat)}
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <ul className="plain-list">
         {split.shares.map((s) => {
           const seat = split.members.findIndex((m) => m.id === s.member);

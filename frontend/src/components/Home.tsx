@@ -17,6 +17,9 @@ import { DocumentSheet } from "./DocumentSheet";
 import { RecentDocuments } from "./RecentDocuments";
 import { ScanButton } from "./ScanButton";
 import { ScanUsage } from "./ScanUsage";
+import { StartTrip } from "./StartTrip";
+import { TripCard } from "./TripCard";
+import { TripSheet } from "./TripSheet";
 import { Upcoming } from "./Upcoming";
 import { Logo, type SignInMethod, Welcome } from "./Welcome";
 
@@ -63,6 +66,9 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
     queryFn: () => api.listObligations(todayIso()),
   });
   const subscriptions = useQuery({ queryKey: ["subscriptions"], queryFn: api.listSubscriptions });
+  const trips = useQuery({ queryKey: ["trips"], queryFn: api.listTrips });
+  const [openTrip, setOpenTrip] = useState<string | null>(null);
+  const [startingTrip, setStartingTrip] = useState(false);
   const removeReminder = useMutation({
     mutationFn: (oblId: string) => api.deleteObligation(oblId),
     onSettled: () => {
@@ -91,6 +97,8 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   // Back closes what's open (newest first) and never leaves from a single press on home.
   useEffect(() => trapBackButton(), []); // this screen only shows while signed in
   useBackLayer(view !== "home", () => setView("home"));
+  useBackLayer(openTrip !== null, () => setOpenTrip(null));
+  useBackLayer(startingTrip, () => setStartingTrip(false));
   useBackLayer(openDoc !== null, closeSheet);
   useBackLayer(scanning && openDoc === null, () => setScanning(false));
   useBackLayer(openSub !== null, () => setOpenSub(null));
@@ -111,6 +119,8 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
       setScanning(false);
       setUploading((names) => names.filter((n) => n !== file.name));
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["trips"] }); // a scan joins the trip that's on
+      queryClient.invalidateQueries({ queryKey: ["trip"] });
     },
     onError: (error) => setNotice(error.message || "Upload failed. Please try again."),
   });
@@ -192,6 +202,14 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
                 </button>
               )}
             </div>
+            {trips.data && (
+              <TripCard
+                active={trips.data.active}
+                past={trips.data.past}
+                onOpen={setOpenTrip}
+                onStart={() => setStartingTrip(true)}
+              />
+            )}
             {documents.data ? (
               <>
                 <RecentDocuments
@@ -257,6 +275,10 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
       )}
 
       {scanning && !shownDoc && <UploadingSheet onClose={() => setScanning(false)} />}
+      {openTrip && (
+        <TripSheet api={api} tripId={openTrip} onClose={() => setOpenTrip(null)} onOpenDocument={setOpenDoc} />
+      )}
+      {startingTrip && <StartTrip api={api} onClose={() => setStartingTrip(false)} />}
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
       {shownSub && <SubscriptionSheet api={api} subscription={shownSub} onClose={() => setOpenSub(null)} />}
       {adding && <AddSubscription api={api} onClose={() => setAdding(false)} />}

@@ -133,4 +133,29 @@ describe("SplitFlow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("This split changed");
     expect(screen.getByRole("listitem", { name: /bao/i })).not.toHaveTextContent("Paid");
   });
+
+  it("a trip receipt starts with the trip's people", async () => {
+    const people = [{ name: "Me" }, { name: "Minh" }, { name: "Linh" }].map((p, i) => ({ ...p, self: i === 0 }));
+    const api = fakeApi();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SplitFlow api={api} doc={{ ...DINNER, tripId: "trip-1" }} tripPeople={people} onCancel={vi.fn()} onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: /continue with 3 people/i })).toBeInTheDocument();
+  });
+
+  it("on a trip receipt, you choose who paid instead of ticking people", async () => {
+    const api = fakeApi({ saveSplit: vi.fn().mockResolvedValue({ ...SAVED, paidBy: "m1" }) });
+    renderFlow(api, { ...DINNER, tripId: "trip-1", split: { ...SAVED, paidBy: "m0" } });
+
+    expect(screen.queryByRole("button", { name: /mark bao as paid/i })).not.toBeInTheDocument();
+    const paidBy = screen.getByRole("group", { name: /paid by/i });
+    expect(within(paidBy).getByRole("button", { name: "Me" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(paidBy).getByRole("button", { name: "Bao" }));
+
+    expect(api.saveSplit).toHaveBeenCalledWith(DINNER.docId, expect.objectContaining({ paidBy: 1, expectedVersion: 1 }));
+  });
 });

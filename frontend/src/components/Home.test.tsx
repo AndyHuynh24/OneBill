@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type OneBillApi } from "../api";
-import { NETFLIX, fakeApi } from "../test/fakeApi";
+import { NETFLIX, TRIP, fakeApi } from "../test/fakeApi";
 import { type AuthStatus, Home } from "./Home";
 
 function renderHome(status: AuthStatus, api: OneBillApi = fakeApi()) {
@@ -371,5 +371,23 @@ describe("Home — signed in", () => {
     await userEvent.click(await screen.findByRole("button", { name: /sign out/i }));
 
     expect(props.onSignOut).toHaveBeenCalledOnce();
+  });
+
+  it("offers to start a trip", async () => {
+    renderHome("signedIn");
+
+    await userEvent.click(await screen.findByRole("button", { name: /start a trip/i }));
+
+    expect(screen.getByRole("dialog", { name: /start a trip/i })).toBeInTheDocument();
+  });
+
+  it("shows the trip that's on and opens it", async () => {
+    const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /chicago/i }));
+
+    expect(await screen.findByRole("dialog", { name: "Chicago" })).toBeInTheDocument();
+    expect(api.getTrip).toHaveBeenCalledWith("trip-1");
   });
 });

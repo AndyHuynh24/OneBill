@@ -14,6 +14,8 @@ interface PeoplePickerProps {
   onChange: (people: Person[]) => void;
   onNext: (people: Person[]) => void;
   onForget: (friend: Friend) => void;
+  /** The question at the top (a trip asks "Who's going?"). */
+  title?: string;
 }
 
 /** "Who's here?": Me, one-tap recent friends, and one box for names separated by spaces. */
@@ -26,6 +28,7 @@ export function PeoplePicker({
   onChange,
   onNext,
   onForget,
+  title = "Who's here?",
 }: PeoplePickerProps) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState(false);
@@ -67,7 +70,7 @@ export function PeoplePicker({
         </div>
       )}
 
-      <h2>Who's here?</h2>
+      <h2>{title}</h2>
 
       <ul className="seats" aria-label="In this split">
         {people.map((person, seat) => (
