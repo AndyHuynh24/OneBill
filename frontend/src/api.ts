@@ -327,6 +327,26 @@ export class ApiError extends Error {
 /** Returns the current Cognito access token, or undefined when signed out. */
 export type TokenGetter = () => Promise<string | undefined>;
 
+/** A bill an answer used: shown under the answer, and opens the bill. */
+export interface AskSource {
+  docId: string;
+  vendor?: string | null;
+  date?: string | null;
+  totalCents?: number | null;
+  currency?: string | null;
+}
+
+export interface AskTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface AskResponse {
+  answer: string;
+  sources: AskSource[];
+  questionsLeft: number;
+}
+
 export interface OneBillApi {
   /** The API's address (shown in Connect Gmail, for the Apps Script). */
   readonly baseUrl: string;
@@ -357,6 +377,8 @@ export interface OneBillApi {
   setTripSettled(tripId: string, request: { from: string; to: string; paid: boolean }): Promise<TripDetail>;
   addToTrip(tripId: string, docId: string): Promise<void>;
   removeFromTrip(tripId: string, docId: string): Promise<void>;
+  /** "Ask OneBill": a question about your own bills, with the conversation so far. */
+  ask(request: { question: string; history: AskTurn[] }): Promise<AskResponse>;
   listSubscriptions(): Promise<{ subscriptions: Subscription[]; connection: GmailConnection }>;
   cancelSubscription(serviceKey: string): Promise<Subscription>;
   editSubscription(serviceKey: string, fields: SubscriptionEdit): Promise<Subscription>;
@@ -442,6 +464,7 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
     removeFromTrip: async (tripId, docId) => {
       await call("DELETE", `trips/${encodeURIComponent(tripId)}/documents/${encodeURIComponent(docId)}`);
     },
+    ask: (request) => call<AskResponse>("POST", "assistant/ask", request),
     async uploadDocument(file, tripId) {
       const ticket = await call<UploadTicket>("POST", "documents", {
         filename: file.name,

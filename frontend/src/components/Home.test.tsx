@@ -411,4 +411,14 @@ describe("Home — signed in", () => {
     expect(await screen.findByRole("dialog", { name: "Chicago" })).toBeInTheDocument();
     expect(api.getTrip).toHaveBeenCalledWith("trip-1");
   });
+
+  it("asks OneBill a question from Home", async () => {
+    const api = fakeApi({ ask: vi.fn().mockResolvedValue({ answer: "Minh owes you $40.00.", sources: [], questionsLeft: 9 }) });
+    renderHome("signedIn", api);
+
+    await userEvent.type(await screen.findByRole("textbox", { name: /ask about your bills/i }), "Who owes me?{Enter}");
+
+    expect(await screen.findByRole("dialog", { name: "Ask OneBill" })).toBeInTheDocument();
+    expect(await screen.findByText("Minh owes you $40.00.")).toBeInTheDocument();
+  });
 });

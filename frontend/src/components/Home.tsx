@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { OneBillApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
 import { AddSubscription } from "./AddSubscription";
+import { AskBox, AskSheet } from "./Ask";
 import { AppUsage } from "./AppUsage";
 import { ConnectGmail } from "./ConnectGmail";
 import { ScanProgress } from "./ScanProgress";
@@ -69,6 +70,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const trips = useQuery({ queryKey: ["trips"], queryFn: api.listTrips });
   const [openTrip, setOpenTrip] = useState<string | null>(null);
   const [startingTrip, setStartingTrip] = useState(false);
+  const [question, setQuestion] = useState<string | null>(null);
   const removeReminder = useMutation({
     mutationFn: (oblId: string) => api.deleteObligation(oblId),
     onSettled: () => {
@@ -99,6 +101,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   useBackLayer(view !== "home", () => setView("home"));
   useBackLayer(openTrip !== null, () => setOpenTrip(null));
   useBackLayer(startingTrip, () => setStartingTrip(false));
+  useBackLayer(question !== null, () => setQuestion(null));
   useBackLayer(openDoc !== null, closeSheet);
   useBackLayer(scanning && openDoc === null, () => setScanning(false));
   useBackLayer(openSub !== null, () => setOpenSub(null));
@@ -166,6 +169,8 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
               </button>
             </div>
           </header>
+
+          <AskBox onAsk={setQuestion} />
 
           {/* One list for everything with a date: subscriptions and bills, soonest first. */}
           <section aria-labelledby="coming-title">
@@ -283,6 +288,9 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
         <TripSheet api={api} tripId={openTrip} onClose={() => setOpenTrip(null)} onOpenDocument={setOpenDoc} />
       )}
       {startingTrip && <StartTrip api={api} onClose={() => setStartingTrip(false)} />}
+      {question !== null && (
+        <AskSheet api={api} firstQuestion={question} onClose={() => setQuestion(null)} onOpenDocument={setOpenDoc} />
+      )}
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
       {shownSub && <SubscriptionSheet api={api} subscription={shownSub} onClose={() => setOpenSub(null)} />}
       {adding && <AddSubscription api={api} onClose={() => setAdding(false)} />}
