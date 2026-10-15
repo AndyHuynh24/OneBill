@@ -58,6 +58,8 @@ new ApiStack(app, `${prefix}-Api`, {
   enableTracing: app.node.tryGetContext("tracing") === "true",
   dailyLimits,
   bedrockModelId: app.node.getContext("bedrockModelId"),
+  // A cost cap: staging only needs a few test questions.
+  monthlyQuestions: staging ? 30 : 100,
 });
 
 new PipelineStack(app, `${prefix}-Pipeline`, {

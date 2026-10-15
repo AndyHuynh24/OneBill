@@ -11,8 +11,9 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { alarmOver, HOURLY } from "./alerts";
-import { grantInvokeModel } from "./bedrock";
+import { grantEmbeddings, grantInvokeModel } from "./bedrock";
 import { newServiceFunction } from "./python-code";
+import { BillsSearch } from "./search";
 
 export interface ApiStackProps extends StackProps {
   readonly table: dynamodb.ITable;
@@ -38,6 +39,11 @@ export interface ApiStackProps extends StackProps {
   readonly dailyLimits?: boolean;
   /** Bedrock inference profile ID for reading subscription emails (the ingest Lambda). */
   readonly bedrockModelId: string;
+  /**
+   * Questions per month across all users (a cost cap: worst case about $0.03 each).
+   * @default 100
+   */
+  readonly monthlyQuestions?: number;
 }
 
 /**
@@ -194,6 +200,60 @@ export class ApiStack extends Stack {
       path: "/documents/{docId}/split/paid",
       methods: [apigwv2.HttpMethod.PUT],
       integration: documents,
+    });
+
+    // "Ask OneBill": an agent loop over read-only tools and bills search. Its own Lambda, so
+    // it can read but never write bills: its only write is the question counter.
+    const search = new BillsSearch(this, "BillsSearch", { table: props.table, enableTracing: props.enableTracing });
+    const assistantFn = newServiceFunction(this, "AssistantFunction", {
+      handler: "api.assistant.handler.handler",
+      description: "Ask OneBill: answers questions about your own bills with read-only tools",
+      serviceName: "onebill-assistant",
+      memorySize: 512,
+      // Up to 4 model calls inside a 25 s budget; API Gateway ends requests at 30 s.
+      timeout: Duration.seconds(29),
+      enableTracing: props.enableTracing,
+      environment: {
+        TABLE_NAME: props.table.tableName,
+        BEDROCK_MODEL_ID: props.bedrockModelId,
+        VECTOR_INDEX_ARN: search.indexArn,
+        MONTHLY_QUESTIONS: String(props.monthlyQuestions ?? 100),
+      },
+    });
+    assistantFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:Query"], // the caller's own items (keys from the JWT)
+        resources: [props.table.tableArn],
+      }),
+    );
+    assistantFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // Its only write: the question counters. IAM enforces it (only these attributes), so
+        // even a bug couldn't change a bill.
+        actions: ["dynamodb:UpdateItem"],
+        resources: [props.table.tableArn],
+        conditions: {
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": ["PK", "SK", "questions", "expiresAt"] },
+          StringEqualsIfExists: { "dynamodb:ReturnValues": ["NONE", "UPDATED_NEW"] },
+        },
+      }),
+    );
+    assistantFn.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ["dynamodb:Query"], resources: [`${props.table.tableArn}/index/GSI2`] }),
+    );
+    grantInvokeModel(assistantFn, props.bedrockModelId);
+    grantEmbeddings(assistantFn);
+    assistantFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        // Query with a metadata filter also needs GetVectors.
+        actions: ["s3vectors:QueryVectors", "s3vectors:GetVectors"],
+        resources: [search.indexArn],
+      }),
+    );
+    this.api.addRoutes({
+      path: "/assistant/ask",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration("AssistantIntegration", assistantFn),
     });
 
     // Trips: same Lambda; a trip's receipts come from GSI2 (granted above).
