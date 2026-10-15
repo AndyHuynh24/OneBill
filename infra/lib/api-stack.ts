@@ -96,6 +96,13 @@ export class ApiStack extends Stack {
     );
     documentsFn.addToRolePolicy(
       new iam.PolicyStatement({
+        // A trip's receipts (sparse GSI2, keyed by the user's own id). Read-only, this index only.
+        actions: ["dynamodb:Query"],
+        resources: [`${props.table.tableArn}/index/GSI2`],
+      }),
+    );
+    documentsFn.addToRolePolicy(
+      new iam.PolicyStatement({
         // A presigned POST carries the signer's permissions: the browser can only write under uploads/.
         // DeleteObject: "Delete document" (versioned bucket: adds a delete marker; the old
         // version expires after 30 days).
@@ -184,6 +191,24 @@ export class ApiStack extends Stack {
     this.api.addRoutes({
       path: "/documents/{docId}/split/paid",
       methods: [apigwv2.HttpMethod.PUT],
+      integration: documents,
+    });
+
+    // Trips: same Lambda; a trip's receipts come from GSI2 (granted above).
+    this.api.addRoutes({
+      path: "/trips",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration: documents,
+    });
+    this.api.addRoutes({
+      path: "/trips/{tripId}",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
+      integration: documents,
+    });
+    this.api.addRoutes({ path: "/trips/{tripId}/settled", methods: [apigwv2.HttpMethod.PUT], integration: documents });
+    this.api.addRoutes({
+      path: "/trips/{tripId}/documents/{docId}",
+      methods: [apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
       integration: documents,
     });
 
