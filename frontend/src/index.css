@@ -4105,3 +4105,141 @@ label,
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- trips ---------- */
+
+.trips {
+  margin-bottom: 0.8rem;
+}
+
+.trip-card {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+.trip-card-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+}
+
+.trip-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.trip-scan svg {
+  width: 18px;
+  height: 18px;
+}
+
+.trip-picker select {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.trip-card-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.trip-card-name {
+  font-size: 1.1rem;
+}
+
+.trip-card-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-start {
+  padding-left: 0;
+}
+
+.trip-past {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  margin-top: 0.3rem;
+  font-size: 0.85rem;
+}
+
+.trip-past .link-button {
+  padding-left: 0;
+  color: var(--muted);
+}
+
+.trip-sheet h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.trip-meta {
+  margin: 0;
+}
+
+.settle-list,
+.trip-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.trip-spent li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.trip-receipt {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.trip-receipt .doc-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.trip-link {
+  margin: 0.5rem 0 0;
+  text-align: center;
+}
+
+.paid-by {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.6rem;
+}

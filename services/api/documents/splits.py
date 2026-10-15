@@ -52,6 +52,9 @@ def save_split(
     ids = [m["id"] for m in members]
     assignments = _assignments(body.get("assignments"), ids)
     charges = _charges(body.get("charges"), ids)
+    paid_by = body.get("paidBy", next(i for i, m in enumerate(members) if m["self"]))
+    if not isinstance(paid_by, int) or isinstance(paid_by, bool) or not 0 <= paid_by < len(ids):
+        raise BadRequest("Paid by must be someone in the split.")
     expected = body.get("expectedVersion", 0)
     if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
         raise BadRequest("expectedVersion must be a whole number.")
@@ -97,6 +100,7 @@ def save_split(
         "receiptTotalCents": int(doc["totalCents"]),
         "matchesReceipt": matches,
         "taxIncluded": tax_included,
+        "paidBy": ids[paid_by],  # who paid the bill (you, unless a trip friend did)
         # member id → when they paid you back; kept for people whose share didn't change
         "paid": _kept_paid(doc.get("split"), members, shares),
         "updatedAt": now.isoformat(),

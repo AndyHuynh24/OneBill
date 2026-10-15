@@ -11,6 +11,7 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from api.documents import trip_keys as trips
 from documents import store as documents_store
 from documents.confidence import after_edit
 from documents.extraction import DEADLINE_TYPES, LINE_KINDS, NO_TOTAL_TYPES
@@ -107,11 +108,13 @@ def create_upload(
     size_bytes: int,
     now: datetime,
     enforce_limits: bool = True,
+    trip_id: str | None = None,
 ) -> dict[str, Any]:
     """Reserve quota, record a pending DOC item, and return a presigned POST for the browser.
 
     `enforce_limits=False` skips the daily counts (a temporary testing switch); the per-file
-    checks always apply.
+    checks always apply. `trip_id`: scanned from a trip's own button, so it joins that trip
+    (it must be the caller's, and still on). The main Scan button never joins a trip.
     """
     owner = OWNERS_GROUP in groups
     if content_type not in ALLOWED_TYPES:
@@ -121,6 +124,13 @@ def create_upload(
     display_name = _display_name(filename)
     if not display_name:
         raise BadRequest("A file name is required.")
+    # Checked before any quota is used; re-checked in the write itself (the trip could end).
+    if trip_id is not None and not (
+        isinstance(trip_id, str)
+        and is_valid_id(trip_id)
+        and trips.is_active(table, user_id, trip_id)
+    ):
+        raise BadRequest("That trip isn't on any more. Scan with the main button instead.")
 
     day = now.date().isoformat()
     if enforce_limits:
@@ -144,24 +154,24 @@ def create_upload(
     doc_id = new_id(int(now.timestamp() * 1000))
     key = f"uploads/{user_id}/{doc_id}"
     timestamp = now.isoformat()
-    table.put_item(
-        Item={
-            "PK": f"USER#{user_id}",
-            "SK": f"DOC#{doc_id}",
-            "type": "DOCUMENT",
-            "docId": doc_id,
-            "status": "pending_upload",
-            "s3Key": key,
-            "filename": display_name,
-            "contentType": content_type,
-            "sizeBytes": size_bytes,
-            "createdAt": timestamp,
-            "updatedAt": timestamp,
-            # The owner's PDFs are counted but never refused by the shared monthly page budget.
-            **({"owner": True} if owner else {}),
-        },
-        ConditionExpression="attribute_not_exists(PK)",
-    )
+    item = {
+        "PK": f"USER#{user_id}",
+        "SK": f"DOC#{doc_id}",
+        "type": "DOCUMENT",
+        "docId": doc_id,
+        "status": "pending_upload",
+        "s3Key": key,
+        "filename": display_name,
+        "contentType": content_type,
+        "sizeBytes": size_bytes,
+        "createdAt": timestamp,
+        "updatedAt": timestamp,
+        # The owner's PDFs are counted but never refused by the shared monthly page budget.
+        **({"owner": True} if owner else {}),
+    }
+    # A trip that ended mid-upload: the scan is still saved, just not in the trip.
+    if not (trip_id and trips.put_in_trip(table, item, user_id, trip_id)):
+        table.put_item(Item=item, ConditionExpression="attribute_not_exists(PK)")
     # A POST policy (unlike a presigned PUT) lets S3 itself refuse oversized or mistyped files.
     post = s3.generate_presigned_post(
         Bucket=bucket,
@@ -454,12 +464,13 @@ _SUMMARY_ATTRS = (
     "failureReason",
     "source",  # "email" for labelled emails read like a scan
     "confidence",  # {"level", "checks"}: the list shows a ✓ or "Check" badge
+    "tripId",  # in a trip: settled on the trip, not per receipt
 )
 
 
 def _summary(item: dict[str, Any]) -> dict[str, Any]:
     summary = _plain({k: item[k] for k in _SUMMARY_ATTRS if k in item})
-    if item.get("split"):
+    if item.get("split") and not item.get("tripId"):  # a trip settles as a whole
         summary["owedCents"] = _owed_cents(item["split"])
     return summary
 

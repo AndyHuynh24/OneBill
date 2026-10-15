@@ -12,12 +12,21 @@ const app = new App();
 
 // Everything lives in us-east-1 (SES inbound email is only offered in a few regions).
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" };
-// Where the app runs: the public site ("publicUrl", once it exists) and local dev. Sign-in
-// redirects, API CORS, and upload CORS allow each; emails link to the public site.
+
+// Two copies of the app: production ("OneBill-*") and staging ("OneBill-Staging-*", with
+// `-c stage=staging`), where new features are tested before they reach real users.
+const stage: string = app.node.tryGetContext("stage") ?? "prod";
+if (stage !== "prod" && stage !== "staging") throw new Error(`Unknown stage "${stage}": use prod or staging.`);
+const staging = stage === "staging";
+const prefix = staging ? "OneBill-Staging" : "OneBill";
+
+// Where the app runs: the public site and local dev. Sign-in redirects, API CORS, and upload
+// CORS allow each; emails link to the public site.
 const devUrl: string = app.node.getContext("devUrl");
-const publicUrl: string | undefined = app.node.tryGetContext("publicUrl") || undefined;
-// Other addresses that also serve the app (e.g. CloudFront behind a nicer main address).
-const otherUrls: string[] = app.node.tryGetContext("otherUrls") ?? [];
+const publicUrl: string | undefined =
+  app.node.tryGetContext(staging ? "stagingUrl" : "publicUrl") || undefined;
+// Other addresses that also serve production (e.g. CloudFront behind a nicer main address).
+const otherUrls: string[] = staging ? [] : (app.node.tryGetContext("otherUrls") ?? []);
 const frontendUrls = [...(publicUrl ? [publicUrl] : []), ...otherUrls, devUrl];
 const appUrl = publicUrl ?? devUrl;
 
@@ -27,16 +36,18 @@ const dailyLimits = app.node.tryGetContext("dailyLimits") !== "off";
 // Photo tiles next to the OCR text: "photoTiles" in cdk.json, so it's reviewed in a PR.
 const photoTiles = app.node.tryGetContext("photoTiles") === "on";
 
-const data = new DataStack(app, "OneBill-Data", { env, frontendUrls });
+const data = new DataStack(app, `${prefix}-Data`, { env, frontendUrls });
 
-const auth = new AuthStack(app, "OneBill-Auth", {
+const auth = new AuthStack(app, `${prefix}-Auth`, {
   env,
-  domainPrefix: app.node.getContext("authDomainPrefix"),
+  // Sign-in domains are unique across AWS; staging gets its own.
+  domainPrefix: `${app.node.getContext("authDomainPrefix")}${staging ? "-staging" : ""}`,
   frontendUrls,
-  googleClientId: app.node.tryGetContext("googleClientId"),
+  // Google only allows the redirect URLs registered for it, which are production's.
+  googleClientId: staging ? undefined : app.node.tryGetContext("googleClientId"),
 });
 
-new ApiStack(app, "OneBill-Api", {
+new ApiStack(app, `${prefix}-Api`, {
   env,
   table: data.table,
   docsBucket: data.docsBucket,
@@ -49,7 +60,7 @@ new ApiStack(app, "OneBill-Api", {
   bedrockModelId: app.node.getContext("bedrockModelId"),
 });
 
-new PipelineStack(app, "OneBill-Pipeline", {
+new PipelineStack(app, `${prefix}-Pipeline`, {
   env,
   table: data.table,
   docsBucket: data.docsBucket,
@@ -65,7 +76,7 @@ new PipelineStack(app, "OneBill-Pipeline", {
 // The public website. `make deploy-web` builds the frontend first; without a build,
 // the stack still synthesizes (bucket and distribution, nothing uploaded).
 const siteDir = join(__dirname, "..", "..", "frontend", "dist");
-new WebStack(app, "OneBill-Web", {
+new WebStack(app, `${prefix}-Web`, {
   env,
   siteDir: existsSync(join(siteDir, "index.html")) ? siteDir : undefined,
 });
@@ -74,7 +85,7 @@ new WebStack(app, "OneBill-Web", {
 //   npx cdk deploy OneBill-Account -c budgetEmail=you@example.com
 // Only synthesized when the email is supplied, so it never needs to be committed or set in CI.
 const budgetEmail: string | undefined = app.node.tryGetContext("budgetEmail");
-if (budgetEmail) {
+if (budgetEmail && !staging) {
   new AccountStack(app, "OneBill-Account", {
     env,
     budgetEmail,

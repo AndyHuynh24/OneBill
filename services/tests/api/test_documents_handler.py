@@ -77,6 +77,14 @@ def test_post_documents_validates_body(handler):
     assert status == 400
 
 
+def test_a_scan_into_a_trip_that_isnt_yours_or_isnt_on_is_400(handler):
+    body = NEW_DOC | {"tripId": "1790000000000aaaaaaaa"}
+    status, response = call(handler, http_event("POST", "/documents", UPLOADER, body))
+
+    assert status == 400
+    assert "trip" in response["message"]
+
+
 def test_user_id_comes_only_from_claims(handler):
     body = NEW_DOC | {"userId": "user-b"}
 
@@ -273,6 +281,33 @@ def test_put_split_saves_a_stale_resave_is_409_and_people_can_be_marked_paid(han
     )
     status, body = call(handler, event)
     assert status == 400  # you can't owe yourself
+
+
+def test_trip_routes_start_list_and_end(handler, table):
+    me = {"sub": "user-a"}
+    people = [{"name": "Me", "self": True}, {"name": "Minh"}]
+
+    status, trip = call(
+        handler, http_event("POST", "/trips", me, body={"name": "Chicago", "members": people})
+    )
+    assert status == 201
+    status, again = call(
+        handler, http_event("POST", "/trips", me, body={"name": "Denver", "members": people})
+    )
+    assert status == 409
+
+    status, listed = call(handler, http_event("GET", "/trips", me))
+    assert (status, listed["active"]["name"]) == (200, "Chicago")
+
+    path = f"/trips/{trip['tripId']}"
+    params = {"tripId": trip["tripId"]}
+    status, ended = call(
+        handler, http_event("PATCH", path, me, body={"end": True}, path_params=params)
+    )
+    assert (status, ended["status"]) == (200, "ended")
+
+    status, _ = call(handler, http_event("GET", path, {"sub": "user-b"}, path_params=params))
+    assert status == 404  # someone else's trip
 
 
 # --- subscriptions and the Gmail connection (signed in) -------------------------------------

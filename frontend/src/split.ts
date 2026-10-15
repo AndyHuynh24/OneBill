@@ -1,5 +1,5 @@
 /** Split-bill helpers for the screens. Final shares are always computed by the server. */
-import type { DocumentLine, Split } from "./api";
+import type { DocumentDetail, DocumentLine, Split, SplitRequest } from "./api";
 import { formatCents, formatDate } from "./format";
 
 export const MAX_PEOPLE = 12;
@@ -98,4 +98,29 @@ export function assignLabel(names: string[]): string {
   if (names.length === 1) return `Give to ${names[0]}`;
   if (names.length === 2) return `Split among ${names[0]} & ${names[1]}`;
   return `Split among ${names[0]}, ${names[1]} +${names.length - 2}`;
+}
+
+/**
+ * "Split evenly" for a trip receipt nobody has split yet: every item and discount shared by
+ * everyone, tax/tip/fees by what each person had (tax is skipped when prices include it).
+ * The server still computes every share.
+ */
+export function evenSplit(doc: DocumentDetail, people: Person[], paidBy?: number): SplitRequest {
+  const everyone = people.map((_, seat) => seat);
+  const assignments: Record<string, number[]> = {};
+  const charges: SplitRequest["charges"] = {};
+  for (const line of doc.lines ?? []) {
+    if (line.kind === "item" || line.kind === "discount") assignments[String(line.row)] = everyone;
+    else if (line.kind === "fee" || line.kind === "tip" || (line.kind === "tax" && !doc.taxIncluded)) {
+      charges[String(line.row)] = { mode: "proportional" };
+    }
+  }
+  return {
+    members: people.map((p) => (p.self ? { name: p.name, self: true } : { name: p.name })),
+    assignments,
+    charges,
+    expectedVersion: doc.split?.version ?? 0,
+    expectedUpdatedAt: doc.updatedAt ?? "",
+    ...(paidBy !== undefined ? { paidBy } : {}),
+  };
 }

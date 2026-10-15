@@ -7,6 +7,12 @@ export const ACCEPTED_TYPES = "image/jpeg,image/png,application/pdf";
 interface ScanButtonProps {
   onFile: (file: File) => void;
   busy?: boolean;
+  /** The button's text (the trip card's says "Scan for trip"). */
+  label?: string;
+  /** Who it's for, added to the inputs' names, e.g. "for Chicago" (a second Scan on screen). */
+  purpose?: string;
+  /** The trip card's small inline button instead of the fixed bottom bar. */
+  inline?: boolean;
 }
 
 /**
@@ -14,7 +20,8 @@ interface ScanButtonProps {
  * (`capture="environment"`), Upload picks a photo, screenshot, or PDF. A phone's own menu can't
  * choose the camera, so the app shows the choice itself.
  */
-export function ScanButton({ onFile, busy = false }: ScanButtonProps) {
+export function ScanButton({ onFile, busy = false, label = "Scan receipt", purpose, inline = false }: ScanButtonProps) {
+  const suffix = purpose ? ` ${purpose}` : "";
   const camera = useRef<HTMLInputElement>(null);
   const upload = useRef<HTMLInputElement>(null);
   const [choosing, setChoosing] = useState(false);
@@ -32,15 +39,15 @@ export function ScanButton({ onFile, busy = false }: ScanButtonProps) {
   };
 
   return (
-    <div className="scan-bar">
+    <div className={inline ? "scan-inline" : "scan-bar"}>
       <input
         ref={camera}
-        id="scan-input"
+        id={inline ? undefined : "scan-input"}
         type="file"
         accept="image/*"
         capture="environment"
         className="visually-hidden"
-        aria-label="Scan a receipt with the camera"
+        aria-label={`Scan a receipt${suffix} with the camera`}
         disabled={busy}
         onChange={pick}
       />
@@ -49,13 +56,13 @@ export function ScanButton({ onFile, busy = false }: ScanButtonProps) {
         type="file"
         accept={ACCEPTED_TYPES}
         className="visually-hidden"
-        aria-label="Upload a photo or PDF"
+        aria-label={`Upload a photo or PDF${suffix}`}
         disabled={busy}
         onChange={pick}
       />
       <button
         type="button"
-        className="scan-button"
+        className={inline ? "trip-scan" : "scan-button"}
         disabled={busy}
         aria-haspopup="dialog"
         onClick={() => setChoosing(true)}
@@ -74,7 +81,7 @@ export function ScanButton({ onFile, busy = false }: ScanButtonProps) {
           <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z" />
           <circle cx="12" cy="12.5" r="3.5" />
         </svg>
-        <span>{busy ? "Uploading…" : "Scan receipt"}</span>
+        <span>{busy ? "Uploading…" : label}</span>
       </button>
 
       {choosing &&

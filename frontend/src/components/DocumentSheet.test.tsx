@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { OneBillApi } from "../api";
-import { DINNER, RECEIPT, fakeApi } from "../test/fakeApi";
+import { DINNER, RECEIPT, TRIP, TRIP_DETAIL, fakeApi } from "../test/fakeApi";
 import { DocumentSheet } from "./DocumentSheet";
 
 function renderSheet(api: OneBillApi, onClose = vi.fn(), docId = RECEIPT.docId) {
@@ -250,5 +250,37 @@ describe("DocumentSheet", () => {
 
     expect(api.deleteDocument).toHaveBeenCalledWith(DINNER.docId);
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("shows the trip a receipt is in, and can take it out", async () => {
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue({ ...DINNER, tripId: "trip-1" }),
+      getTrip: vi.fn().mockResolvedValue(TRIP_DETAIL),
+    });
+    renderSheet(api, vi.fn(), DINNER.docId);
+
+    expect(await screen.findByText(/in trip: chicago/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /remove from trip/i }));
+
+    expect(api.removeFromTrip).toHaveBeenCalledWith("trip-1", DINNER.docId);
+  });
+
+  it("a receipt scanned with the main button can be put in any trip, current or past", async () => {
+    const past = { ...TRIP, tripId: "trip-0", name: "Denver", status: "ended" as const };
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue(DINNER),
+      listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [past] }),
+    });
+    renderSheet(api, vi.fn(), DINNER.docId);
+
+    const picker = await screen.findByRole("combobox", { name: /add to a trip/i });
+    expect(within(picker).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Add to a trip…",
+      "Chicago (on now)",
+      "Denver",
+    ]);
+    await userEvent.selectOptions(picker, "trip-0");
+
+    expect(api.addToTrip).toHaveBeenCalledWith("trip-0", DINNER.docId);
   });
 });

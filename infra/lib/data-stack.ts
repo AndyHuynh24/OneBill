@@ -6,7 +6,7 @@ import { Construct } from "constructs";
 /**
  * Storage for every user's data: one single-table DynamoDB table (records) and one
  * S3 bucket (documents), both encrypted at rest with AWS-owned keys.
- * Keys: PK `USER#<id>` (or `GLOBAL`), SK `<TYPE>#<id>`; GSI1 for due dates, GSI2 for groups.
+ * Keys: PK `USER#<id>` (or `GLOBAL`), SK `<TYPE>#<id>`; GSI1 for due dates, GSI2 for trips (and groups).
  */
 export interface DataStackProps extends StackProps {
   /** Browser origin allowed to POST uploads straight to the docs bucket (presigned POST). */
@@ -48,7 +48,10 @@ export class DataStack extends Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // GSI2: a user's groups. Sparse: only MEMBER# items set GSI2PK.
+    // GSI2: sparse, and every key starts with the owner's own `USER#<id>`:
+    //   - a trip's receipts: DOC# items in a trip set GSI2PK = USER#<id>#TRIP#<tripId>
+    //   - a user's groups (planned): MEMBER# items.
+    // Queries always build the key from the signed-in user's id, so they can't reach another user.
     this.table.addGlobalSecondaryIndex({
       indexName: "GSI2",
       partitionKey: { name: "GSI2PK", type: dynamodb.AttributeType.STRING },

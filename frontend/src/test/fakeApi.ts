@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { DocumentDetail, OneBillApi, Subscription } from "../api";
+import type { DocumentDetail, OneBillApi, Subscription, TripDetail, TripSummary } from "../api";
 
 export const RECEIPT: DocumentDetail = {
   docId: "1790000000000aaaaaaaa",
@@ -59,6 +59,36 @@ export const NETFLIX: Subscription = {
   issues: [],
 };
 
+export const TRIP: TripSummary = {
+  tripId: "trip-1",
+  name: "Chicago",
+  members: [
+    { name: "Me", self: true },
+    { name: "Minh", self: false },
+    { name: "Linh", self: false },
+  ],
+  status: "active",
+  startedAt: "2026-10-03T18:00:00Z",
+  receiptCount: 2,
+  totalCents: 15000,
+};
+
+export const TRIP_DETAIL: TripDetail = {
+  ...TRIP,
+  totalCents: 15000,
+  receipts: [
+    { docId: "gas", vendor: "SHELL", documentDate: "2026-10-04", totalCents: 6000, currency: "USD", status: "ready", split: true, paidBy: "Minh" },
+    { docId: "dinner", vendor: "THAI BASIL", documentDate: "2026-10-03", totalCents: 9000, currency: "USD", status: "ready", split: true, paidBy: "Me" },
+  ],
+  spent: { Me: 5000, Minh: 5000, Linh: 5000 },
+  payments: [
+    { from: "Linh", to: "Me", amountCents: 4000, settledAt: null },
+    { from: "Linh", to: "Minh", amountCents: 1000, settledAt: null },
+  ],
+  unsplit: [],
+  balancesChanged: false,
+};
+
 /** An OneBillApi whose every method is a vi.fn() with an empty, successful default. */
 export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
   return {
@@ -90,6 +120,14 @@ export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
     deleteDocument: vi.fn().mockResolvedValue(undefined),
     saveSplit: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0 }),
     setSplitPaid: vi.fn().mockResolvedValue({ version: 1, members: [], shares: [], totalCents: 0, paid: {} }),
+    listTrips: vi.fn().mockResolvedValue({ active: null, past: [] }),
+    startTrip: vi.fn().mockResolvedValue(TRIP),
+    getTrip: vi.fn().mockResolvedValue(TRIP_DETAIL),
+    updateTrip: vi.fn().mockResolvedValue({ ...TRIP, status: "ended" }),
+    deleteTrip: vi.fn().mockResolvedValue(undefined),
+    setTripSettled: vi.fn().mockResolvedValue(TRIP_DETAIL),
+    addToTrip: vi.fn().mockResolvedValue(undefined),
+    removeFromTrip: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

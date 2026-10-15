@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type OneBillApi } from "../api";
-import { NETFLIX, fakeApi } from "../test/fakeApi";
+import { NETFLIX, TRIP, fakeApi } from "../test/fakeApi";
 import { type AuthStatus, Home } from "./Home";
 
 function renderHome(status: AuthStatus, api: OneBillApi = fakeApi()) {
@@ -371,5 +371,44 @@ describe("Home — signed in", () => {
     await userEvent.click(await screen.findByRole("button", { name: /sign out/i }));
 
     expect(props.onSignOut).toHaveBeenCalledOnce();
+  });
+
+  it("offers to start a trip", async () => {
+    renderHome("signedIn");
+
+    await userEvent.click(await screen.findByRole("button", { name: /start a trip/i }));
+
+    expect(screen.getByRole("dialog", { name: /start a trip/i })).toBeInTheDocument();
+  });
+
+  it("the trip card's own Scan button puts the receipt in that trip", async () => {
+    const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
+    renderHome("signedIn", api);
+    const file = new File(["jpeg"], "dinner.jpg", { type: "image/jpeg" });
+
+    await userEvent.upload(await screen.findByLabelText("Upload a photo or PDF for Chicago"), file);
+
+    expect(api.uploadDocument).toHaveBeenCalledWith(file, "trip-1");
+  });
+
+  it("the main Scan button never puts a receipt in a trip", async () => {
+    const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
+    renderHome("signedIn", api);
+    const file = new File(["jpeg"], "receipt.jpg", { type: "image/jpeg" });
+
+    await screen.findByLabelText("Upload a photo or PDF for Chicago");
+    await userEvent.upload(screen.getByLabelText("Upload a photo or PDF"), file);
+
+    expect(api.uploadDocument).toHaveBeenCalledWith(file);
+  });
+
+  it("shows the trip that's on and opens it", async () => {
+    const api = fakeApi({ listTrips: vi.fn().mockResolvedValue({ active: TRIP, past: [] }) });
+    renderHome("signedIn", api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /open chicago/i }));
+
+    expect(await screen.findByRole("dialog", { name: "Chicago" })).toBeInTheDocument();
+    expect(api.getTrip).toHaveBeenCalledWith("trip-1");
   });
 });

@@ -30,6 +30,25 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
     refetchInterval: (query) => (isReading(query.state.data?.status) ? 1500 : false),
   });
   const [mode, setMode] = useState<"view" | "ask" | "split" | "confirm-delete">("view");
+  // Trips: the one this receipt is in (its people start a split), or the one that's on.
+  const trips = useQuery({ queryKey: ["trips"], queryFn: api.listTrips });
+  const trip = useQuery({
+    queryKey: ["trip", doc?.tripId],
+    queryFn: () => api.getTrip(doc!.tripId!),
+    enabled: !!doc?.tripId,
+  });
+  const tripPeople = trip.data?.members.map((m) => (m.self ? { name: m.name, self: true } : { name: m.name }));
+  // Any of your trips, current or past: a receipt scanned with the main button can still join one.
+  const allTrips = [...(trips.data?.active ? [trips.data.active] : []), ...(trips.data?.past ?? [])];
+  const membership = useMutation({
+    mutationFn: ({ tripId, add }: { tripId: string; add: boolean }) =>
+      add ? api.addToTrip(tripId, docId) : api.removeFromTrip(tripId, docId),
+    onSuccess: () => {
+      for (const key of [["document", docId], ["documents"], ["trips"], ["trip"]]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
   useBackLayer(mode !== "view", () => setMode("view")); // Back leaves splitting before the sheet
 
   const review = useMutation({
@@ -203,7 +222,7 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
             )}
 
             {mode === "split" ? (
-              <SplitFlow api={api} doc={doc} onCancel={() => setMode("view")} onClose={onClose} />
+              <SplitFlow api={api} doc={doc} tripPeople={tripPeople} onCancel={() => setMode("view")} onClose={onClose} />
             ) : mode === "ask" ? (
               <div className="split-prompt">
                 <h3>Split this bill?</h3>
@@ -274,6 +293,38 @@ export function DocumentSheet({ api, docId, onClose }: DocumentSheetProps) {
                   >
                     {!splittable ? "No items to split" : doc.split ? "View split" : "Split bill"}
                   </button>
+                )}
+                {doc.tripId ? (
+                  <p className="trip-link muted">
+                    In trip: {trip.data?.name ?? "…"} ·{" "}
+                    <button
+                      type="button"
+                      className="link-button"
+                      disabled={membership.isPending}
+                      onClick={() => membership.mutate({ tripId: doc.tripId!, add: false })}
+                    >
+                      Remove from trip
+                    </button>
+                  </p>
+                ) : (
+                  allTrips.length > 0 &&
+                  doc.status !== "failed" && (
+                    <label className="trip-link trip-picker">
+                      <span className="visually-hidden">Add to a trip</span>
+                      <select
+                        value=""
+                        disabled={membership.isPending}
+                        onChange={(e) => e.target.value && membership.mutate({ tripId: e.target.value, add: true })}
+                      >
+                        <option value="">Add to a trip…</option>
+                        {allTrips.map((t) => (
+                          <option key={t.tripId} value={t.tripId}>
+                            {t.status === "active" ? `${t.name} (on now)` : t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )
                 )}
               </>
             )}

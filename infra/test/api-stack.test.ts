@@ -146,6 +146,14 @@ describe("ApiStack — /me Lambda", () => {
     expect(actionsOf(statements, "s3:")).toEqual([]);
   });
 
+  it("lets the documents API query only GSI2 (a trip's receipts), read-only", () => {
+    const statements = statementsFor("api.documents.handler.handler");
+    const onIndexes = statements.filter((st) => JSON.stringify(st.Resource).includes("/index/"));
+    expect(onIndexes).toHaveLength(1);
+    expect([onIndexes[0].Action].flat()).toEqual(["dynamodb:Query"]);
+    expect(JSON.stringify(onIndexes[0].Resource)).toContain("/index/GSI2");
+  });
+
   it("needs no KMS permissions: data is encrypted with AWS-owned keys", () => {
     const actions = Object.values(template.findResources("AWS::IAM::Policy")).flatMap((p) =>
       p.Properties.PolicyDocument.Statement.flatMap((st: { Action: string | string[] }) => [st.Action].flat()),
@@ -181,6 +189,14 @@ describe("ApiStack — documents API", () => {
     "DELETE /obligations/{oblId}",
     "DELETE /documents/{docId}",
     "POST /usage/renew",
+    "POST /trips",
+    "GET /trips",
+    "GET /trips/{tripId}",
+    "PATCH /trips/{tripId}",
+    "DELETE /trips/{tripId}",
+    "PUT /trips/{tripId}/settled",
+    "PUT /trips/{tripId}/documents/{docId}",
+    "DELETE /trips/{tripId}/documents/{docId}",
   ])(
     "protects %s with the JWT authorizer",
     (routeKey) => {
@@ -203,13 +219,15 @@ describe("ApiStack — documents API", () => {
     });
   });
 
-  it("grants documents only the DynamoDB calls it makes: no Scan, no indexes", () => {
+  it("grants documents only the DynamoDB calls it makes: no Scan, and no index but GSI2", () => {
     const statements = statementsFor("api.documents.handler.handler");
     expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:ConditionCheckItem", // a scan joins a trip only while it's still the active one
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:Query",
+      "dynamodb:Query", // GSI2 only: a trip's receipts
       "dynamodb:UpdateItem",
     ]);
     const dynamo = statements.find((st) => actionsOf([st], "dynamodb:").length);

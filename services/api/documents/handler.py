@@ -17,7 +17,7 @@ from aws_lambda_powertools.event_handler.exceptions import UnauthorizedError
 from aws_lambda_powertools.logging import correlation_paths
 from botocore.config import Config
 
-from api.documents import logic, splits
+from api.documents import logic, splits, trips
 from shared.dates import app_today, parse_iso_date
 from subscriptions import ingest as ingest_keys
 from subscriptions import store as subscriptions
@@ -84,6 +84,8 @@ def create_document() -> tuple[dict[str, Any], int]:
         now=datetime.now(UTC),
         # Temporary testing switch, set only by `cdk deploy -c dailyLimits=off`.
         enforce_limits=os.environ.get("DAILY_LIMITS", "on") != "off",
+        # The trip tile's own Scan button; checked against the caller's own trips.
+        trip_id=body.get("tripId"),
     )
     logger.info("upload_created", extra={"docId": result["docId"]})
     return result, 201
@@ -185,6 +187,72 @@ def set_split_paid(doc_id: str) -> dict[str, Any]:
     # Counts only: names stay out of logs.
     logger.info("split_paid_marked", extra={"docId": doc_id, "paid": len(split["paid"])})
     return split
+
+
+# --- trips (names stay out of logs: ids and counts only) ------------------------------------------
+
+
+def _body() -> dict[str, Any]:
+    body = app.current_event.json_body or {}
+    if not isinstance(body, dict):
+        raise logic.BadRequest("Body must be a JSON object.")
+    return body
+
+
+@app.post("/trips")
+@tracer.capture_method
+def create_trip() -> tuple[dict[str, Any], int]:
+    trip = trips.create_trip(table, _user_id(), _body(), datetime.now(UTC))
+    logger.info("trip_started", extra={"tripId": trip["tripId"], "people": len(trip["members"])})
+    return trip, 201
+
+
+@app.get("/trips")
+@tracer.capture_method
+def list_trips() -> dict[str, Any]:
+    return trips.list_trips(table, _user_id())
+
+
+@app.get("/trips/<trip_id>")
+@tracer.capture_method
+def get_trip(trip_id: str) -> dict[str, Any]:
+    return trips.get_trip(table, _user_id(), trip_id)
+
+
+@app.patch("/trips/<trip_id>")
+@tracer.capture_method
+def update_trip(trip_id: str) -> dict[str, Any]:
+    trip = trips.update_trip(table, _user_id(), trip_id, _body(), datetime.now(UTC))
+    logger.info("trip_updated", extra={"tripId": trip_id, "status": trip["status"]})
+    return trip
+
+
+@app.delete("/trips/<trip_id>")
+@tracer.capture_method
+def delete_trip(trip_id: str) -> tuple[dict[str, Any], int]:
+    trips.delete_trip(table, _user_id(), trip_id)
+    logger.info("trip_deleted", extra={"tripId": trip_id})
+    return {}, 200
+
+
+@app.put("/trips/<trip_id>/settled")
+@tracer.capture_method
+def set_trip_settled(trip_id: str) -> dict[str, Any]:
+    return trips.set_settled(table, _user_id(), trip_id, _body(), datetime.now(UTC))
+
+
+@app.put("/trips/<trip_id>/documents/<doc_id>")
+@tracer.capture_method
+def add_trip_document(trip_id: str, doc_id: str) -> dict[str, Any]:
+    trips.add_document(table, _user_id(), trip_id, doc_id)
+    return {"tripId": trip_id, "docId": doc_id}
+
+
+@app.delete("/trips/<trip_id>/documents/<doc_id>")
+@tracer.capture_method
+def remove_trip_document(trip_id: str, doc_id: str) -> dict[str, Any]:
+    trips.remove_document(table, _user_id(), trip_id, doc_id)
+    return {"tripId": None, "docId": doc_id}
 
 
 @app.get("/subscriptions")

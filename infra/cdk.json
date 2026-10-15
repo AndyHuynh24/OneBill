@@ -18,6 +18,7 @@
     "devUrl": "http://localhost:5173",
     "publicUrl": "https://one-bill.web.app",
     "otherUrls": ["https://d15dn265bde61r.cloudfront.net"],
+    "stagingUrl": "https://dmpnetouwvgap.cloudfront.net",
     "photoTiles": "on",
     "gmailPasswordParameter": "/onebill/gmail-app-password",
     "bedrockModelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
