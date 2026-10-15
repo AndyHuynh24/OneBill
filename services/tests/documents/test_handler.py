@@ -378,6 +378,37 @@ def test_stage_timings_are_logged_without_document_content(env, caplog):
     assert "TARGET" not in json.dumps(entry, default=str)  # never document content
 
 
+def test_each_read_logs_and_keeps_its_estimated_cost(env, caplog):
+    """Textract page + Haiku tokens, in integer micro-dollars (list prices, an estimate)."""
+    version = upload(env)
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_correct.json")  # 2,100 tokens in, 650 out
+
+    run(env, s3_event(version=version))
+
+    cost = 10_000 + 2_100 * 1 + 650 * 5
+    assert doc(env)["costMicroUsd"] == cost
+    entry = logged(caplog, "document_processed")
+    assert entry["costMicroUsd"] == cost
+    assert entry["inputTokens"] == 2_100
+    assert "outputTokensPerSec" in entry
+
+
+def test_each_read_adds_to_the_app_ai_totals(env):
+    version = upload(env)
+    expect_analyze_sync(env, version)
+    expect_bedrock(env, "grocery_needs_repair.json")
+    expect_bedrock(env, "grocery_repaired.json")  # one read, two model calls
+
+    run(env, s3_event(version=version))
+
+    month = store_now().strftime("%Y-%m")
+    item = env["table"].get_item(Key={"PK": "GLOBAL", "SK": f"USAGE#{month}"})["Item"]
+    assert item["aiReads"] == 1
+    assert (item["inputTokens"], item["outputTokens"]) == (2_100 + 2_900, 650 + 640)
+    assert item["aiCostMicroUsd"] == 10_000 + 5_000 + 1_290 * 5
+
+
 def test_page_budget_is_skipped_when_daily_limits_are_off(env, monkeypatch):
     from documents import store
 
