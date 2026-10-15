@@ -391,16 +391,9 @@ def app_usage(table: Any, now: datetime) -> dict[str, Any]:
     Totals only: no user IDs or emails.
     """
     names = {"scans": "uploads", "pages": "pages", "emails": "emails", "renewals": "renewals"}
-    # Model reads (scans and emails) with their estimated cost: see shared/llm_cost.py.
-    ai_names = {
-        "reads": "aiReads",
-        "costMicroUsd": "aiCostMicroUsd",
-        "inputTokens": "inputTokens",
-        "outputTokens": "outputTokens",
-    }
 
-    def totals(item: dict[str, Any], labels: dict[str, str] = names) -> dict[str, int]:
-        return {label: int(item.get(attr, 0)) for label, attr in labels.items()}
+    def totals(item: dict[str, Any]) -> dict[str, int]:
+        return {label: int(item.get(attr, 0)) for label, attr in names.items()}
 
     today = now.date()
     dates = [(today - timedelta(days=i)).isoformat() for i in range(HISTORY_DAYS)]
@@ -417,15 +410,10 @@ def app_usage(table: Any, now: datetime) -> dict[str, Any]:
     )
     by_date = {item["SK"].removeprefix("USAGE#"): item for item in response.get("Items", [])}
     days = [{"date": d, **totals(by_date.get(d, {}))} for d in dates]
-    month = _usage_item(table, "GLOBAL", _month(now))
     return {
         "today": {k: v for k, v in days[0].items() if k != "date"},
         "days": days,
-        "month": totals(month),
-        "ai": {
-            "today": totals(by_date.get(dates[0], {}), ai_names),
-            "month": totals(month, ai_names),
-        },
+        "month": totals(_usage_item(table, "GLOBAL", _month(now))),
         "limits": {
             "scans": MONTHLY_APP_LIMIT,
             "pages": documents_store.MONTHLY_PAGE_BUDGET,

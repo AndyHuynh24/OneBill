@@ -9,7 +9,6 @@ from datetime import date, datetime
 from typing import Any
 
 from documents.email_bill import create_email_document, email_doc_id, read_email_bill
-from shared import llm_cost
 from shared.dates import APP_TIMEZONE, app_today
 from subscriptions.html_text import html_to_text, tidy_text
 from subscriptions.ingest import consume_email_quota, consume_request_quota, record_use
@@ -58,7 +57,6 @@ def process_email(
                 received=email["received"],
                 text=text,
             )
-            llm_cost.record(table, now, model_id, result.usage, result.model_ms)
             if result.is_subscription:
                 for sub in result.subscriptions:
                     save_subscription(table, user_id, sub, email["received"], now)
