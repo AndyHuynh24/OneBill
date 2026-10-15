@@ -84,7 +84,9 @@ export class ApiStack extends Stack {
       new iam.PolicyStatement({
         // Get/Query: read own items. Put: new DOC#, review OBL#. Update: quotas, renewals, review.
         // Delete: obligations replaced during review (inside a transaction).
+        // ConditionCheckItem: a scan joins a trip only if it's still the active one (transaction).
         actions: [
+          "dynamodb:ConditionCheckItem",
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:Query",

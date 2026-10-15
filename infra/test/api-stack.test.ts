@@ -222,6 +222,7 @@ describe("ApiStack — documents API", () => {
   it("grants documents only the DynamoDB calls it makes: no Scan, and no index but GSI2", () => {
     const statements = statementsFor("api.documents.handler.handler");
     expect(actionsOf(statements, "dynamodb:")).toEqual([
+      "dynamodb:ConditionCheckItem", // a scan joins a trip only while it's still the active one
       "dynamodb:DeleteItem",
       "dynamodb:GetItem",
       "dynamodb:PutItem",
