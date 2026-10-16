@@ -76,7 +76,7 @@ describe("Home — signed in", () => {
   it("shows friendly empty states", async () => {
     renderHome("signedIn");
 
-    expect(await screen.findByText(/tap scan receipt to add your first/i)).toBeInTheDocument();
+    expect(await screen.findByText(/tap scan or add to get started/i)).toBeInTheDocument();
     expect(screen.getByText(/nothing coming up/i)).toBeInTheDocument();
   });
 
@@ -421,5 +421,49 @@ describe("Home — signed in", () => {
     await userEvent.type(screen.getByRole("textbox", { name: /ask a question/i }), "Who owes me?{Enter}");
 
     expect(await screen.findByText("Minh owes you $40.00.")).toBeInTheDocument();
+  });
+
+  it("adds things by hand from the one Add menu", async () => {
+    renderHome("signedIn", fakeApi());
+    const menu = async () => userEvent.click(await screen.findByRole("button", { name: "Scan or add" }));
+
+    await menu();
+    await userEvent.click(screen.getByRole("button", { name: /type it in/i }));
+    expect(screen.getByRole("dialog", { name: "Type in a receipt" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await menu();
+    await userEvent.click(screen.getByRole("button", { name: /someone owes me money/i }));
+    expect(screen.getByRole("dialog", { name: "Someone owes me money" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await menu();
+    await userEvent.click(screen.getByRole("button", { name: /subscription or bill/i }));
+    expect(screen.getByRole("dialog", { name: /add a subscription or bill/i })).toBeInTheDocument();
+  });
+
+  it("shows who owes you on Home, only when someone does", async () => {
+    const owed = { docId: "o1", status: "ready" as const, vendor: "Concert ticket", kind: "owed" as const, person: "Minh", createdAt: "x", currency: "USD", totalCents: 5000, owedCents: 5000, owedBy: [{ name: "Minh", cents: 5000 }] };
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValue({
+        documents: [owed],
+        review: { reviewed: 0, acceptedUnchanged: 0, acceptanceRate: null },
+        usage: { dailyLimit: 3, usedToday: 0, leftToday: 3, renewalsLeft: 2 },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    expect(await screen.findByRole("button", { name: /owed to you/i })).toHaveTextContent("$50.00");
+  });
+
+  it("hides the chat button while the chat is open, and brings it back (without suggestions) after", async () => {
+    renderHome("signedIn", fakeApi());
+
+    await userEvent.click(await screen.findByRole("button", { name: "Ask OneBill" }));
+    expect(screen.queryByRole("button", { name: "Ask OneBill" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(await screen.findByRole("button", { name: "Ask OneBill" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Suggested question" })).not.toBeInTheDocument();
   });
 });
