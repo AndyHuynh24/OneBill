@@ -10,8 +10,17 @@ const CYCLE_MS = 6000;
 
 /** The chat button, bottom right, with one small suggestion beside it that cycles every few
  *  seconds. Tap it to ask. Opening the chat or × puts suggestions away until the app is next
- *  opened or reloaded. */
-export function AskLauncher({ suggestions, onOpen }: { suggestions: string[]; onOpen: (question?: string) => void }) {
+ *  opened or reloaded. While the chat is open the button is hidden (it stays mounted, so the
+ *  suggestions stay put away when it comes back). */
+export function AskLauncher({
+  suggestions,
+  chatOpen = false,
+  onOpen,
+}: {
+  suggestions: string[];
+  chatOpen?: boolean;
+  onOpen: (question?: string) => void;
+}) {
   const [hidden, setHidden] = useState(false);
   const [index, setIndex] = useState(0);
   const showing = !hidden && suggestions.length > 0;
@@ -28,6 +37,7 @@ export function AskLauncher({ suggestions, onOpen }: { suggestions: string[]; on
   }, [showing, suggestions.length]);
 
   const current = suggestions[index % Math.max(suggestions.length, 1)];
+  if (chatOpen) return null;
   return (
     <div className="ask-launcher">
       {showing && (

@@ -19,7 +19,7 @@ interface RecentDocumentsProps {
 
 export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentDocumentsProps) {
   if (!documents.length && !uploading.length) {
-    return <p className="muted">Nothing yet. Tap Scan receipt to add your first one.</p>;
+    return <p className="muted">Nothing yet. Tap Scan or add to get started.</p>;
   }
   return (
     <ul className="doc-list">
@@ -35,7 +35,7 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
           <li key={doc.docId}>
             <button type="button" className="doc-card" disabled={busy} onClick={() => onOpen(doc.docId)}>
               <span className={doc.vendor || !busy ? "doc-title" : "doc-title doc-title-reading"}>
-                {docTitle(doc)}
+                {doc.kind === "owed" ? `${doc.person ?? "Someone"} ${doc.owedCents ? "owes you" : "paid you back"}` : docTitle(doc)}
                 {doc.source === "email" && <span className="tag-email">Email</span>}
                 {(doc.confidence?.level === "confident" || doc.confidence?.level === "confirmed") && (
                   <span className="tag-sure" title="Confident: the amounts were found and add up" aria-label="Confident">
@@ -47,6 +47,7 @@ export function RecentDocuments({ documents, uploading, onOpen, limit }: RecentD
                 )}
               </span>
               <span className="doc-meta">
+                {doc.kind === "owed" && doc.vendor ? `${doc.vendor} · ` : ""}
                 {doc.documentDate ? formatDate(doc.documentDate) : ""}
                 {doc.totalCents != null ? ` · ${formatCents(doc.totalCents, doc.currency ?? "USD")}` : ""}
                 {/* On the meta line, not a chip: a "Check this" chip can share the row. */}

@@ -104,6 +104,8 @@ export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
     reviewDocument: vi.fn().mockResolvedValue({ ...RECEIPT, status: "ready" }),
     listObligations: vi.fn().mockResolvedValue({ obligations: [] }),
     uploadDocument: vi.fn().mockResolvedValue("new-doc"),
+    createManualBill: vi.fn().mockResolvedValue({ ...RECEIPT, docId: "typed-doc", source: "manual" }),
+    createOwed: vi.fn().mockResolvedValue({ ...RECEIPT, docId: "owed-doc", source: "manual", kind: "owed", person: "Minh" }),
     baseUrl: "https://api.example.com/",
     listSubscriptions: vi.fn().mockResolvedValue({
       subscriptions: [],

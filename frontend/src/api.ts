@@ -65,12 +65,33 @@ export interface DocumentSummary {
   createdAt: string;
   updatedAt?: string;
   reviewOutcome?: "accepted" | "corrected";
-  /** "email": a labelled email read like a scan. */
-  source?: "email";
+  /** "email": a labelled email read like a scan; "manual": typed in by hand. */
+  source?: "email" | "manual";
+  /** "owed": money someone owes you, typed in (a one-line bill split to them). */
+  kind?: "owed";
+  /** On "owed": who owes it. */
+  person?: string;
   /** On a split bill: what the others still owe you (0 once everyone has paid). */
   owedCents?: number;
+  /** On a split bill: who still owes you, and how much (absent once everyone has paid). */
+  owedBy?: { name: string; cents: number }[];
   /** In a trip: it settles with the trip, not on its own. */
   tripId?: string;
+}
+
+export interface ManualBill {
+  vendor: string;
+  date?: string;
+  items: { description: string; amountCents: number }[];
+  taxCents?: number;
+  tipCents?: number;
+}
+
+export interface NewOwed {
+  name: string;
+  amountCents: number;
+  note?: string;
+  date?: string;
 }
 
 export interface DocumentLine {
@@ -368,6 +389,10 @@ export interface OneBillApi {
   /** Ask the API for an upload ticket, then send the file straight to S3. */
   /** `tripId`: scanned from a trip's own button, so the receipt joins that trip. */
   uploadDocument(file: File, tripId?: string): Promise<string>;
+  /** A receipt typed in by hand (no photo): the server computes the total. */
+  createManualBill(bill: ManualBill): Promise<DocumentDetail>;
+  /** Money someone owes you: saved as a one-line bill split to them. */
+  createOwed(owed: NewOwed): Promise<DocumentDetail>;
   saveSplit(docId: string, request: SplitRequest): Promise<Split>;
   /** Tick (or untick) one person as having paid you back; refused (409) if the split changed. */
   setSplitPaid(docId: string, request: { member: string; paid: boolean; expectedVersion: number }): Promise<Split>;
@@ -437,6 +462,8 @@ export function createApi(apiUrl: string, getToken: TokenGetter, fetchImpl: type
       await call("DELETE", "ingest/keys");
     },
     addSubscription: (subscription) => call<Subscription>("POST", "subscriptions", subscription),
+    createManualBill: (bill) => call<DocumentDetail>("POST", "documents/manual", bill),
+    createOwed: (owed) => call<DocumentDetail>("POST", "documents/manual", { kind: "owed", ...owed }),
     deleteSubscription: async (key) => {
       await call("DELETE", `subscriptions/${encodeURIComponent(key)}`);
     },

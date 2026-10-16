@@ -452,3 +452,16 @@ def test_post_subscriptions_adds_one_by_hand(handler):
         )[0]
         == 400
     )
+
+
+def test_post_manual_creates_a_typed_bill_and_money_owed(handler):
+    bill = {"vendor": "Market", "items": [{"description": "Peaches", "amountCents": 600}]}
+    status, body = call(handler, http_event("POST", "/documents/manual", UPLOADER, bill))
+    assert (status, body["totalCents"], body["source"]) == (201, 600, "manual")
+
+    owed = {"kind": "owed", "name": "Minh", "amountCents": 5000}
+    status, body = call(handler, http_event("POST", "/documents/manual", UPLOADER, owed))
+    assert (status, body["kind"], body["split"]["members"][1]["name"]) == (201, "owed", "Minh")
+
+    status, _ = call(handler, http_event("POST", "/documents/manual", UPLOADER, {"vendor": "x"}))
+    assert status == 400

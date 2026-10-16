@@ -161,6 +161,8 @@ def list_bills(ctx: Context, args: dict[str, Any]) -> dict[str, Any]:
             continue
         if vendor and vendor.casefold() not in (doc.get("vendor") or "").casefold():
             continue
+        if doc.get("kind") == "owed":  # money lent isn't spending (get_splits has it)
+            continue
         matches.append(doc)
     matches.sort(key=lambda d: (_day(d), d["docId"]), reverse=True)
     bills = [_bill(d) for d in matches[:MAX_BILLS]]
@@ -351,6 +353,7 @@ DOC_FIELDS = [
     "currency",
     "split",
     "tripId",
+    "kind",
 ]
 
 

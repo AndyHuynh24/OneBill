@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import type { OneBillApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
 import { AddSubscription } from "./AddSubscription";
+import { OweMe, TypeBill } from "./AddByHand";
+import { OwedToYou } from "./OwedToYou";
+import { loadFriends } from "../friends";
 import { AskLauncher, AskSheet } from "./Ask";
 import { suggestedQuestions } from "../ask";
 import { AppUsage } from "./AppUsage";
@@ -84,6 +87,8 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const [openSub, setOpenSub] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [owing, setOwing] = useState(false);
   const [view, setView] = useState<"home" | "documents" | "subscriptions">("home");
   const shownSub = subscriptions.data?.subscriptions.find((s) => s.serviceKey === openSub);
 
@@ -108,6 +113,8 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   useBackLayer(scanning && openDoc === null, () => setScanning(false));
   useBackLayer(openSub !== null, () => setOpenSub(null));
   useBackLayer(adding, () => setAdding(false));
+  useBackLayer(typing, () => setTyping(false));
+  useBackLayer(owing, () => setOwing(false));
   useBackLayer(connecting, () => setConnecting(false));
   const exitHint = useExitHint();
 
@@ -214,6 +221,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
                 </button>
               )}
             </div>
+            {documents.data && <OwedToYou documents={allDocuments} onOpenDocument={setOpenDoc} />}
             {trips.data && (
               <TripCard
                 active={trips.data.active}
@@ -280,7 +288,13 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
         </p>
       )}
 
-      <ScanButton onFile={(file) => upload.mutate({ file })} busy={upload.isPending} />
+      <ScanButton
+        onFile={(file) => upload.mutate({ file })}
+        busy={upload.isPending}
+        onType={() => setTyping(true)}
+        onOwed={() => setOwing(true)}
+        onSubscription={() => setAdding(true)}
+      />
 
       {exitHint && (
         <p className="exit-hint" role="status">
@@ -293,7 +307,9 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
         <TripSheet api={api} tripId={openTrip} onClose={() => setOpenTrip(null)} onOpenDocument={setOpenDoc} />
       )}
       {startingTrip && <StartTrip api={api} onClose={() => setStartingTrip(false)} />}
-      {view === "home" && <AskLauncher suggestions={suggestions} onOpen={(q) => setQuestion(q ?? "")} />}
+      {view === "home" && (
+        <AskLauncher suggestions={suggestions} chatOpen={question !== null} onOpen={(q) => setQuestion(q ?? "")} />
+      )}
       {question !== null && (
         <AskSheet
           api={api}
@@ -306,6 +322,23 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
       {shownSub && <SubscriptionSheet api={api} subscription={shownSub} onClose={() => setOpenSub(null)} />}
       {adding && <AddSubscription api={api} onClose={() => setAdding(false)} />}
+      {typing && (
+        <TypeBill
+          api={api}
+          onClose={() => setTyping(false)}
+          onSaved={(docId) => {
+            setTyping(false);
+            setOpenDoc(docId); // straight to the bill, ready to split
+          }}
+        />
+      )}
+      {owing && (
+        <OweMe
+          api={api}
+          friends={profile.data ? loadFriends(profile.data.userId).map((f) => f.name) : []}
+          onClose={() => setOwing(false)}
+        />
+      )}
       {connecting && subscriptions.data && (
         <ConnectGmail api={api} connection={subscriptions.data.connection} onClose={() => setConnecting(false)} />
       )}

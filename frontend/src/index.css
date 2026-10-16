@@ -4403,3 +4403,112 @@ label,
   flex-wrap: wrap;
   gap: 0.4rem;
 }
+
+/* The Add menu: a thin line between receipts and the other things you can add. */
+.scan-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+/* "Owed to you": one quiet line on Home, only when someone owes you. */
+.owed-line {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 1rem;
+  text-align: left;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.owed-line-label {
+  font-weight: 600;
+}
+
+.owed-line-names {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.owed-people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.owed-person {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.owed-person-head,
+.owed-entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.owed-entry {
+  width: 100%;
+  padding: 0.35rem 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.owed-person .remind {
+  justify-self: start;
+}
+
+.owed-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+}
+
+/* Type in a receipt: item name and price side by side. */
+.typed-items {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.typed-item {
+  display: grid;
+  grid-template-columns: 1fr 6.5rem auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.typed-items .link-button {
+  justify-self: start;
+}
+
+.typed-extras {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.typed-total {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 1.05rem;
+}

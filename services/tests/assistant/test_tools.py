@@ -86,6 +86,15 @@ def test_list_bills_names_the_biggest_bill_so_the_model_doesnt_compare(table):
     assert result["biggest"]["totalCents"] == 10500
 
 
+def test_money_you_lent_isnt_spending(table):
+    bill(table, "d1", "TARGET", "2026-10-03", 1000)
+    bill(table, "d2", "Concert ticket", "2026-10-04", 5000, kind="owed")
+
+    result = tools.run(ctx(table), "list_bills", {})
+
+    assert (result["count"], result["totalCents"]) == (1, 1000)
+
+
 def test_list_bills_with_nothing_found_has_no_biggest(table):
     assert "biggest" not in tools.run(ctx(table), "list_bills", {})
 
