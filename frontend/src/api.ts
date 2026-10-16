@@ -261,6 +261,8 @@ export interface Obligation {
   dueDate: string;
   vendor?: string | null;
   amountCents?: number | null;
+  /** Set on the reminder a subscription or bill makes for itself (it's shown as that item). */
+  subKey?: string;
 }
 
 /** The caller's scans: `leftToday` today, and renewals (back to 0 once used up) this month. */
