@@ -4243,3 +4243,163 @@ label,
   gap: 0.3rem;
   margin-bottom: 0.6rem;
 }
+
+/* ---------- Ask OneBill ---------- */
+
+.ask-box input {
+  width: 100%;
+  font: inherit;
+  padding: 0.7rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.ask-box {
+  margin-bottom: 1rem;
+}
+
+.ask-sheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.ask-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 55dvh;
+  overflow-y: auto;
+  padding: 0.2rem 0;
+}
+
+.ask-message p {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+}
+
+.ask-user {
+  align-self: flex-end;
+  max-width: 85%;
+}
+
+.ask-user p {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.ask-assistant {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.ask-assistant p {
+  background: var(--surface-2);
+}
+
+.ask-sources {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.ask-follow-up {
+  margin: 0.6rem 0 0.2rem;
+}
+
+.ask-note {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+/* Chat button: bottom right, just above the Scan bar, with one small cycling suggestion
+   beside it (a single line, so it never covers much of the page). */
+.ask-launcher {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(5.75rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: calc(100vw - 2rem);
+}
+
+.ask-fab {
+  flex: none;
+  width: 3.2rem;
+  height: 3.2rem;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-text);
+  background: var(--accent-strong);
+  box-shadow: var(--shadow-lift);
+}
+
+.ask-hint {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 15rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.ask-hint-question {
+  min-width: 0;
+  padding: 0.4rem 0.2rem 0.4rem 0.75rem;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: fade-in 0.4s var(--ease) both;
+}
+
+.ask-hint-hide {
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.ask-suggestion {
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.ask-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ask-empty p {
+  padding: 0;
+  margin: 0;
+}
+
+.ask-suggestions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}

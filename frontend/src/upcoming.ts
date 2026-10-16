@@ -14,8 +14,13 @@ export interface UpcomingItem {
   warn?: boolean;
 }
 
-/** Reminders a subscription makes for itself: already shown as that subscription. */
+/** Reminder kinds only subscriptions make (for reminders saved before they carried `subKey`). */
 const SUBSCRIPTION_REMINDERS = new Set(["renewal", "trial_ends"]);
+
+/** A subscription's or hand-added bill's own reminder: it's already listed as that item. Told
+ *  apart by who made it (its `subKey`), not its kind: a bill's own reminder is "payment_due",
+ *  just like a due date read from a scanned bill. */
+const ownReminder = (o: Obligation) => !!o.subKey || SUBSCRIPTION_REMINDERS.has(o.kind);
 
 /**
  * Subscriptions and bill due dates in one list, soonest first. A subscription's own renewal
@@ -43,7 +48,7 @@ export function upcomingItems(subs: Subscription[], obligations: Obligation[], t
       warn: s.status === "payment_failed",
     }));
   const fromBills: UpcomingItem[] = obligations
-    .filter((o) => !SUBSCRIPTION_REMINDERS.has(o.kind) && o.dueDate >= todayIso)
+    .filter((o) => !ownReminder(o) && o.dueDate >= todayIso)
     .map((o) => ({
       key: `obl-${o.oblId}`,
       name: o.vendor || "Bill",
@@ -57,4 +62,4 @@ export function upcomingItems(subs: Subscription[], obligations: Obligation[], t
 }
 
 /** Due dates that came from bills (not subscriptions), for the full page's reminder list. */
-export const billReminders = (obligations: Obligation[]) => obligations.filter((o) => !SUBSCRIPTION_REMINDERS.has(o.kind));
+export const billReminders = (obligations: Obligation[]) => obligations.filter((o) => !ownReminder(o));

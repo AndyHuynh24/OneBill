@@ -128,6 +128,7 @@ export function fakeApi(overrides: Partial<OneBillApi> = {}): OneBillApi {
     setTripSettled: vi.fn().mockResolvedValue(TRIP_DETAIL),
     addToTrip: vi.fn().mockResolvedValue(undefined),
     removeFromTrip: vi.fn().mockResolvedValue(undefined),
+    ask: vi.fn().mockResolvedValue({ answer: "", sources: [], questionsLeft: 10 }),
     ...overrides,
   };
 }
