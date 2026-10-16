@@ -2,11 +2,12 @@
 repeats until it can answer. Written by hand, so every step is visible, capped, and testable.
 
 Caps (security and cost reviews): 4 model calls, 400 output tokens each, 3 tool calls per step
-and 8 per question, and no new model call after 15 s (each may take 12 s; the Lambda stops at 29
-s). The question and history are redacted before the model sees them. Numbers come from tools;
-the model only words the answer and names its sources.
+and 8 per question, 12,000 characters per tool result, and no new model call after 15 s (each
+may take 12 s; the Lambda stops at 29 s). The question and history are redacted before the model
+sees them. Numbers come from tools; the model only words the answer and names its sources.
 """
 
+import json
 import re
 import time
 from collections.abc import Callable
@@ -22,7 +23,9 @@ LAST_CALL_START = 15.0  # seconds in: a call started later could outlast the Lam
 MAX_OUTPUT_TOKENS = 400
 MAX_TOOLS_PER_STEP = 3
 MAX_TOOLS = 8
+MAX_RESULT_CHARS = 12_000  # about 3k tokens: keeps the worst question near $0.06
 TOOL_LIMIT = {"error": "Tool limit reached. Answer with what you already have."}
+TOO_BIG = {"error": "Too much data. Ask the tool a narrower question (a month, a store)."}
 GAVE_UP = "I couldn't finish that one. Try a narrower question, like a single month or store."
 _SOURCES = re.compile(r"^\s*SOURCES:\s*(?P<ids>.*)$", re.IGNORECASE | re.MULTILINE)
 
@@ -90,6 +93,8 @@ def ask(
                 this_step += 1
                 answer.tool_calls += 1
                 result = tools.run(ctx, use["name"], use.get("input") or {})
+                if len(json.dumps(result, default=str)) > MAX_RESULT_CHARS:
+                    result = TOO_BIG
             seen_ids.extend(_doc_ids(result))
             results.append(
                 {

@@ -5,6 +5,7 @@ the sign-in token, in `Context`, never a tool input) and does all the arithmetic
 from bills or emails is redacted before it's returned to the model.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -18,6 +19,15 @@ MAX_BILLS = 25
 MAX_TRIPS = 5
 MAX_LINES = 20
 MAX_QUERY = 200
+MAX_ITEM_BILLS = 5  # list_bills with include_items: the newest few, with every item
+MAX_PURCHASES = 25
+MAX_PRICE_CHANGES = 10
+ITEM_KINDS = frozenset({"item", "discount", "fee"})
+# Words that say what kind of question it is, not what was bought.
+_STOP = frozenset(
+    "a an and at bought buy cost did do for from go how i is item items last me much my of on "
+    "price prices the time to was went what when where which".split()
+)
 READ_STATUSES = frozenset({"ready", "needs_review"})
 # Monthly equivalent of each billing cycle, as a fraction: amount × n / d.
 PER_MONTH = {"weekly": (52, 12), "monthly": (1, 1), "quarterly": (1, 3), "yearly": (1, 12)}
@@ -29,8 +39,8 @@ class Context:
     table: Any
     user_id: str  # from the JWT, never from the model
     today: date
-    # Semantic search (RAG): a query → matching docIds, best first. None until it's set up.
-    search: Callable[[str], list[str]] | None = None
+    # Semantic search (RAG): a query → matching items as (docId, row), best first.
+    search: Callable[[str], list[tuple[str, int]]] | None = None
 
 
 class ToolError(ValueError):
@@ -41,8 +51,9 @@ SPECS: list[dict[str, Any]] = [
     {
         "name": "list_bills",
         "description": (
-            "The user's read receipts and bills, newest first, with the total of all matches. "
-            "Use for spending questions ('how much at Trader Joe's in September?')."
+            "The user's read receipts and bills, newest first, with the total of all matches and "
+            "the biggest one. Use for spending questions ('how much at Trader Joe's in "
+            "September?', 'my biggest purchase in October?')."
         ),
         "inputSchema": {
             "json": {
@@ -51,6 +62,11 @@ SPECS: list[dict[str, Any]] = [
                     "from": {"type": "string", "description": "First day, YYYY-MM-DD."},
                     "to": {"type": "string", "description": "Last day, YYYY-MM-DD."},
                     "vendor": {"type": "string", "description": "Part of the store's name."},
+                    "include_items": {
+                        "type": "boolean",
+                        "description": "Also return every item and price of the newest 5 bills "
+                        "(e.g. 'what did I buy at Costco last time?').",
+                    },
                 },
             }
         },
@@ -105,9 +121,10 @@ SPECS: list[dict[str, Any]] = [
     {
         "name": "search_items",
         "description": (
-            "Find bills by what was bought, by meaning (e.g. 'usb cable' finds 'USB C CBL 2M'). "
-            "Returns the matching bills with their lines and prices. Use for 'where did I buy', "
-            "'when did I last buy', and price-history questions."
+            "Find every purchase of an item across all bills, newest first, with date, store, "
+            "and price. Matches words ('egg' finds 'ORGANIC EGGS 12CT') and meaning ('usb "
+            "cable' finds 'USB C CBL 2M'). Use for 'what did X cost', 'when did I last buy', "
+            "'where did I buy', and price-history questions."
         ),
         "inputSchema": {
             "json": {
@@ -146,11 +163,14 @@ def list_bills(ctx: Context, args: dict[str, Any]) -> dict[str, Any]:
             continue
         matches.append(doc)
     matches.sort(key=lambda d: (_day(d), d["docId"]), reverse=True)
-    result: dict[str, Any] = {
-        "count": len(matches),
-        "bills": [_bill(d) for d in matches[:MAX_BILLS]],
-        **_totals(matches),
-    }
+    bills = [_bill(d) for d in matches[:MAX_BILLS]]
+    if args.get("include_items") is True:
+        for entry in bills[:MAX_ITEM_BILLS]:
+            entry["items"] = _items(_full(ctx, entry["docId"]) or {})
+    result: dict[str, Any] = {"count": len(matches), "bills": bills, **_totals(matches)}
+    priced = [d for d in matches if d.get("totalCents") is not None]
+    if priced and "totalCents" in result:  # one currency: totals can be compared
+        result["biggest"] = _bill(max(priced, key=lambda d: int(d["totalCents"])))
     if len(matches) > MAX_BILLS:
         result["note"] = f"Showing the newest {MAX_BILLS}; the total covers all {len(matches)}."
     return result
@@ -274,25 +294,38 @@ def get_trips(ctx: Context, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def search_items(ctx: Context, args: dict[str, Any]) -> dict[str, Any]:
+    """Every purchase matching the query, newest first: word matches over all bills, plus the
+    items the meaning search (RAG) finds that no word matched, marked `"match": "meaning"`."""
     query = _text(args.get("query"))
     if not query:
         raise ToolError("query is required.")
-    if ctx.search is None:
-        raise ToolError("Search isn't available right now; use list_bills instead.")
-    matches = []
-    for doc_id in ctx.search(query[:MAX_QUERY]):
-        doc = ctx.table.get_item(Key={"PK": f"USER#{ctx.user_id}", "SK": f"DOC#{doc_id}"}).get(
-            "Item"
-        )
-        if not doc or doc.get("status") not in READ_STATUSES:
-            continue  # deleted since it was indexed, or not read
-        lines = [
-            {"description": line["description"], "amountCents": _int(line["amountCents"])}
-            for line in doc.get("lines") or []
-            if line.get("kind") in {"item", "discount"}
-        ]
-        matches.append({**_bill(doc), "lines": lines[:MAX_LINES]})
-    return {"matches": matches}
+    words = _words(query) - _STOP
+    docs = [
+        d for d in _query(ctx, "DOC#", [*DOC_FIELDS, "lines"]) if d.get("status") in READ_STATUSES
+    ]
+    purchases = []
+    matched = set()
+    for doc in docs:
+        for line in _item_lines(doc):
+            if words and _matches(words, line["description"]):
+                purchases.append(_purchase(doc, line))
+                matched.add((doc["docId"], int(line["row"])))
+    if ctx.search is not None:
+        by_id = {d["docId"]: d for d in docs}
+        for doc_id, row in ctx.search(query[:MAX_QUERY]):
+            doc = by_id.get(doc_id)  # the caller's own, read bills only
+            line = next((ln for ln in _item_lines(doc or {}) if int(ln["row"]) == row), None)
+            if doc and line and (doc_id, row) not in matched:
+                purchases.append(_purchase(doc, line) | {"match": "meaning"})
+                matched.add((doc_id, row))
+    purchases.sort(key=lambda p: (p["date"], p["docId"]), reverse=True)
+    result: dict[str, Any] = {"purchases": purchases[:MAX_PURCHASES]}
+    changes = _price_changes(purchases)
+    if changes:
+        result["priceChanges"] = changes
+    if len(purchases) > MAX_PURCHASES:
+        result["note"] = f"Showing the newest {MAX_PURCHASES} of {len(purchases)}."
+    return result
 
 
 _TOOLS: dict[str, Callable[[Context, dict[str, Any]], dict[str, Any]]] = {
@@ -340,6 +373,80 @@ def _query(ctx: Context, prefix: str, fields: list[str] | None = None) -> list[d
 
 def _documents(ctx: Context) -> list[dict[str, Any]]:
     return [d for d in _query(ctx, "DOC#", DOC_FIELDS) if d.get("status") in READ_STATUSES]
+
+
+def _full(ctx: Context, doc_id: str) -> dict[str, Any] | None:
+    return ctx.table.get_item(Key={"PK": f"USER#{ctx.user_id}", "SK": f"DOC#{doc_id}"}).get("Item")
+
+
+def _items(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """What was bought (items, discounts, fees), in receipt order, capped."""
+    return [
+        {"description": line["description"], "amountCents": _int(line.get("amountCents"))}
+        for line in doc.get("lines") or []
+        if line.get("kind") in ITEM_KINDS and line.get("description")
+    ][:MAX_LINES]
+
+
+def _item_lines(doc: dict[str, Any]) -> list[dict[str, Any]]:
+    """A bill's item, discount, and fee lines as stored (with their row numbers)."""
+    return [
+        line
+        for line in doc.get("lines") or []
+        if line.get("kind") in ITEM_KINDS and line.get("description") and "row" in line
+    ]
+
+
+def _purchase(doc: dict[str, Any], line: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "docId": doc["docId"],
+        "date": _day(doc),
+        "vendor": doc.get("vendor"),
+        "description": line["description"],
+        "amountCents": _int(line.get("amountCents")),
+        "currency": doc.get("currency"),
+    }
+
+
+def _price_changes(purchases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """For each item bought more than once (same description): first and latest price, and the
+    change in cents, computed here so the model never does the arithmetic."""
+    by_item: dict[str, list[dict[str, Any]]] = {}
+    for p in purchases:
+        if p["amountCents"] is not None:
+            by_item.setdefault(p["description"].casefold(), []).append(p)
+    changes = []
+    for bought in by_item.values():
+        if len(bought) < 2:
+            continue
+        bought = sorted(bought, key=lambda p: p["date"])
+        first, latest = bought[0], bought[-1]
+        changes.append(
+            {
+                "description": latest["description"],
+                "firstDate": first["date"],
+                "firstCents": first["amountCents"],
+                "latestDate": latest["date"],
+                "latestCents": latest["amountCents"],
+                "changeCents": latest["amountCents"] - first["amountCents"],
+            }
+        )
+    changes.sort(key=lambda c: c["latestDate"], reverse=True)
+    return changes[:MAX_PRICE_CHANGES]
+
+
+def _words(text: str) -> set[str]:
+    """Lowercase words, plurals trimmed: "EGGS 12CT" → {"egg", "12ct"}."""
+    out = set()
+    for word in re.findall(r"[a-z0-9]+", text.lower()):
+        out.add(word[:-1] if len(word) > 3 and word.endswith("s") else word)
+    return out
+
+
+def _matches(query_words: set[str], description: str) -> bool:
+    """A line matches when one of its words is, or starts with, a query word ("egg" → "eggs")."""
+    line_words = _words(description)
+    return any(w == q or (len(q) >= 3 and w.startswith(q)) for q in query_words for w in line_words)
 
 
 def _bill(doc: dict[str, Any]) -> dict[str, Any]:

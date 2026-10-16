@@ -75,6 +75,21 @@ def test_list_bills_filters_by_date_and_vendor_and_sums_in_code(table):
     assert [b["docId"] for b in result["bills"]] == ["d2", "d1"]  # newest first
 
 
+def test_list_bills_names_the_biggest_bill_so_the_model_doesnt_compare(table):
+    bill(table, "d1", "SKYDECK CHICAGO", "2026-10-04", 10500)
+    bill(table, "d2", "HEAVENLY RENTALS", "2026-10-15", 10200)  # newest, and close
+    bill(table, "d3", "STARBUCKS", "2026-10-09", 1112)
+
+    result = tools.run(ctx(table), "list_bills", {"from": "2026-10-01"})
+
+    assert result["biggest"]["docId"] == "d1"
+    assert result["biggest"]["totalCents"] == 10500
+
+
+def test_list_bills_with_nothing_found_has_no_biggest(table):
+    assert "biggest" not in tools.run(ctx(table), "list_bills", {})
+
+
 def test_list_bills_only_sees_your_own_bills(table):
     bill(table, "d1", "TARGET", "2026-09-03", 1000, user="user-b")
 
@@ -179,21 +194,19 @@ def test_trips_with_their_settle_up(table):
 # --- search_items (RAG) --------------------------------------------------------------------------
 
 
-def test_search_returns_the_matching_bills_with_their_lines(table):
+def test_search_only_returns_your_own_read_bills(table):
     bill(table, "d1", "BEST BUY", "2026-08-02", 1999)
-    bill(table, "d2", "TARGET", "2026-09-02", 500)
+    bill(table, "d2", "TARGET", "2026-09-02", 500, user="user-b")  # someone else's
     seen = []
 
     def search(query):
         seen.append(query)
-        return ["d1", "missing"]  # a deleted bill can still be in the index briefly
+        return [("d1", 1), ("d2", 1), ("missing", 1)]  # deleted or foreign: never returned
 
-    result = tools.run(ctx(table, search=search), "search_items", {"query": "usb-c cable"})
+    result = tools.run(ctx(table, search=search), "search_items", {"query": "something"})
 
-    assert seen == ["usb-c cable"]
-    (hit,) = result["matches"]
-    assert (hit["docId"], hit["vendor"], hit["totalCents"]) == ("d1", "BEST BUY", 1999)
-    assert hit["lines"] == [{"description": "BEST BUY ITEM", "amountCents": 1999}]
+    assert seen == ["something"]
+    assert {p["docId"] for p in result["purchases"]} == {"d1"}
 
 
 # --- the tool runner -----------------------------------------------------------------------------
@@ -232,3 +245,119 @@ def test_names_used_as_keys_are_redacted_too(table):
     text = str(tools.run(ctx(table), "get_splits", {}))
 
     assert "bao@example.com" not in text
+
+
+# --- "what did I buy" and "what did it cost" -----------------------------------------------------
+
+
+def receipt_with(table, doc_id, vendor, day, items):
+    lines = [
+        {"row": i + 1, "description": d, "kind": "item", "amountCents": c}
+        for i, (d, c) in enumerate(items)
+    ]
+    total = sum(c for _, c in items)
+    lines.append(
+        {"row": len(lines) + 1, "description": "TOTAL", "kind": "total", "amountCents": total}
+    )
+    bill(table, doc_id, vendor, day, total, lines=lines)
+
+
+def test_the_items_of_your_last_costco_trip(table):
+    receipt_with(table, "c1", "COSTCO WHOLESALE", "2026-09-01", [("KS WATER 40PK", 499)])
+    receipt_with(
+        table,
+        "c2",
+        "COSTCO WHOLESALE",
+        "2026-09-14",
+        [("ROTISSERIE CHICKEN", 499), ("SALMON FILLET", 2489)],
+    )
+
+    result = tools.run(ctx(table), "list_bills", {"vendor": "costco", "include_items": True})
+
+    last = result["bills"][0]
+    assert last["date"] == "2026-09-14"
+    assert last["items"] == [
+        {"description": "ROTISSERIE CHICKEN", "amountCents": 499},
+        {"description": "SALMON FILLET", "amountCents": 2489},
+    ]
+    assert "items" not in tools.run(ctx(table), "list_bills", {"vendor": "costco"})["bills"][0]
+
+
+def test_finding_an_item_lists_every_purchase_newest_first(table):
+    receipt_with(
+        table, "t1", "TRADER JOE'S", "2026-09-03", [("ORGANIC EGGS 12CT", 349), ("BANANAS", 119)]
+    )
+    receipt_with(
+        table, "t2", "TRADER JOE'S", "2026-10-11", [("ORGANIC EGGS 12CT", 399), ("BAGUETTE", 229)]
+    )
+    receipt_with(table, "w1", "WHOLE FOODS", "2026-09-20", [("EGG NOODLES", 299)])
+
+    result = tools.run(
+        ctx(table, search=lambda q: []), "search_items", {"query": "the price of eggs"}
+    )
+
+    assert [(p["date"], p["description"], p["amountCents"]) for p in result["purchases"]] == [
+        ("2026-10-11", "ORGANIC EGGS 12CT", 399),
+        ("2026-09-20", "EGG NOODLES", 299),
+        ("2026-09-03", "ORGANIC EGGS 12CT", 349),
+    ]
+    assert result["purchases"][0]["vendor"] == "TRADER JOE'S"
+    # The change for an item bought more than once is computed here, not by the model.
+    assert result["priceChanges"] == [
+        {
+            "description": "ORGANIC EGGS 12CT",
+            "firstDate": "2026-09-03",
+            "firstCents": 349,
+            "latestDate": "2026-10-11",
+            "latestCents": 399,
+            "changeCents": 50,
+        }
+    ]
+
+
+def test_price_changes_are_capped_newest_first(table):
+    for n in range(tools.MAX_PRICE_CHANGES + 2):
+        for month in (9, 10):
+            day = f"2026-{month:02d}-{n + 1:02d}"
+            receipt_with(
+                table, f"d{n}-{month}", "MARKET", day, [(f"ORGANIC ITEM {n}", 100 + month)]
+            )
+
+    result = tools.run(ctx(table), "search_items", {"query": "organic"})
+
+    assert len(result["priceChanges"]) == tools.MAX_PRICE_CHANGES
+    assert result["priceChanges"][0]["description"] == f"ORGANIC ITEM {tools.MAX_PRICE_CHANGES + 1}"
+
+
+def test_a_line_without_a_description_is_skipped_not_an_error(table):
+    lines = [
+        {"row": 1, "kind": "item", "amountCents": 100},
+        {"row": 2, "description": "BREAD", "kind": "item", "amountCents": 300},
+    ]
+    bill(table, "d1", "BAKERY", "2026-10-01", 400, lines=lines)
+
+    result = tools.run(ctx(table), "list_bills", {"include_items": True})
+
+    assert result["bills"][0]["items"] == [{"description": "BREAD", "amountCents": 300}]
+
+
+def test_meaning_search_finds_what_words_miss(table):
+    receipt_with(
+        table, "b1", "BEST BUY", "2026-09-26", [("USB C CBL 2M", 1999), ("CASE COVER", 1499)]
+    )
+    search = lambda q: [("b1", 1), ("b1", 3)]  # noqa: E731 - row 3 is the total: not an item
+
+    result = tools.run(ctx(table, search=search), "search_items", {"query": "charging cord"})
+
+    # Only the item the meaning search found, marked so the model can judge it.
+    assert [(p["description"], p.get("match")) for p in result["purchases"]] == [
+        ("USB C CBL 2M", "meaning")
+    ]
+
+
+def test_an_item_found_by_words_isnt_listed_twice(table):
+    receipt_with(table, "b1", "BEST BUY", "2026-09-26", [("USB C CBL 2M", 1999)])
+
+    result = tools.run(ctx(table, search=lambda q: [("b1", 1)]), "search_items", {"query": "usb"})
+
+    assert [p.get("match") for p in result["purchases"]] == [None]

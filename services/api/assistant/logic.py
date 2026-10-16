@@ -2,7 +2,8 @@
 
 Limits (cost review): 10 questions a day per user (the owner 20), and a monthly cap across
 everyone (100 in production, 30 in staging: `MONTHLY_QUESTIONS`), counted on the existing
-`USAGE#` items as `questions`. Worst case about $0.03 a question, so a few dollars a month.
+`USAGE#` items as `questions`. Worst case about $0.06 a question (the loop caps calls and
+result size), so a few dollars a month.
 The model is only called after a question is counted, so a refused one costs nothing.
 """
 

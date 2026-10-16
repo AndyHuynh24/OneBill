@@ -1,4 +1,4 @@
-"""RAG: a bill becomes one short text → Titan embedding → S3 Vectors, always filtered by user."""
+"""RAG: each item on a bill → a short text → Titan embedding → S3 Vectors, filtered by user."""
 
 import io
 import json
@@ -49,37 +49,38 @@ BILL = {
 }
 
 
-def test_a_bill_becomes_one_short_text_with_its_items():
-    text = search.document_text(BILL)
-
-    assert text == "BEST BUY | 2026-08-02 | receipt\nUSB C CBL 2M 19.99"
+def test_each_item_becomes_its_own_short_text_with_the_store():
+    assert search.item_texts(BILL) == [(1, "USB C CBL 2M | BEST BUY")]  # tax and total aren't
 
 
-def test_text_from_a_bill_is_redacted_before_it_is_embedded():
+def test_item_text_is_redacted_before_it_is_embedded():
     bill = BILL | {"vendor": "Statement for jane@example.com"}
 
-    assert "jane@example.com" not in search.document_text(bill)
+    assert "jane@example.com" not in search.item_texts(bill)[0][1]
 
 
-def test_a_bill_with_nothing_read_has_no_text():
-    assert search.document_text(BILL | {"lines": [], "vendor": None}) is None
+def test_a_bill_with_no_items_has_nothing_to_index():
+    assert search.item_texts(BILL | {"lines": []}) == []
 
 
-def test_every_search_is_filtered_to_the_caller(clients):
+def query_response(hits):
+    return {"vectors": hits, "distanceMetric": "cosine"}
+
+
+def test_every_search_is_filtered_to_the_caller_and_finds_items(clients):
     bedrock, vectors, b, v = clients
     expect_embedding(b)
     v.add_response(
         "query_vectors",
-        {
-            "vectors": [
-                {"key": "user-a#d1", "distance": 0.12, "metadata": {"docId": "d1"}},
-                {"key": "user-a#d7", "distance": 0.31, "metadata": {"docId": "d7"}},
-            ],
-            "distanceMetric": "cosine",
-        },
+        query_response(
+            [
+                {"key": "user-a#d1#0", "distance": 0.12, "metadata": {"docId": "d1", "row": 1}},
+                {"key": "user-a#d7#2", "distance": 0.31, "metadata": {"docId": "d7", "row": 4}},
+            ]
+        ),
         {
             "indexArn": INDEX,
-            "topK": 5,
+            "topK": search.TOP_K,
             "queryVector": {"float32": VECTOR},
             "filter": {"userId": {"$eq": "user-a"}},
             "returnMetadata": True,
@@ -89,29 +90,34 @@ def test_every_search_is_filtered_to_the_caller(clients):
 
     find = search.searcher(bedrock, vectors, INDEX, "user-a")
 
-    assert find("usb cable") == ["d1", "d7"]
+    assert find("usb cable") == [("d1", 1), ("d7", 4)]
 
 
-def test_matches_too_far_away_are_dropped(clients):
+def test_matches_too_far_away_or_without_a_row_are_dropped(clients):
     bedrock, vectors, b, v = clients
     expect_embedding(b)
-    v.add_response(
-        "query_vectors",
-        {
-            "vectors": [{"key": "user-a#d1", "distance": 0.9, "metadata": {"docId": "d1"}}],
-            "distanceMetric": "cosine",
-        },
-        {
-            "indexArn": INDEX,
-            "topK": 5,
-            "queryVector": ANY,
-            "filter": ANY,
-            "returnMetadata": True,
-            "returnDistance": True,
-        },
-    )
+    hits = [
+        {"key": "user-a#d1#0", "distance": 0.9, "metadata": {"docId": "d1", "row": 1}},
+        {"key": "user-a#d2", "distance": 0.1, "metadata": {"docId": "d2"}},  # a whole-bill vector
+    ]
+    v.add_response("query_vectors", query_response(hits), None)
 
     assert search.searcher(bedrock, vectors, INDEX, "user-a")("unrelated") == []
+
+
+def test_a_search_query_is_redacted_before_it_is_embedded(clients):
+    bedrock, vectors, b, v = clients
+    expect_embedding(b, text=ANY)
+    sent = []
+    bedrock.meta.events.register(
+        "before-parameter-build.bedrock-runtime.InvokeModel",
+        lambda params, **_: sent.append(params),
+    )
+    v.add_response("query_vectors", query_response([]), None)
+
+    search.searcher(bedrock, vectors, INDEX, "user-a")("receipt for jane@example.com")
+
+    assert "jane@example.com" not in sent[0]["body"]
 
 
 # --- the indexer (DynamoDB stream → S3 Vectors) --------------------------------------------------
@@ -140,67 +146,72 @@ def run_indexer(monkeypatch, bedrock, vectors, records):
     indexer.process(records)
 
 
-def test_a_read_bill_is_indexed_under_its_owner(clients, monkeypatch):
-    bedrock, vectors, b, v = clients
+TWO_ITEMS = BILL | {
+    "lines": [
+        {"row": 1, "description": "USB C CBL 2M", "kind": "item", "amountCents": 1999},
+        {"row": 2, "description": "CASE COVER", "kind": "item", "amountCents": 1499},
+        {"row": 3, "description": "TOTAL", "kind": "total", "amountCents": 3498},
+    ]
+}
+ALL_KEYS = [f"user-a#d1#{n}" for n in range(search.MAX_ITEMS)]
+
+
+def expect_stored_hash(v, text_hash):
+    found = [{"key": "user-a#d1#0", "metadata": {"textHash": text_hash}}] if text_hash else []
     v.add_response(
         "get_vectors",
-        {"vectors": []},  # not indexed yet
-        {"indexArn": INDEX, "keys": ["user-a#d1"], "returnMetadata": True},
+        {"vectors": found},
+        {"indexArn": INDEX, "keys": ["user-a#d1#0"], "returnMetadata": True},
     )
+
+
+def item_vector(n, row, digest):
+    return {
+        "key": f"user-a#d1#{n}",
+        "data": {"float32": VECTOR},
+        "metadata": {"userId": "user-a", "docId": "d1", "row": row, "textHash": digest},
+    }
+
+
+def test_each_item_of_a_read_bill_is_indexed_under_its_owner(clients, monkeypatch):
+    bedrock, vectors, b, v = clients
+    digest = search.bill_hash(TWO_ITEMS)
+    expect_stored_hash(v, None)  # not indexed yet
+    expect_embedding(b)
     expect_embedding(b)
     v.add_response(
         "put_vectors",
         {},
-        {
-            "indexArn": INDEX,
-            "vectors": [
-                {
-                    "key": "user-a#d1",
-                    "data": {"float32": VECTOR},
-                    "metadata": {
-                        "userId": "user-a",
-                        "docId": "d1",
-                        "date": "2026-08-02",
-                        "textHash": search.text_hash(search.document_text(BILL)),
-                    },
-                }
-            ],
-        },
+        {"indexArn": INDEX, "vectors": [item_vector(0, 1, digest), item_vector(1, 2, digest)]},
     )
 
-    run_indexer(monkeypatch, bedrock, vectors, [record("MODIFY", BILL)])
+    run_indexer(monkeypatch, bedrock, vectors, [record("MODIFY", TWO_ITEMS)])
 
 
 def test_a_bill_whose_text_is_unchanged_isnt_embedded_again(clients, monkeypatch):
     bedrock, vectors, b, v = clients
-    text_hash = search.text_hash(search.document_text(BILL))
-    v.add_response(
-        "get_vectors",
-        {"vectors": [{"key": "user-a#d1", "metadata": {"textHash": text_hash}}]},
-        {"indexArn": INDEX, "keys": ["user-a#d1"], "returnMetadata": True},
-    )
+    expect_stored_hash(v, search.bill_hash(BILL))
 
     run_indexer(monkeypatch, bedrock, vectors, [record("MODIFY", BILL)])  # e.g. a paid tick
 
 
-def test_a_search_query_is_redacted_before_it_is_embedded(clients):
+def test_an_edited_bill_is_reindexed_and_its_dropped_items_removed(clients, monkeypatch):
     bedrock, vectors, b, v = clients
-    expect_embedding(b, text=ANY)
-    sent = []
-    bedrock.meta.events.register(
-        "before-parameter-build.bedrock-runtime.InvokeModel",
-        lambda params, **_: sent.append(params),
+    expect_stored_hash(v, "an-older-version")
+    expect_embedding(b)
+    v.add_response(
+        "put_vectors",
+        {},
+        {"indexArn": INDEX, "vectors": [item_vector(0, 1, search.bill_hash(BILL))]},
     )
-    v.add_response("query_vectors", {"vectors": [], "distanceMetric": "cosine"}, None)
+    v.add_response("delete_vectors", {}, {"indexArn": INDEX, "keys": ALL_KEYS[1:]})
 
-    search.searcher(bedrock, vectors, INDEX, "user-a")("receipt for jane@example.com")
-
-    assert "jane@example.com" not in sent[0]["body"]
+    run_indexer(monkeypatch, bedrock, vectors, [record("MODIFY", BILL)])
 
 
 def test_a_deleted_bill_leaves_the_index(clients, monkeypatch):
     bedrock, vectors, b, v = clients
-    v.add_response("delete_vectors", {}, {"indexArn": INDEX, "keys": ["user-a#d1"]})
+    v.add_response("delete_vectors", {}, {"indexArn": INDEX, "keys": ALL_KEYS})
 
     run_indexer(monkeypatch, bedrock, vectors, [record("REMOVE")])
 

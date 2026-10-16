@@ -1,9 +1,9 @@
 """Keep the search index in step with bills (DynamoDB stream → S3 Vectors).
 
 The stream's filter only passes DOC# items that are read (ready / needs_review) and DOC#
-deletions. A read bill is embedded and written under `<userId>#<docId>` (writing it again
-overwrites, so retries are safe); a deleted one is removed. Failures retry, then go to the
-pipeline's dead-letter queue.
+deletions. Each item of a read bill is embedded and written under `<userId>#<docId>#<n>`
+(writing again overwrites, so retries are safe); a deleted bill's items are removed. Failures
+retry, then go to the pipeline's dead-letter queue.
 """
 
 import os
@@ -13,7 +13,7 @@ import boto3
 from aws_lambda_powertools import Logger
 from boto3.dynamodb.types import TypeDeserializer
 
-from assistant.search import document_text, embed, text_hash, vector_key
+from assistant.search import index_bill, unindex_bill
 
 logger = Logger()
 bedrock = boto3.client("bedrock-runtime")
@@ -36,33 +36,15 @@ def process(records: list[dict[str, Any]]) -> None:
             continue
         user_id = str(keys["PK"]).removeprefix("USER#")
         doc_id = str(keys["SK"]).removeprefix("DOC#")
-        key = vector_key(user_id, doc_id)
         if record["eventName"] == "REMOVE":
-            vectors.delete_vectors(indexArn=INDEX_ARN, keys=[key])
+            unindex_bill(vectors, INDEX_ARN, user_id, doc_id)
             removed += 1
             continue
         image = {k: _deserialize(v) for k, v in record["dynamodb"].get("NewImage", {}).items()}
-        text = document_text(image) if image.get("status") in READ_STATUSES else None
-        if text is None:
+        if image.get("status") not in READ_STATUSES:
             continue
-        digest = text_hash(text)
-        if _indexed_hash(key) == digest:
-            continue  # the searchable text didn't change (e.g. a paid tick): nothing to embed
-        metadata = {"userId": user_id, "docId": doc_id}
-        if image.get("documentDate"):
-            metadata["date"] = image["documentDate"]
-        metadata["textHash"] = digest
-        vectors.put_vectors(
-            indexArn=INDEX_ARN,
-            vectors=[{"key": key, "data": {"float32": embed(bedrock, text)}, "metadata": metadata}],
-        )
-        indexed += 1
+        # Unchanged searchable text (e.g. a paid tick) is skipped inside index_bill.
+        if index_bill(bedrock, vectors, INDEX_ARN, user_id, image | {"docId": doc_id}):
+            indexed += 1
     # Counts only: no bill text, no user ids.
     logger.info("search_index_updated", extra={"indexed": indexed, "removed": removed})
-
-
-def _indexed_hash(key: str) -> str | None:
-    found = vectors.get_vectors(indexArn=INDEX_ARN, keys=[key], returnMetadata=True)
-    for vector in found.get("vectors", []):
-        return (vector.get("metadata") or {}).get("textHash")
-    return None

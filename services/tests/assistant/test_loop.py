@@ -213,3 +213,19 @@ def test_tool_calls_are_capped_per_step(table, bedrock):
     results = [b["toolResult"] for b in sent[1]["messages"][-1]["content"]]
     assert answer.tool_calls == 3  # the rest are answered with an error, not run
     assert [("error" in r["content"][0]["json"]) for r in results] == [False] * 3 + [True] * 2
+
+
+def test_a_tool_result_too_big_to_send_asks_for_a_narrower_question(table, bedrock, monkeypatch):
+    client, stub = bedrock
+    sent = []
+    client.meta.events.register(
+        "before-parameter-build.bedrock-runtime.Converse", lambda params, **_: sent.append(params)
+    )
+    monkeypatch.setattr(loop.tools, "run", lambda *_: {"bills": ["x" * loop.MAX_RESULT_CHARS]})
+    stub.add_response("converse", tool_call("list_bills", {}), PARAMS)
+    stub.add_response("converse", reply("Which month?"), PARAMS)
+
+    ask(client, table, "Everything I ever bought?")
+
+    result = sent[1]["messages"][-1]["content"][0]["toolResult"]
+    assert "narrower" in result["content"][0]["json"]["error"]
