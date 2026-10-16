@@ -66,6 +66,12 @@ describe("search index (S3 Vectors)", () => {
       DistanceMetric: "cosine",
     });
   });
+
+  it("filters only on the owner's userId; the item's bill, row, and fingerprint are just returned", () => {
+    api.hasResourceProperties("AWS::S3Vectors::Index", {
+      MetadataConfiguration: { NonFilterableMetadataKeys: ["docId", "row", "textHash"] },
+    });
+  });
 });
 
 describe("Ask OneBill (the assistant Lambda)", () => {
@@ -124,6 +130,13 @@ describe("search indexer (DynamoDB stream → S3 Vectors)", () => {
           { Pattern: Match.stringLikeRegexp("REMOVE") },
         ]),
       },
+    });
+  });
+
+  it("takes two bills at a time, so a bill's 40 item embeddings fit well inside its timeout", () => {
+    api.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      BatchSize: 2,
+      FilterCriteria: Match.anyValue(),
     });
   });
 

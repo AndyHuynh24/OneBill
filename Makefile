@@ -4,7 +4,7 @@
 export AWS_PROFILE ?= onebill-iam
 
 .PHONY: install test lint synth diff dev deploy-web frontend-env frontend-env-staging deploy-staging \
-	deploy-web-staging eval layer-requirements \
+	deploy-web-staging eval eval-ask layer-requirements \
 	test-services test-infra test-frontend lint-services lint-infra lint-frontend
 
 install:
@@ -72,6 +72,10 @@ deploy-web: frontend-env
 # Extraction accuracy on your labelled receipts (eval/receipts/, local only). Dry run unless ARGS="--yes".
 eval:
 	cd services && uv run python ../eval/run_eval.py --profile $(AWS_PROFILE) $(ARGS)
+
+# Ask OneBill on fixed questions over a fake dataset (eval/ask_cases.json). Dry run unless ARGS="--yes".
+eval-ask:
+	cd services && uv run python ../eval/run_ask_eval.py --profile $(AWS_PROFILE) $(ARGS)
 
 # Re-export the Pillow layer's hash-pinned requirements after changing the lambda-layer group.
 layer-requirements:

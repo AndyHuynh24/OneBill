@@ -15,9 +15,9 @@ export interface BillsSearchProps {
 }
 
 /**
- * Semantic search over bills (RAG) for "Ask OneBill": one 512-dimension Titan embedding per read
- * bill in S3 Vectors, keyed `<userId>#<docId>` with the owner's userId as filterable metadata.
- * An indexer on the table's stream keeps it in step.
+ * Semantic search over purchases (RAG) for "Ask OneBill": one 512-dimension Titan embedding per
+ * item on a read bill in S3 Vectors, keyed `<userId>#<docId>#<n>` with the owner's userId as
+ * filterable metadata. An indexer on the table's stream keeps it in step.
  *
  * Lives with the assistant (not the data stack): it's derived data the indexer can rebuild, and
  * keeping it in one stack means a settings change that replaces the index never has to unlock a
@@ -38,7 +38,7 @@ export class BillsSearch extends Construct {
       dimension: 512,
       distanceMetric: "cosine",
       // Only userId is filtered on; the rest is returned, not searched.
-      metadataConfiguration: { nonFilterableMetadataKeys: ["docId", "date", "textHash"] },
+      metadataConfiguration: { nonFilterableMetadataKeys: ["docId", "row", "textHash"] },
     });
     this.indexArn = index.attrIndexArn;
 
@@ -68,7 +68,8 @@ export class BillsSearch extends Construct {
     indexer.addEventSource(
       new DynamoEventSource(props.table, {
         startingPosition: lambda.StartingPosition.LATEST,
-        batchSize: 10,
+        // Each item is one Titan call (~0.1 s): 2 bills of up to 40 items stays far inside 60 s.
+        batchSize: 2,
         retryAttempts: 2,
         onFailure: new SqsDlq(failed),
         filters: [

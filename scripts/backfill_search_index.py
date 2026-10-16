@@ -4,8 +4,8 @@
     cd services && uv run python ../scripts/backfill_search_index.py --stack OneBill --yes
 
 Dry run by default: it counts the read bills and estimates the cost. With --yes it embeds each
-one (Titan, ~$0.00002 each) and writes it to the stage's search index, exactly as the indexer
-does. Writing a bill again overwrites it, so running twice is safe.
+item (Titan, ~$0.000001 each) and writes them to the stage's search index, with the indexer's
+own code. Bills already indexed with the same text are skipped, so running twice is safe.
 """
 
 import argparse
@@ -17,7 +17,7 @@ import boto3
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services"))
 
-from assistant.search import document_text, embed, vector_key  # noqa: E402
+from assistant.search import index_bill, item_texts  # noqa: E402
 
 READ = {"ready", "needs_review"}
 
@@ -62,34 +62,22 @@ def main() -> None:
     table = session.resource("dynamodb").Table(env["TABLE_NAME"])
     index_arn = env["VECTOR_INDEX_ARN"]
     bills = [b for b in read_bills(table) if b.get("status") in READ]
-    texts = [(b, document_text(b)) for b in bills]
-    texts = [(b, t) for b, t in texts if t]
-    print(f"{args.stack}: {len(texts)} read bills to index (about ${len(texts) * 0.00002:.4f}).")
+    items = sum(len(item_texts(b)) for b in bills)
+    print(f"{args.stack}: {len(bills)} read bills, {items} items (about ${items * 1e-6:.4f}).")
     if not args.yes:
         print("Dry run. Add --yes to index them.")
         return
 
     bedrock = session.client("bedrock-runtime")
     vectors = session.client("s3vectors")
-    for count, (bill, text) in enumerate(texts, 1):
+    indexed = 0
+    for count, bill in enumerate(bills, 1):
         user_id = bill["PK"].removeprefix("USER#")
-        doc_id = bill["SK"].removeprefix("DOC#")
-        metadata = {"userId": user_id, "docId": doc_id}
-        if bill.get("documentDate"):
-            metadata["date"] = bill["documentDate"]
-        vectors.put_vectors(
-            indexArn=index_arn,
-            vectors=[
-                {
-                    "key": vector_key(user_id, doc_id),
-                    "data": {"float32": embed(bedrock, text)},
-                    "metadata": metadata,
-                }
-            ],
-        )
+        doc = bill | {"docId": bill["SK"].removeprefix("DOC#")}  # as the indexer does
+        indexed += index_bill(bedrock, vectors, index_arn, user_id, doc)
         if count % 25 == 0:
-            print(f"  {count}/{len(texts)}")
-    print(f"Indexed {len(texts)} bills.")
+            print(f"  {count}/{len(bills)}")
+    print(f"Indexed {indexed} bills ({len(bills) - indexed} were already up to date).")
 
 
 if __name__ == "__main__":
