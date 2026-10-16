@@ -450,7 +450,9 @@ _SUMMARY_ATTRS = (
     "currency",
     "reviewOutcome",
     "failureReason",
-    "source",  # "email" for labelled emails read like a scan
+    "source",  # "email": a labelled email read like a scan; "manual": typed in by hand
+    "kind",  # "owed": money someone owes you, typed in (a one-line bill split to them)
+    "person",  # on "owed": who owes it
     "confidence",  # {"level", "checks"}: the list shows a ✓ or "Check" badge
     "tripId",  # in a trip: settled on the trip, not per receipt
 )
@@ -459,19 +461,22 @@ _SUMMARY_ATTRS = (
 def _summary(item: dict[str, Any]) -> dict[str, Any]:
     summary = _plain({k: item[k] for k in _SUMMARY_ATTRS if k in item})
     if item.get("split") and not item.get("tripId"):  # a trip settles as a whole
-        summary["owedCents"] = _owed_cents(item["split"])
+        owed_by = _owed_by(item["split"])
+        summary["owedCents"] = sum(o["cents"] for o in owed_by)
+        if owed_by:
+            summary["owedBy"] = owed_by  # Home's "Owed to you" list, by person
     return summary
 
 
-def _owed_cents(split: dict[str, Any]) -> int:
-    """What the others on a split still owe you: their shares, minus anyone ticked as paid."""
-    others = {m["id"] for m in split.get("members", []) if not m.get("self")}
+def _owed_by(split: dict[str, Any]) -> list[dict[str, Any]]:
+    """Who on a split still owes you, and how much: their shares, minus anyone ticked as paid."""
+    names = {m["id"]: m["name"] for m in split.get("members", []) if not m.get("self")}
     paid = split.get("paid") or {}
-    return sum(
-        int(s["totalCents"])
+    return [
+        {"name": names[s["member"]], "cents": int(s["totalCents"])}
         for s in split.get("shares", [])
-        if s["member"] in others and s["member"] not in paid
-    )
+        if s["member"] in names and s["member"] not in paid and int(s["totalCents"]) > 0
+    ]
 
 
 def review_document(

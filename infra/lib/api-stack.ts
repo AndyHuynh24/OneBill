@@ -189,6 +189,8 @@ export class ApiStack extends Stack {
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PATCH, apigwv2.HttpMethod.DELETE],
       integration: documents,
     });
+    // A bill typed in by hand, or money someone owes you (no file, no model).
+    this.api.addRoutes({ path: "/documents/manual", methods: [apigwv2.HttpMethod.POST], integration: documents });
     this.api.addRoutes({ path: "/obligations", methods: [apigwv2.HttpMethod.GET], integration: documents });
     // Split bill: served by the same Lambda; no new function or permissions needed.
     this.api.addRoutes({

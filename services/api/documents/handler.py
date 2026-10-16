@@ -17,7 +17,7 @@ from aws_lambda_powertools.event_handler.exceptions import UnauthorizedError
 from aws_lambda_powertools.logging import correlation_paths
 from botocore.config import Config
 
-from api.documents import logic, splits, trips
+from api.documents import logic, manual, splits, trips
 from shared.dates import app_today, parse_iso_date
 from subscriptions import ingest as ingest_keys
 from subscriptions import store as subscriptions
@@ -89,6 +89,22 @@ def create_document() -> tuple[dict[str, Any], int]:
     )
     logger.info("upload_created", extra={"docId": result["docId"]})
     return result, 201
+
+
+@app.post("/documents/manual")
+@tracer.capture_method
+def create_manual() -> tuple[dict[str, Any], int]:
+    """A bill typed in by hand, or (kind "owed") money someone owes you."""
+    body = _body()
+    owed = body.get("kind") == "owed"
+    create = manual.create_owed if owed else manual.create_bill
+    doc = create(table, _user_id(), body, datetime.now(UTC))
+    # Ids and counts only: names, stores, and amounts stay out of logs.
+    logger.info(
+        "manual_bill_created",
+        extra={"docId": doc["docId"], "owed": owed, "lines": len(doc.get("lines", []))},
+    )
+    return doc, 201
 
 
 @app.get("/documents")

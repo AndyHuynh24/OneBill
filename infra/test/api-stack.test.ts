@@ -180,6 +180,7 @@ describe("ApiStack — documents API", () => {
     "GET /obligations",
     "PUT /documents/{docId}/split",
     "PUT /documents/{docId}/split/paid",
+    "POST /documents/manual",
     "GET /subscriptions",
     "POST /subscriptions",
     "PATCH /subscriptions/{key}",
