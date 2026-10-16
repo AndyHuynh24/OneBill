@@ -416,9 +416,10 @@ describe("Home — signed in", () => {
     const api = fakeApi({ ask: vi.fn().mockResolvedValue({ answer: "Minh owes you $40.00.", sources: [], questionsLeft: 9 }) });
     renderHome("signedIn", api);
 
-    await userEvent.type(await screen.findByRole("textbox", { name: /ask about your bills/i }), "Who owes me?{Enter}");
-
+    await userEvent.click(await screen.findByRole("button", { name: "Ask OneBill" }));
     expect(await screen.findByRole("dialog", { name: "Ask OneBill" })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: /ask a question/i }), "Who owes me?{Enter}");
+
     expect(await screen.findByText("Minh owes you $40.00.")).toBeInTheDocument();
   });
 });

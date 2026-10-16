@@ -12,3 +12,12 @@ export function answeredPairs(messages: AskTurn[]): AskTurn[] {
   });
   return out;
 }
+
+/** Suggested questions for what you have (most useful first), or a couple of general ones. */
+export function suggestedQuestions(have: { activeTrip?: string; owed?: boolean; subscriptions?: boolean }): string[] {
+  const out: string[] = [];
+  if (have.owed) out.push("Who still owes me?");
+  if (have.activeTrip) out.push(`Summarize my ${have.activeTrip} trip`);
+  if (have.subscriptions) out.push("What do my subscriptions cost a month?");
+  return out.length ? out.slice(0, 3) : ["How much did I spend this month?", "Where did I buy my last coffee?"];
+}

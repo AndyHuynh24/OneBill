@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api";
 import { fakeApi } from "../test/fakeApi";
-import { answeredPairs } from "../ask";
-import { AskBox, AskSheet } from "./Ask";
+import { answeredPairs, suggestedQuestions } from "../ask";
+import { AskLauncher, AskSheet } from "./Ask";
 
 function wrap(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -18,23 +18,62 @@ const ANSWER = {
   questionsLeft: 9,
 };
 
-describe("AskBox", () => {
-  it("opens the conversation with the question typed", async () => {
-    const onAsk = vi.fn();
-    render(<AskBox onAsk={onAsk} />);
+afterEach(() => localStorage.clear());
 
-    await userEvent.type(screen.getByRole("textbox", { name: /ask about your bills/i }), "Who owes me?{Enter}");
+describe("AskLauncher", () => {
+  const SUGGESTIONS = ["Who still owes me?", "Summarize my Lake Tahoe trip"];
 
-    expect(onAsk).toHaveBeenCalledWith("Who owes me?");
+  it("is a small chat button that opens the conversation", async () => {
+    const onOpen = vi.fn();
+    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={onOpen} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Ask OneBill" }));
+
+    expect(onOpen).toHaveBeenCalledWith();
   });
 
-  it("ignores an empty question", async () => {
-    const onAsk = vi.fn();
-    render(<AskBox onAsk={onAsk} />);
+  it("shows one suggestion at a time beside it; tapping it asks it", async () => {
+    const onOpen = vi.fn();
+    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={onOpen} />);
 
-    await userEvent.type(screen.getByRole("textbox", { name: /ask about your bills/i }), "   {Enter}");
+    expect(screen.queryByRole("button", { name: "Summarize my Lake Tahoe trip" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Who still owes me?" }));
 
-    expect(onAsk).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledWith("Who still owes me?");
+  });
+
+  it("cycles to the next suggestion every few seconds", () => {
+    vi.useFakeTimers();
+    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
+
+    act(() => vi.advanceTimersByTime(6000));
+
+    expect(screen.getByRole("button", { name: "Summarize my Lake Tahoe trip" })).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it.each([
+    ["the chat button", "Ask OneBill"],
+    ["a suggestion", "Who still owes me?"],
+  ])("opening the chat from %s puts the suggestions away", async (_, name) => {
+    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name }));
+
+    expect(screen.queryByRole("group", { name: "Suggested question" })).not.toBeInTheDocument();
+  });
+
+  it("× hides the suggestions, but they're back the next time the app opens", async () => {
+    localStorage.setItem("onebill.askSuggestionsHidden", "1"); // hidden "for good" by an older version
+    const { unmount } = render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Who still owes me?" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /hide suggestions/i }));
+    expect(screen.queryByRole("button", { name: "Who still owes me?" })).not.toBeInTheDocument();
+    unmount(); // the app is closed or reloaded
+
+    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Who still owes me?" })).toBeInTheDocument();
   });
 });
 
@@ -56,7 +95,7 @@ describe("AskSheet", () => {
     wrap(<AskSheet api={api} firstQuestion="Trader Joe's in September?" onClose={vi.fn()} onOpenDocument={vi.fn()} />);
     await screen.findByText(ANSWER.answer);
 
-    await userEvent.type(screen.getByRole("textbox", { name: /follow-up/i }), "And in August?{Enter}");
+    await userEvent.type(screen.getByRole("textbox", { name: /ask a question/i }), "And in August?{Enter}");
 
     expect(api.ask).toHaveBeenLastCalledWith({
       question: "And in August?",
@@ -65,6 +104,27 @@ describe("AskSheet", () => {
         { role: "assistant", text: ANSWER.answer },
       ],
     });
+  });
+
+  it("works in browsers where scrolling returns a promise (it must not crash the sheet)", async () => {
+    const scroll = vi.fn().mockResolvedValue(undefined); // newer Chrome: scrollIntoView returns a Promise
+    Element.prototype.scrollIntoView = scroll;
+    const api = fakeApi({ ask: vi.fn().mockResolvedValue(ANSWER) });
+    wrap(<AskSheet api={api} firstQuestion="Who owes me?" onClose={vi.fn()} onOpenDocument={vi.fn()} />);
+
+    expect(await screen.findByText(ANSWER.answer)).toBeInTheDocument();
+    expect(scroll).toHaveBeenCalled();
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it("opened from the button, it offers the suggestions to start with", async () => {
+    const api = fakeApi({ ask: vi.fn().mockResolvedValue(ANSWER) });
+    wrap(<AskSheet api={api} suggestions={["Who still owes me?"]} onClose={vi.fn()} onOpenDocument={vi.fn()} />);
+
+    expect(api.ask).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Who still owes me?" }));
+
+    expect(api.ask).toHaveBeenCalledWith({ question: "Who still owes me?", history: [] });
   });
 
   it("shows why a question couldn't be answered", async () => {
@@ -76,6 +136,20 @@ describe("AskSheet", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("today's 10 questions");
     const log = screen.getByRole("log");
     expect(within(log).getByText("One more?")).toBeInTheDocument();
+  });
+});
+
+describe("suggestions", () => {
+  it("are built from what you have: a trip that's on, money owed, subscriptions", () => {
+    expect(suggestedQuestions({ activeTrip: "Lake Tahoe", owed: true, subscriptions: true })).toEqual([
+      "Who still owes me?",
+      "Summarize my Lake Tahoe trip",
+      "What do my subscriptions cost a month?",
+    ]);
+    expect(suggestedQuestions({})).toEqual([
+      "How much did I spend this month?",
+      "Where did I buy my last coffee?",
+    ]);
   });
 });
 

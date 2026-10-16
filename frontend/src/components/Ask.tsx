@@ -6,33 +6,47 @@ import { formatCents, formatDate } from "../format";
 
 const MAX_HISTORY = 6;
 
-/** "Ask about your bills…" on Home: one line that opens the conversation. */
-export function AskBox({ onAsk }: { onAsk: (question: string) => void }) {
-  const [text, setText] = useState("");
+const CYCLE_MS = 6000;
+
+/** The chat button, bottom right, with one small suggestion beside it that cycles every few
+ *  seconds. Tap it to ask. Opening the chat or × puts suggestions away until the app is next
+ *  opened or reloaded. */
+export function AskLauncher({ suggestions, onOpen }: { suggestions: string[]; onOpen: (question?: string) => void }) {
+  const [hidden, setHidden] = useState(false);
+  const [index, setIndex] = useState(0);
+  const showing = !hidden && suggestions.length > 0;
+  const open = (question?: string) => {
+    setHidden(true);
+    if (question === undefined) onOpen();
+    else onOpen(question);
+  };
+
+  useEffect(() => {
+    if (!showing || suggestions.length < 2) return;
+    const timer = setInterval(() => setIndex((i) => i + 1), CYCLE_MS);
+    return () => clearInterval(timer);
+  }, [showing, suggestions.length]);
+
+  const current = suggestions[index % Math.max(suggestions.length, 1)];
   return (
-    <form
-      className="ask-box"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (text.trim()) {
-          onAsk(text.trim());
-          setText("");
-        }
-      }}
-    >
-      <label htmlFor="ask-input" className="visually-hidden">
-        Ask about your bills
-      </label>
-      <input
-        id="ask-input"
-        value={text}
-        maxLength={500}
-        placeholder="Ask about your bills…  e.g. Who still owes me?"
-        enterKeyHint="send"
-        autoComplete="off"
-        onChange={(e) => setText(e.target.value)}
-      />
-    </form>
+    <div className="ask-launcher">
+      {showing && (
+        <div className="ask-hint" role="group" aria-label="Suggested question">
+          <button key={current} type="button" className="ask-hint-question" onClick={() => open(current)}>
+            {current}
+          </button>
+          <button type="button" className="icon-button ask-hint-hide" aria-label="Hide suggestions" onClick={() => setHidden(true)}>
+            ×
+          </button>
+        </div>
+      )}
+      <button type="button" className="ask-fab" aria-label="Ask OneBill" onClick={() => open()}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z" />
+          <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -42,13 +56,15 @@ interface Message extends AskTurn {
 
 interface AskSheetProps {
   api: OneBillApi;
-  firstQuestion: string;
+  /** A suggestion that was tapped: asked right away. Without one, the suggestions are offered. */
+  firstQuestion?: string;
+  suggestions?: string[];
   onClose: () => void;
   onOpenDocument: (docId: string) => void;
 }
 
 /** The conversation: answers come from your own bills, with the bills they used underneath. */
-export function AskSheet({ api, firstQuestion, onClose, onOpenDocument }: AskSheetProps) {
+export function AskSheet({ api, firstQuestion, suggestions = [], onClose, onOpenDocument }: AskSheetProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [followUp, setFollowUp] = useState("");
   const [left, setLeft] = useState<number | null>(null);
@@ -69,13 +85,16 @@ export function AskSheet({ api, firstQuestion, onClose, onOpenDocument }: AskShe
   }
 
   useEffect(() => {
-    if (asked.current) return; // once, even when React runs effects twice in development
+    if (asked.current || !firstQuestion) return; // once, even when React runs effects twice in development
     asked.current = true;
     send(firstQuestion);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => end.current?.scrollIntoView?.({ block: "end" }), [messages, ask.isPending]);
+  useEffect(() => {
+    // A block body: newer browsers return a Promise here, and an effect may only return cleanup.
+    end.current?.scrollIntoView?.({ block: "end" });
+  }, [messages, ask.isPending]);
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -87,6 +106,18 @@ export function AskSheet({ api, firstQuestion, onClose, onOpenDocument }: AskShe
           </button>
         </header>
         <div className="ask-log" role="log" aria-live="polite">
+          {messages.length === 0 && !ask.isPending && (
+            <div className="ask-empty">
+              <p className="muted">Ask anything about your own bills, splits, trips, or subscriptions.</p>
+              <div className="ask-suggestions-inline">
+                {suggestions.map((q) => (
+                  <button key={q} type="button" className="ask-suggestion" onClick={() => send(q)}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {messages.map((m, i) => (
             <div key={i} className={`ask-message ask-${m.role}`}>
               <p>{m.text}</p>
@@ -124,13 +155,13 @@ export function AskSheet({ api, firstQuestion, onClose, onOpenDocument }: AskShe
           }}
         >
           <label htmlFor="ask-follow-up" className="visually-hidden">
-            Follow-up question
+            Ask a question
           </label>
           <input
             id="ask-follow-up"
             value={followUp}
             maxLength={500}
-            placeholder="Ask a follow-up…"
+            placeholder={messages.length ? "Ask a follow-up…" : "e.g. How much did I spend at Trader Joe's?"}
             enterKeyHint="send"
             autoComplete="off"
             onChange={(e) => setFollowUp(e.target.value)}

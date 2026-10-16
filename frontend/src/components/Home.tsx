@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import type { OneBillApi } from "../api";
 import { pollInterval, processingCount } from "../documents";
 import { AddSubscription } from "./AddSubscription";
-import { AskBox, AskSheet } from "./Ask";
+import { AskLauncher, AskSheet } from "./Ask";
+import { suggestedQuestions } from "../ask";
 import { AppUsage } from "./AppUsage";
 import { ConnectGmail } from "./ConnectGmail";
 import { ScanProgress } from "./ScanProgress";
@@ -70,6 +71,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const trips = useQuery({ queryKey: ["trips"], queryFn: api.listTrips });
   const [openTrip, setOpenTrip] = useState<string | null>(null);
   const [startingTrip, setStartingTrip] = useState(false);
+  // The chat: closed (null), open with nothing asked yet (""), or open asking a suggestion.
   const [question, setQuestion] = useState<string | null>(null);
   const removeReminder = useMutation({
     mutationFn: (oblId: string) => api.deleteObligation(oblId),
@@ -153,6 +155,11 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
       <p className="muted">{subscriptions.error ? "Couldn't load subscriptions." : "Loading…"}</p>
     );
   const allDocuments = documents.data?.documents ?? [];
+  const suggestions = suggestedQuestions({
+    activeTrip: trips.data?.active?.name,
+    owed: allDocuments.some((d) => (d.owedCents ?? 0) > 0),
+    subscriptions: (subscriptions.data?.subscriptions.length ?? 0) > 0,
+  });
 
   return (
     <main className="page page-with-scan">
@@ -169,8 +176,6 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
               </button>
             </div>
           </header>
-
-          <AskBox onAsk={setQuestion} />
 
           {/* One list for everything with a date: subscriptions and bills, soonest first. */}
           <section aria-labelledby="coming-title">
@@ -288,8 +293,15 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
         <TripSheet api={api} tripId={openTrip} onClose={() => setOpenTrip(null)} onOpenDocument={setOpenDoc} />
       )}
       {startingTrip && <StartTrip api={api} onClose={() => setStartingTrip(false)} />}
+      {view === "home" && <AskLauncher suggestions={suggestions} onOpen={(q) => setQuestion(q ?? "")} />}
       {question !== null && (
-        <AskSheet api={api} firstQuestion={question} onClose={() => setQuestion(null)} onOpenDocument={setOpenDoc} />
+        <AskSheet
+          api={api}
+          firstQuestion={question || undefined}
+          suggestions={suggestions}
+          onClose={() => setQuestion(null)}
+          onOpenDocument={setOpenDoc}
+        />
       )}
       {shownDoc && <DocumentSheet api={api} docId={shownDoc} onClose={closeSheet} />}
       {shownSub && <SubscriptionSheet api={api} subscription={shownSub} onClose={() => setOpenSub(null)} />}
