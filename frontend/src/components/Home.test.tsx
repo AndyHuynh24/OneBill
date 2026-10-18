@@ -456,6 +456,21 @@ describe("Home — signed in", () => {
     expect(await screen.findByRole("button", { name: /owed to you/i })).toHaveTextContent("$50.00");
   });
 
+  it("leaves bills in other currencies out of the USD owed total", async () => {
+    const usd = { docId: "o1", status: "ready" as const, vendor: "Concert ticket", createdAt: "x", currency: "USD", totalCents: 5000, owedCents: 5000, owedBy: [{ name: "Minh", cents: 5000 }] };
+    const eur = { ...usd, docId: "o2", vendor: "Café", currency: "EUR", owedBy: [{ name: "Minh", cents: 3000 }] };
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValue({
+        documents: [usd, eur],
+        review: { reviewed: 0, acceptedUnchanged: 0, acceptanceRate: null },
+        usage: { dailyLimit: 3, usedToday: 0, leftToday: 3, renewalsLeft: 2 },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    expect(await screen.findByRole("button", { name: /owed to you/i })).toHaveTextContent("$50.00");
+  });
+
   it("hides the chat button while the chat is open, and brings it back (without suggestions) after", async () => {
     renderHome("signedIn", fakeApi());
 
