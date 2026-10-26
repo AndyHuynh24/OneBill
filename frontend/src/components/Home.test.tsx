@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type OneBillApi } from "../api";
@@ -471,14 +471,18 @@ describe("Home — signed in", () => {
     expect(await screen.findByRole("button", { name: /owed to you/i })).toHaveTextContent("$50.00");
   });
 
-  it("hides the chat button while the chat is open, and brings it back (without suggestions) after", async () => {
+  it("keeps suggestions inside the chat, not floating over the page", async () => {
     renderHome("signedIn", fakeApi());
 
-    await userEvent.click(await screen.findByRole("button", { name: "Ask OneBill" }));
+    const button = await screen.findByRole("button", { name: "Ask OneBill" });
+    expect(screen.queryByRole("button", { name: "How much did I spend this month?" })).not.toBeInTheDocument();
+
+    await userEvent.click(button);
+    const chat = screen.getByRole("dialog", { name: "Ask OneBill" });
+    expect(within(chat).getByRole("button", { name: "How much did I spend this month?" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask OneBill" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(within(chat).getByRole("button", { name: "Close" }));
     expect(await screen.findByRole("button", { name: "Ask OneBill" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Suggested question" })).not.toBeInTheDocument();
   });
 });

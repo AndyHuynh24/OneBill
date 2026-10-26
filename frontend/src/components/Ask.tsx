@@ -6,57 +6,17 @@ import { formatCents, formatDate } from "../format";
 
 const MAX_HISTORY = 6;
 
-const CYCLE_MS = 6000;
-
-/** The chat button, bottom right, with one small suggestion beside it that cycles every few
- *  seconds. Tap it to ask. Opening the chat or × puts suggestions away until the app is next
- *  opened or reloaded. While the chat is open the button is hidden (it stays mounted, so the
- *  suggestions stay put away when it comes back). */
-export function AskLauncher({
-  suggestions,
-  chatOpen = false,
-  onOpen,
-}: {
-  suggestions: string[];
-  chatOpen?: boolean;
-  onOpen: (question?: string) => void;
-}) {
-  const [hidden, setHidden] = useState(false);
-  const [index, setIndex] = useState(0);
-  const showing = !hidden && suggestions.length > 0;
-  const open = (question?: string) => {
-    setHidden(true);
-    if (question === undefined) onOpen();
-    else onOpen(question);
-  };
-
-  useEffect(() => {
-    if (!showing || suggestions.length < 2) return;
-    const timer = setInterval(() => setIndex((i) => i + 1), CYCLE_MS);
-    return () => clearInterval(timer);
-  }, [showing, suggestions.length]);
-
-  const current = suggestions[index % Math.max(suggestions.length, 1)];
+/** The chat button, bottom right. Suggested questions live inside the chat, so nothing floats
+ *  over the page. While the chat is open the button is hidden. */
+export function AskLauncher({ chatOpen = false, onOpen }: { chatOpen?: boolean; onOpen: () => void }) {
   if (chatOpen) return null;
   return (
-    <div className="ask-launcher">
-      {showing && (
-        <div className="ask-hint" role="group" aria-label="Suggested question">
-          <button key={current} type="button" className="ask-hint-question" onClick={() => open(current)}>
-            {current}
-          </button>
-          <button type="button" className="icon-button ask-hint-hide" aria-label="Hide suggestions" onClick={() => setHidden(true)}>
-            ×
-          </button>
-        </div>
-      )}
-      <button type="button" className="ask-fab" aria-label="Ask OneBill" onClick={() => open()}>
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z" />
-          <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
-        </svg>
-      </button>
-    </div>
+    <button type="button" className="ask-fab" aria-label="Ask OneBill" onClick={onOpen}>
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z" />
+        <path d="M8.5 11h.01M12 11h.01M15.5 11h.01" />
+      </svg>
+    </button>
   );
 }
 

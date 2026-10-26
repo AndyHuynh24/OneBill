@@ -74,8 +74,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   const trips = useQuery({ queryKey: ["trips"], queryFn: api.listTrips });
   const [openTrip, setOpenTrip] = useState<string | null>(null);
   const [startingTrip, setStartingTrip] = useState(false);
-  // The chat: closed (null), open with nothing asked yet (""), or open asking a suggestion.
-  const [question, setQuestion] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const removeReminder = useMutation({
     mutationFn: (oblId: string) => api.deleteObligation(oblId),
     onSettled: () => {
@@ -108,7 +107,7 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
   useBackLayer(view !== "home", () => setView("home"));
   useBackLayer(openTrip !== null, () => setOpenTrip(null));
   useBackLayer(startingTrip, () => setStartingTrip(false));
-  useBackLayer(question !== null, () => setQuestion(null));
+  useBackLayer(chatOpen, () => setChatOpen(false));
   useBackLayer(openDoc !== null, closeSheet);
   useBackLayer(scanning && openDoc === null, () => setScanning(false));
   useBackLayer(openSub !== null, () => setOpenSub(null));
@@ -308,14 +307,13 @@ function SignedInHome({ api, onSignOut }: { api: OneBillApi; onSignOut: () => vo
       )}
       {startingTrip && <StartTrip api={api} onClose={() => setStartingTrip(false)} />}
       {view === "home" && (
-        <AskLauncher suggestions={suggestions} chatOpen={question !== null} onOpen={(q) => setQuestion(q ?? "")} />
+        <AskLauncher chatOpen={chatOpen} onOpen={() => setChatOpen(true)} />
       )}
-      {question !== null && (
+      {chatOpen && (
         <AskSheet
           api={api}
-          firstQuestion={question || undefined}
           suggestions={suggestions}
-          onClose={() => setQuestion(null)}
+          onClose={() => setChatOpen(false)}
           onOpenDocument={setOpenDoc}
         />
       )}
