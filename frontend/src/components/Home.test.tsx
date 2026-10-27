@@ -284,6 +284,8 @@ describe("Home — signed in", () => {
   });
 
   it("subscriptions and bill due dates share one list: the 3 soonest, each once", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T12:00:00")); // before every date below, so none has passed
     const api = fakeApi({
       listSubscriptions: vi.fn().mockResolvedValue({
         subscriptions: [
@@ -309,6 +311,7 @@ describe("Home — signed in", () => {
       expect.stringContaining("Netflix"),
     ]);
     expect(screen.queryByText("Gym")).not.toBeInTheDocument(); // 4th: on the full page
+    vi.useRealTimers();
   });
 
   it("tapping a bill's due date opens that bill; a subscription opens its sheet", async () => {
