@@ -303,7 +303,9 @@ def search_items(ctx: Context, args: dict[str, Any]) -> dict[str, Any]:
         raise ToolError("query is required.")
     words = _words(query) - _STOP
     docs = [
-        d for d in _query(ctx, "DOC#", [*DOC_FIELDS, "lines"]) if d.get("status") in READ_STATUSES
+        d
+        for d in _query(ctx, "DOC#", [*DOC_FIELDS, "lines"])
+        if d.get("status") in READ_STATUSES and d.get("kind") != "owed"  # money lent isn't bought
     ]
     purchases = []
     matched = set()

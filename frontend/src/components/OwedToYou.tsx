@@ -16,10 +16,12 @@ interface Person {
   entries: Entry[];
 }
 
-/** Who owes you what, across split bills and money you lent (trips settle inside the trip). */
+/** Who owes you what, across split bills and money you lent (trips settle inside the trip).
+ *  USD only: amounts in other currencies can't be added to a USD total. */
 function owedByPerson(documents: DocumentSummary[]): Person[] {
   const people = new Map<string, Person>();
   for (const doc of documents) {
+    if (doc.currency && doc.currency !== "USD") continue;
     for (const owed of doc.owedBy ?? []) {
       const key = owed.name.toLocaleLowerCase();
       const person = people.get(key) ?? { name: owed.name, cents: 0, entries: [] };

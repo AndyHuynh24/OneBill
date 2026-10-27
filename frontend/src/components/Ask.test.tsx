@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api";
@@ -21,59 +21,20 @@ const ANSWER = {
 afterEach(() => localStorage.clear());
 
 describe("AskLauncher", () => {
-  const SUGGESTIONS = ["Who still owes me?", "Summarize my Lake Tahoe trip"];
-
-  it("is a small chat button that opens the conversation", async () => {
+  it("is just a small chat button that opens the conversation", async () => {
     const onOpen = vi.fn();
-    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={onOpen} />);
+    render(<AskLauncher onOpen={onOpen} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Ask OneBill" }));
 
-    expect(onOpen).toHaveBeenCalledWith();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(screen.getAllByRole("button")).toHaveLength(1); // no suggestion beside it covering the page
   });
 
-  it("shows one suggestion at a time beside it; tapping it asks it", async () => {
-    const onOpen = vi.fn();
-    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={onOpen} />);
+  it("is hidden while the chat is open", () => {
+    render(<AskLauncher chatOpen onOpen={vi.fn()} />);
 
-    expect(screen.queryByRole("button", { name: "Summarize my Lake Tahoe trip" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Who still owes me?" }));
-
-    expect(onOpen).toHaveBeenCalledWith("Who still owes me?");
-  });
-
-  it("cycles to the next suggestion every few seconds", () => {
-    vi.useFakeTimers();
-    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
-
-    act(() => vi.advanceTimersByTime(6000));
-
-    expect(screen.getByRole("button", { name: "Summarize my Lake Tahoe trip" })).toBeInTheDocument();
-    vi.useRealTimers();
-  });
-
-  it.each([
-    ["the chat button", "Ask OneBill"],
-    ["a suggestion", "Who still owes me?"],
-  ])("opening the chat from %s puts the suggestions away", async (_, name) => {
-    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
-
-    await userEvent.click(screen.getByRole("button", { name }));
-
-    expect(screen.queryByRole("group", { name: "Suggested question" })).not.toBeInTheDocument();
-  });
-
-  it("× hides the suggestions, but they're back the next time the app opens", async () => {
-    localStorage.setItem("onebill.askSuggestionsHidden", "1"); // hidden "for good" by an older version
-    const { unmount } = render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Who still owes me?" })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /hide suggestions/i }));
-    expect(screen.queryByRole("button", { name: "Who still owes me?" })).not.toBeInTheDocument();
-    unmount(); // the app is closed or reloaded
-
-    render(<AskLauncher suggestions={SUGGESTIONS} onOpen={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Who still owes me?" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Ask OneBill" })).not.toBeInTheDocument();
   });
 });
 

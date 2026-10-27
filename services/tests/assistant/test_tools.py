@@ -338,6 +338,15 @@ def test_price_changes_are_capped_newest_first(table):
     assert result["priceChanges"][0]["description"] == f"ORGANIC ITEM {tools.MAX_PRICE_CHANGES + 1}"
 
 
+def test_money_you_lent_isnt_a_purchase(table):
+    bill(table, "d1", "Concert ticket", "2026-10-04", 5000, kind="owed")
+    found = lambda q: [("d1", 1)]  # noqa: E731
+
+    result = tools.run(ctx(table, search=found), "search_items", {"query": "concert ticket"})
+
+    assert result["purchases"] == []
+
+
 def test_a_line_without_a_description_is_skipped_not_an_error(table):
     lines = [
         {"row": 1, "kind": "item", "amountCents": 100},

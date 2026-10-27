@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type OneBillApi } from "../api";
@@ -284,6 +284,8 @@ describe("Home — signed in", () => {
   });
 
   it("subscriptions and bill due dates share one list: the 3 soonest, each once", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T12:00:00")); // before every date below, so none has passed
     const api = fakeApi({
       listSubscriptions: vi.fn().mockResolvedValue({
         subscriptions: [
@@ -309,6 +311,7 @@ describe("Home — signed in", () => {
       expect.stringContaining("Netflix"),
     ]);
     expect(screen.queryByText("Gym")).not.toBeInTheDocument(); // 4th: on the full page
+    vi.useRealTimers();
   });
 
   it("tapping a bill's due date opens that bill; a subscription opens its sheet", async () => {
@@ -456,14 +459,33 @@ describe("Home — signed in", () => {
     expect(await screen.findByRole("button", { name: /owed to you/i })).toHaveTextContent("$50.00");
   });
 
-  it("hides the chat button while the chat is open, and brings it back (without suggestions) after", async () => {
+  it("leaves bills in other currencies out of the USD owed total", async () => {
+    const usd = { docId: "o1", status: "ready" as const, vendor: "Concert ticket", createdAt: "x", currency: "USD", totalCents: 5000, owedCents: 5000, owedBy: [{ name: "Minh", cents: 5000 }] };
+    const eur = { ...usd, docId: "o2", vendor: "Café", currency: "EUR", owedBy: [{ name: "Minh", cents: 3000 }] };
+    const api = fakeApi({
+      listDocuments: vi.fn().mockResolvedValue({
+        documents: [usd, eur],
+        review: { reviewed: 0, acceptedUnchanged: 0, acceptanceRate: null },
+        usage: { dailyLimit: 3, usedToday: 0, leftToday: 3, renewalsLeft: 2 },
+      }),
+    });
+    renderHome("signedIn", api);
+
+    expect(await screen.findByRole("button", { name: /owed to you/i })).toHaveTextContent("$50.00");
+  });
+
+  it("keeps suggestions inside the chat, not floating over the page", async () => {
     renderHome("signedIn", fakeApi());
 
-    await userEvent.click(await screen.findByRole("button", { name: "Ask OneBill" }));
+    const button = await screen.findByRole("button", { name: "Ask OneBill" });
+    expect(screen.queryByRole("button", { name: "How much did I spend this month?" })).not.toBeInTheDocument();
+
+    await userEvent.click(button);
+    const chat = screen.getByRole("dialog", { name: "Ask OneBill" });
+    expect(within(chat).getByRole("button", { name: "How much did I spend this month?" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask OneBill" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(within(chat).getByRole("button", { name: "Close" }));
     expect(await screen.findByRole("button", { name: "Ask OneBill" })).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Suggested question" })).not.toBeInTheDocument();
   });
 });
