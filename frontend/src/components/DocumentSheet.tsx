@@ -5,6 +5,7 @@ import type { CorrectionFields, OneBillApi, ReviewRequest } from "../api";
 import { centsToInput, DEADLINE_LABELS, docTitle, formatCents, formatDate, parseDollars } from "../format";
 import { BillLines, type LineCheck, type LineInput } from "./BillLines";
 import { BillStatus, ItemsTotal } from "./BillStatus";
+import { MoneyInput } from "./MoneyInput";
 import { canSplit } from "../split";
 import { ScanProgress } from "./ScanProgress";
 import { SplitFlow } from "./SplitFlow";
@@ -405,6 +406,19 @@ function InlineText({
     setEditing(false);
     if (draft.trim() !== value) onSave(draft.trim());
   };
+  const shared = {
+    "aria-label": label,
+    value: draft,
+    autoFocus: true,
+    onBlur: finish,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setEditing(false);
+      }
+    },
+    disabled: saving,
+  };
   return (
     <form
       className="inline-form"
@@ -413,23 +427,16 @@ function InlineText({
         finish();
       }}
     >
-      <input
-        aria-label={label}
-        type={type === "date" ? "date" : "text"}
-        inputMode={type === "money" ? "decimal" : undefined}
-        value={draft}
-        autoFocus
-        maxLength={200}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={finish}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            setEditing(false);
-          }
-        }}
-        disabled={saving}
-      />
+      {type === "money" ? (
+        <MoneyInput {...shared} onChange={setDraft} />
+      ) : (
+        <input
+          {...shared}
+          type={type === "date" ? "date" : "text"}
+          maxLength={200}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+      )}
       {problem && (
         <span role="alert" className="error inline-error">
           {problem}

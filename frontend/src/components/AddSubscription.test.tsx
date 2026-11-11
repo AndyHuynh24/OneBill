@@ -28,7 +28,7 @@ describe("AddSubscription", () => {
     const onClose = renderSheet(api);
 
     await userEvent.click(screen.getByRole("radio", { name: /bill/i }));
-    await fill("Rent", "2100", "2026-11-01");
+    await fill("Rent", "210000", "2026-11-01");
     await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
 
     expect(api.addSubscription).toHaveBeenCalledWith({
@@ -56,7 +56,7 @@ describe("AddSubscription", () => {
     const api = fakeApi();
     renderSheet(api);
 
-    await fill("Costco", "65", "2027-03-15");
+    await fill("Costco", "6500", "2027-03-15");
     await userEvent.selectOptions(screen.getByLabelText(/how often/i), "yearly");
     await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
 
@@ -65,17 +65,16 @@ describe("AddSubscription", () => {
     );
   });
 
-  it("needs a name and a date, and a readable amount", async () => {
+  it("needs a name, and letters never get into the amount", async () => {
     const api = fakeApi();
     renderSheet(api);
 
     await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
     expect(screen.getByRole("alert")).toHaveTextContent(/name/i);
+    expect(api.addSubscription).not.toHaveBeenCalled();
 
     await fill("Rent", "lots", "2026-11-01");
-    await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
-    expect(screen.getByRole("alert")).toHaveTextContent(/amount/i);
-    expect(api.addSubscription).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/amount/i)).toHaveValue("");
   });
 
   it("shows the server's message, e.g. already in your list", async () => {

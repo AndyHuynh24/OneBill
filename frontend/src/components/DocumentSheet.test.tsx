@@ -136,6 +136,40 @@ describe("DocumentSheet", () => {
     expect(sent()[2]).toEqual({ description: "MILK", kind: "item", amountCents: 419 }); // after the items
   });
 
+  it("a discount's amount is typed without a minus and saved as negative", async () => {
+    const api = fakeApi();
+    renderSheet(api);
+    const sent = () => (vi.mocked(api.reviewDocument).mock.lastCall![1] as { fields: { lines: unknown[] } }).fields.lines;
+
+    await userEvent.click(await screen.findByRole("button", { name: /edit amount of coupon/i }));
+    const amount = screen.getByLabelText("Amount");
+    expect(amount).toHaveValue("2.00");
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "250{Enter}");
+    expect(sent()[1]).toEqual({ description: "COUPON", kind: "discount", amountCents: -250 });
+
+    await userEvent.click(screen.getByRole("button", { name: /add item/i }));
+    await userEvent.type(screen.getByLabelText("Name"), "MEMBER DEAL");
+    await userEvent.selectOptions(screen.getByLabelText("Kind"), "discount");
+    await userEvent.type(screen.getByLabelText("Amount"), "150{Enter}");
+    expect(sent()).toContainEqual({ description: "MEMBER DEAL", kind: "discount", amountCents: -150 });
+  });
+
+  it("a scanned negative line that isn't a discount keeps its sign when edited", async () => {
+    const refund = { row: 2, description: "RETURN", kind: "item" as const, amountCents: -500 };
+    const api = fakeApi({
+      getDocument: vi.fn().mockResolvedValue({ ...RECEIPT, lines: [RECEIPT.lines![0], refund, ...RECEIPT.lines!.slice(2)] }),
+    });
+    renderSheet(api);
+
+    await userEvent.click(await screen.findByRole("button", { name: /edit amount of return/i }));
+    const amount = screen.getByLabelText("Amount");
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "600{Enter}");
+    const lines = (vi.mocked(api.reviewDocument).mock.lastCall![1] as { fields: { lines: unknown[] } }).fields.lines;
+    expect(lines[1]).toEqual({ description: "RETURN", kind: "item", amountCents: -600 });
+  });
+
   it("an unreadable amount is explained instead of saved", async () => {
     const api = fakeApi();
     renderSheet(api);
