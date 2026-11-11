@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { BillingCycle, OneBillApi, Subscription, SubscriptionEdit } from "../api";
 import { centsToInput, formatCents, formatDate, parseDollars } from "../format";
+import { MoneyInput } from "./MoneyInput";
 import { cycleLabel } from "../subscriptions";
 
 const CYCLE_LABELS: Record<BillingCycle, string> = {
@@ -205,7 +206,7 @@ function EditForm({
     <form className="review-form" onSubmit={submit}>
       <label>
         Price
-        <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+        <MoneyInput value={price} onChange={setPrice} />
       </label>
       <label>
         Next renewal

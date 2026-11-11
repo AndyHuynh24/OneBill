@@ -1,22 +1,16 @@
 /** Display helpers. Money is integer cents; calendar dates are "YYYY-MM-DD" strings. */
 
-const AMOUNT = /^\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s*$/;
+// The decimal mark may be "," too: the iOS decimal keypad shows "," in comma-decimal regions.
+// A comma before exactly 3 digits groups thousands; before 1–2 digits at the end it's the decimal.
+const AMOUNT = /^\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:[.,](\d{1,2}))?\s*$/;
 
-/** "26.81" → 2681, "$1,234.5" → 123450. Parsed as text, never as a float. null if invalid. */
+/** "26.81" → 2681, "$1,234.5" → 123450, "26,81" → 2681. Parsed as text, never as a float. null if invalid. */
 export function parseDollars(input: string): number | null {
   const match = AMOUNT.exec(input);
   if (!match) return null;
   const whole = Number(match[1].replace(/,/g, ""));
   const fraction = Number((match[2] ?? "").padEnd(2, "0"));
   return whole * 100 + fraction;
-}
-
-/** Like parseDollars, but a leading "-" is allowed (discounts): "-2.00" → -200. */
-export function parseSignedDollars(input: string): number | null {
-  const match = /^\s*-\s*(.*)$/.exec(input);
-  const cents = parseDollars(match ? match[1] : input);
-  if (cents === null) return null;
-  return match ? -cents : cents;
 }
 
 export function formatCents(cents: number, currency = "USD"): string {
@@ -28,6 +22,19 @@ export function centsToInput(cents: number): string {
   const sign = cents < 0 ? "-" : "";
   const abs = Math.abs(cents);
   return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+}
+
+const MAX_TYPED_DIGITS = 9; // $9,999,999.99
+
+/**
+ * Bank-style entry: the field's digits are cents, filling from the right. "0.125" (after typing
+ * a 5 into "0.12") → "1.25"; "12.5" (after a backspace on "12.50") → "1.25". No digits → "".
+ */
+export function typedAmount(raw: string, previous: string): string {
+  const digits = raw.replace(/\D/g, "").replace(/^0+/, "");
+  if (!digits) return "";
+  if (digits.length > MAX_TYPED_DIGITS) return previous;
+  return centsToInput(Number(digits));
 }
 
 /**

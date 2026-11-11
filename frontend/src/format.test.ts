@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centsToInput, daysUntil, formatCents, formatDate, parseDollars, parseSignedDollars, relativeDay, timeAgo, todayIso } from "./format";
+import { centsToInput, daysUntil, formatCents, formatDate, parseDollars, relativeDay, timeAgo, todayIso, typedAmount } from "./format";
 
 describe("parseDollars", () => {
   it.each([
@@ -9,16 +9,45 @@ describe("parseDollars", () => {
     ["5.5", 550],
     ["1,234.56", 123456],
     ["0.07", 7],
+    // iOS decimal keypad shows "," in comma-decimal regions
+    ["26,81", 2681],
+    ["5,5", 550],
+    ["1,234", 123400],
+    ["1,234,56", 123456],
   ])("%s → %d cents", (input, cents) => {
     expect(parseDollars(input)).toBe(cents);
   });
 
-  it.each(["", "abc", "1.234", "12.3.4", "-"])("rejects %j", (input) => {
+  it.each(["", "abc", "1.234", "12.3.4", "-", "12,", "1,2345", "1,234.5,6"])("rejects %j", (input) => {
     expect(parseDollars(input)).toBeNull();
   });
 
   it("avoids float rounding errors", () => {
     expect(parseDollars("0.29")).toBe(29); // 0.29 * 100 = 28.999999999999996 as a float
+  });
+});
+
+describe("typedAmount (digits fill from the right, like a bank app)", () => {
+  it.each([
+    ["1", "", "0.01"],
+    ["0.012", "0.01", "0.12"],
+    ["0.125", "0.12", "1.25"],
+    ["1.250", "1.25", "12.50"],
+    ["12.5", "12.50", "1.25"], // backspace drops the last digit
+    ["0.0", "0.01", ""], // deleting the last digit empties the field
+    ["0", "", ""],
+    ["12a", "", "0.12"], // non-digits are ignored
+    ["", "12.50", ""],
+  ])("%j (was %j) → %j", (raw, previous, expected) => {
+    expect(typedAmount(raw, previous)).toBe(expected);
+  });
+
+  it("ignores a digit past $9,999,999.99", () => {
+    expect(typedAmount("9999999.999", "9999999.99")).toBe("9999999.99");
+  });
+
+  it("round-trips through parseDollars", () => {
+    expect(parseDollars(typedAmount("1.250", "1.25"))).toBe(1250);
   });
 });
 
@@ -54,22 +83,6 @@ describe("relative days", () => {
     ["2026-09-29", "yesterday"],
   ])("%s is %s", (date, label) => {
     expect(relativeDay(date, now)).toBe(label);
-  });
-});
-
-describe("parseSignedDollars", () => {
-  it.each([
-    ["2.00", 200],
-    ["-2.00", -200],
-    ["- 1.5", -150],
-    ["$1,234.56", 123456],
-    ["-$3", -300],
-  ])("%s → %d cents", (input, cents) => {
-    expect(parseSignedDollars(input)).toBe(cents);
-  });
-
-  it.each(["", "-", "abc", "1.234", "--2"])("rejects %j", (input) => {
-    expect(parseSignedDollars(input)).toBeNull();
   });
 });
 

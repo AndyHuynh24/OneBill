@@ -19,11 +19,11 @@ describe("TypeBill", () => {
 
     await userEvent.type(screen.getByLabelText(/store or what it was for/i), "Farmers market");
     await userEvent.type(screen.getByLabelText("Item 1"), "Peaches");
-    await userEvent.type(screen.getByLabelText("Item 1 price"), "6");
+    await userEvent.type(screen.getByLabelText("Item 1 price"), "600");
     await userEvent.click(screen.getByRole("button", { name: /add another item/i }));
     await userEvent.type(screen.getByLabelText("Item 2"), "Honey");
     await userEvent.type(screen.getByLabelText("Item 2 price"), "12.00");
-    await userEvent.type(screen.getByLabelText(/tip/i), "2");
+    await userEvent.type(screen.getByLabelText(/tip/i), "200");
 
     expect(screen.getByText("$20.00")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
@@ -61,7 +61,7 @@ describe("OweMe", () => {
     wrap(<OweMe api={api} friends={["Minh", "Bao"]} onClose={onClose} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Minh" }));
-    await userEvent.type(screen.getByLabelText(/how much/i), "50");
+    await userEvent.type(screen.getByLabelText(/how much/i), "5000");
     await userEvent.type(screen.getByLabelText(/what for/i), "Concert ticket");
     await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
 

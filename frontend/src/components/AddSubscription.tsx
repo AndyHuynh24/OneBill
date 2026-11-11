@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { BillingCycle, NewSubscription, OneBillApi } from "../api";
 import { parseDollars } from "../format";
+import { MoneyInput } from "./MoneyInput";
 
 const CYCLES: [BillingCycle, string][] = [
   ["monthly", "Monthly"],
@@ -73,7 +74,7 @@ export function AddSubscription({ api, onClose }: { api: OneBillApi; onClose: ()
           </label>
           <label>
             Amount {bill ? "(an estimate is fine)" : ""}
-            <input inputMode="decimal" value={amount} placeholder="Optional" onChange={(e) => setAmount(e.target.value)} />
+            <MoneyInput value={amount} placeholder="Optional" onChange={setAmount} />
           </label>
           <label>
             How often

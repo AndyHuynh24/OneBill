@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DocumentLine, LineKind } from "../api";
-import { centsToInput, formatCents, parseSignedDollars } from "../format";
+import { centsToInput, formatCents, parseDollars } from "../format";
+import { MoneyInput } from "./MoneyInput";
 
 /** A line as the API takes it when lines are corrected (rows are numbered by the server). */
 export interface LineInput {
@@ -264,21 +265,24 @@ function LineEditor({
   onCancel: () => void;
 }) {
   const [description, setDescription] = useState(initial.description);
+  // Typed without a sign (the keypad has no "-"); the kind decides it below.
   const [amount, setAmount] = useState(
-    fresh ? "" : centsToInput(initial.amountCents),
+    fresh ? "" : centsToInput(Math.abs(initial.amountCents)),
   );
   const [kind, setKind] = useState<LineKind>(initial.kind);
   const [problem, setProblem] = useState<string | null>(null);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    const cents = parseSignedDollars(amount);
+    const cents = parseDollars(amount);
     if (!description.trim()) return setProblem("Add a name.");
     if (cents === null) return setProblem("Enter an amount like 4.19.");
+    // A discount is negative. A scanned negative line of another kind (a return) stays negative.
+    const negative = kind === "discount" || (kind === initial.kind && initial.amountCents < 0);
     const edited = {
       description: description.trim(),
       kind,
-      amountCents: cents,
+      amountCents: negative && cents ? -cents : cents,
     };
     if (!fresh && JSON.stringify(edited) === JSON.stringify(initial))
       return onCancel();
@@ -303,14 +307,13 @@ function LineEditor({
         autoFocus={fresh}
         onChange={(e) => setDescription(e.target.value)}
       />
-      <input
+      <MoneyInput
         aria-label="Amount"
         className="line-amount"
-        inputMode="decimal"
         value={amount}
         autoFocus={!fresh}
         onFocus={(e) => e.target.select()}
-        onChange={(e) => setAmount(e.target.value)}
+        onChange={setAmount}
       />
       <select
         aria-label="Kind"

@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { OneBillApi } from "../api";
 import { formatCents, parseDollars, todayIso } from "../format";
+import { MoneyInput } from "./MoneyInput";
 
 const MAX_ITEMS = 40;
 
@@ -88,12 +89,11 @@ export function TypeBill({ api, onClose, onSaved }: { api: OneBillApi; onClose: 
                 placeholder="Item"
                 onChange={(e) => setItem(i, { description: e.target.value })}
               />
-              <input
+              <MoneyInput
                 aria-label={`Item ${i + 1} price`}
-                inputMode="decimal"
                 value={item.price}
                 placeholder="0.00"
-                onChange={(e) => setItem(i, { price: e.target.value })}
+                onChange={(price) => setItem(i, { price })}
               />
               {items.length > 1 && (
                 <button
@@ -116,11 +116,11 @@ export function TypeBill({ api, onClose, onSaved }: { api: OneBillApi; onClose: 
         <div className="typed-extras">
           <label>
             Tax
-            <input inputMode="decimal" value={tax} placeholder="Optional" onChange={(e) => setTax(e.target.value)} />
+            <MoneyInput value={tax} placeholder="Optional" onChange={setTax} />
           </label>
           <label>
             Tip
-            <input inputMode="decimal" value={tip} placeholder="Optional" onChange={(e) => setTip(e.target.value)} />
+            <MoneyInput value={tip} placeholder="Optional" onChange={setTip} />
           </label>
         </div>
         <p className="typed-total">
@@ -193,7 +193,7 @@ export function OweMe({ api, friends, onClose }: { api: OneBillApi; friends: str
         )}
         <label>
           How much
-          <input inputMode="decimal" value={amount} placeholder="0.00" onChange={(e) => setAmount(e.target.value)} />
+          <MoneyInput value={amount} placeholder="0.00" onChange={setAmount} />
         </label>
         <label>
           What for
